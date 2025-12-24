@@ -1,0 +1,313 @@
+* {
+  margin: 0;
+  padding: 0;
+  border: 0;
+  outline: none;
+}
+
+a {
+  outline: 0;
+  text-decoration: none;
+  cursor: pointer;
+}
+
+img {
+  display: block;
+}
+
+body {
+  -webkit-text-size-adjust: none;
+  -webkit-tap-highlight-color: transparent;
+  height: 100%;
+  font-family:
+    -apple-system,
+    BlinkMacSystemFont,
+    PingFang SC,
+    Helvetica,
+    Tahoma,
+    Arial,
+    Microsoft YaHei,
+    微软雅黑,
+    黑体,
+    Heiti,
+    sans-serif,
+    SimSun,
+    宋体,
+    serif;
+  line-height: 1.5;
+  color: #333;
+  margin: 0;
+  background: #f8f8f8 !important;
+  font-size: 0.14rem;
+  -webkit-user-select: none; /* 针对 Safari 和 Chrome */
+  -moz-user-select: none; /* 针对 Firefox */
+  -ms-user-select: none; /* 针对 IE/Edge */
+  user-select: none; /* 标准属性 */
+}
+
+div {
+  box-sizing: border-box;
+}
+/* Development-specific styles */
+/*开发模式下，鼠标样式，important保证优先级，覆盖其他可能的 cursor 定义*/
+.development * {
+  cursor: auto !important;
+}
+/*生产模式下，鼠标样式*/
+/* Production-specific styles */
+.production * {
+  cursor: none !important;
+}
+
+/* Development-specific styles */
+.development * {
+  cursor: auto !important;
+}
+
+/* Production-specific styles */
+.production * {
+  cursor: none !important;
+}
+*/
+/*ant样式*/
+/*抽屉背景*/
+.ant-drawer-wrapper-body {
+  background-image: url('@/assets/images/deskview4.png');
+  background-size: cover;
+  background-position: center;
+  background-repeat: no-repeat;
+  color: #f8f8f8;
+}
+/*抽屉左上角关闭logo颜色*/
+.anticon {
+  color: #f8f8f8;
+}
+/*滑动条背景色*/
+.ant-slider .ant-slider-rail {
+  background: #9dadc7;
+}
+.ant-slider:hover .ant-slider-rail {
+  background: #9dadc7;
+}
+.ant-slider .ant-slider-track {
+  background: #31eb07;
+}
+.ant-slider:hover .ant-slider-track {
+  background: #31eb07;
+}
+/*滑动条按钮*/
+.ant-slider-handle {
+  cursor: none !important;
+}
+.ant-tooltip-open {
+  cursor: none !important;
+}
+/* 底部边框 */
+.ant-drawer .ant-drawer-header {
+  border-bottom: 1px solid rgb(225 217 217 / 25%);
+}
+/*Drawer 组件自带的关闭图标,*/
+.ant-drawer-close .anticon {
+  font-size: 0.35rem; /* 直接控制图标尺寸 */
+}
+/*自定义button*/
+.button-container {
+  width: 100%;
+  margin-top: 2rem;
+  display: flex;
+  justify-content: center;
+}
+.button {
+  border: none;
+  width: fit-content;
+  padding: 0.2rem 1rem;
+  background-image: url('@/assets/images/deskview8.png');
+  background-size: cover;
+  background-position: center;
+  background-repeat: no-repeat;
+  font-size: 0.25rem;
+  cursor: pointer;
+  text-align: center;
+  border-radius: 12px;
+  transition: all 0.2s cubic-bezier(0.25, 0.46, 0.45, 0.94);
+  /* 调整为0.2s */
+  color: #fff;
+  font-weight: 600;
+
+  position: relative;
+  overflow: hidden;
+  opacity: 0.9;
+
+  /* === 原有样式 === */
+  border: none;
+  box-shadow:
+    inset 0 0 10px rgba(0, 242, 255, 0.3),
+    0 0 15px rgba(0, 208, 255, 0.5);
+
+  &::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: 10%;
+    width: 80%;
+    height: 2px;
+    background: linear-gradient(90deg, transparent, #00f2ff, transparent);
+    border-radius: 50%;
+    opacity: 0.7;
+  }
+
+  &::after {
+    content: '';
+    position: absolute;
+    bottom: 0;
+    left: 10%;
+    width: 80%;
+    height: 2px;
+    background: linear-gradient(90deg, transparent, #00f2ff, transparent);
+    border-radius: 50%;
+    opacity: 0.7;
+  }
+
+  &:hover {
+    opacity: 1;
+    transform: scale(1.02);
+    box-shadow:
+      inset 0 0 15px rgba(0, 242, 255, 0.5),
+      0 0 25px rgba(0, 208, 255, 0.8);
+  }
+}
+.button1 {
+  border: none;
+  width: fit-content;
+  padding: 0.3rem 1rem;
+  background-image: url('@/assets/images/deskview8.png');
+  background-size: cover;
+  background-position: center;
+  background-repeat: no-repeat;
+  font-size: 0.3rem;
+  cursor: pointer;
+  text-align: center;
+  border-radius: 12px;
+  transition: all 0.2s cubic-bezier(0.25, 0.46, 0.45, 0.94);
+  /* 调整为0.2s */
+  color: #fff;
+  font-weight: 600;
+
+  position: relative;
+  overflow: hidden;
+  opacity: 0.9;
+
+  /* === 原有样式 === */
+  border: none;
+  box-shadow:
+    inset 0 0 10px rgba(0, 242, 255, 0.3),
+    0 0 15px rgba(0, 208, 255, 0.5);
+
+  &::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: 10%;
+    width: 80%;
+    height: 2px;
+    background: linear-gradient(90deg, transparent, #00f2ff, transparent);
+    border-radius: 50%;
+    opacity: 0.7;
+  }
+
+  &::after {
+    content: '';
+    position: absolute;
+    bottom: 0;
+    left: 10%;
+    width: 80%;
+    height: 2px;
+    background: linear-gradient(90deg, transparent, #00f2ff, transparent);
+    border-radius: 50%;
+    opacity: 0.7;
+  }
+
+  &:hover {
+    opacity: 1;
+    transform: scale(1.02);
+    box-shadow:
+      inset 0 0 15px rgba(0, 242, 255, 0.5),
+      0 0 25px rgba(0, 208, 255, 0.8);
+  }
+}
+
+/*element-plus样式*/
+.el-drawer {
+  background-image: url('@/assets/images/deskview4.png');
+  background-size: cover;
+  background-position: center;
+  background-repeat: no-repeat;
+  color: #f8f8f8;
+  min-width: 500px;
+  padding: 10px;
+}
+.el-drawer__header > :first-child {
+  flex: none;
+}
+.el-drawer__header {
+  display: flex;
+  margin-bottom: 0;
+  justify-content: center;
+  padding: 30px 0;
+}
+.el-form-item__label {
+  color: #fff;
+  font-size: 0.3rem;
+}
+.network-config-buttons .el-form-item__content {
+  justify-content: flex-end;
+  font-size: 0.8rem;
+}
+.el-button--large {
+  font-size: 0.28rem;
+}
+
+.network .el-dialog {
+  margin: 0 auto;
+  padding: 20px;
+  color: #fff;
+  border-radius: 8px;
+  margin-top: 2rem;
+  width: 70%;
+  min-height: 7rem;
+  background-image: url('@/assets/images/deskview4.png');
+  background-size: cover;
+  background-position: center;
+  background-repeat: no-repeat;
+}
+.custom-dialog .el-dialog__title{
+  color: #fff !important;
+  font-weight: 600;
+}
+
+.custom-dialog .el-dialog__close {
+  font-size: 0.5rem !important;
+}
+
+/*软键盘*/
+.num-keyboard {
+  width: 500px;
+}
+/* 在你的 .vue 文件的 <style> 块中，或全局 CSS 文件中 */
+.keyboard-container .simple-keyboard {
+  /* 设置所有按键的高度 */
+  --hg-button-height: 60px;
+  /* 你还可以同时设置字体大小，以保证视觉协调 */
+  --hg-button-font-size: 18px;
+}
+
+/* 下面两行用于EquipmentManagementView.vue*/
+.el-message-box__message {
+  font-size: 0.28rem
+}
+/* 设置 ElMessageBox 按钮大小为 large */
+.el-message-box__btns .el-button {
+  font-size: large;
+}
+
+
