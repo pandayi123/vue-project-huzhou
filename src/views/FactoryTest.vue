@@ -33,7 +33,7 @@
         </el-button>
       </el-col>
     </el-row>
-     <el-row>
+    <el-row>
       <el-col>
         <el-button @click="clear_borrow_records" style="width:3rem;height:1rem;">清空领用归还记录表</el-button>
       </el-col>
@@ -209,8 +209,8 @@ const set201 = () => {
 const goBack = () => {
   router.go(-1)
 }
-const clear_borrow_records=async()=>{
- let response=await window.electronAPI.el_post({
+const clear_borrow_records = async () => {
+  let response = await window.electronAPI.el_post({
     action: 'clearTable',
     payload: {
       tableName: 'borrow_records'
