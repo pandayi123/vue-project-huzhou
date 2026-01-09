@@ -121,6 +121,41 @@
             </el-form-item>
           </el-col>
         </el-row>
+
+        <!-- 找到“装备实照”所在的 el-row -->
+        <el-row style="margin-bottom: 20px">
+          <el-col :span="24">
+            <el-form-item label="装备实照">
+              <div style="display: flex; align-items: center">
+                <!-- 1. 照片预览区域：将 120px 修改为 100px -->
+                <div v-if="form_add_new.group_image" style="
+                    display: flex;
+                    flex-direction: column;
+                    align-items: center;
+                    margin-right: 15px;
+                  ">
+                  <!-- 这里修改了 width, height 和 border-radius(改为5px与芯片一致) -->
+                  <el-image style="width: 100px; height: 100px; border-radius: 5px; border: 1px solid #ddd"
+                    :src="form_add_new.group_image" :preview-src-list="[form_add_new.group_image]" fit="cover" />
+
+                  <!-- 删除按钮样式已统一 -->
+                  <el-button type="danger" :icon="Delete" circle style="margin-top: 10px"
+                    @click="form_add_new.group_image = ''"></el-button>
+                </div>
+
+                <!-- 2. 拍照按钮：将 120px 修改为 100px -->
+                <el-button v-if="!form_add_new.group_image" @click="startCameraForGroup"
+                  style="width: 100px; height: 100px; border: 1px dashed #4b8fe1; color: #4b8fe1">
+                  <div style="display: flex; flex-direction: column; align-items: center">
+                    <span style="font-size: 30px">+</span>
+                    <span>拍照上传</span>
+                  </div>
+                </el-button>
+              </div>
+            </el-form-item>
+          </el-col>
+        </el-row>
+
         <!-- === 芯片列表区域 (核心修改) === -->
         <div class="chip-list-container" style="
             border: 1px solid #ddd;
@@ -230,9 +265,14 @@
         -->
 
         <!-- === 状态与操作区域 (修改后) === -->
-        <div
-          style="background-color: #f5f7fa; padding: 15px; border-radius: 8px; margin-bottom: 20px;margin-top:50px; border: 1px solid #e4e7ed;">
-
+        <div style="
+            background-color: #f5f7fa;
+            padding: 15px;
+            border-radius: 8px;
+            margin-bottom: 20px;
+            margin-top: 50px;
+            border: 1px solid #e4e7ed;
+          ">
           <el-row>
             <el-col :span="12">
               <el-form-item label="选择柜体">
@@ -240,12 +280,12 @@
                   size="large">一体柜</el-button>
                 <div v-else-if="config_blob?.lock?.details?.length === 2">
                   <el-button size="large" style="font-size: 0.26rem" @click="handleCabinetSelection(0)" :type="form_add_new.lock_self_address === config_blob.lock.details[0].self_address
-                    ? 'primary'
-                    : 'default'
+                      ? 'primary'
+                      : 'default'
                     ">上柜体</el-button>
                   <el-button size="large" style="font-size: 0.26rem" @click="handleCabinetSelection(1)" :type="form_add_new.lock_self_address === config_blob.lock.details[1].self_address
-                    ? 'primary'
-                    : 'default'
+                      ? 'primary'
+                      : 'default'
                     ">下柜体</el-button>
                 </div>
               </el-form-item>
@@ -266,7 +306,7 @@
             <el-col :span="8">
               <el-form-item label="开关状态">
                 <el-tag :type="getStatusTagType(form_add_new.hardware_status)" size="large" effect="dark"
-                  style="font-size: 0.26rem; width: 100%; text-align: center;">
+                  style="font-size: 0.26rem; width: 100%; text-align: center">
                   {{ form_add_new.hardware_status || '未知' }}
                 </el-tag>
               </el-form-item>
@@ -276,7 +316,7 @@
               <el-form-item label="装备状态">
                 <!-- 使用 tag 显示更直观，或者用 input readonly -->
                 <el-tag :type="getStatusTagType(form_add_new.group_status)" size="large" effect="dark"
-                  style="font-size: 0.26rem; width: 100%; text-align: center;">
+                  style="font-size: 0.26rem; width: 100%; text-align: center">
                   {{ form_add_new.group_status || '未知' }}
                 </el-tag>
               </el-form-item>
@@ -295,8 +335,8 @@
           </el-row>
 
           <!-- 3. 操作按钮区 (仅编辑模式显示) -->
-          <div v-if="isEditMode" style="margin-top: 15px; border-top: 1px dashed #dcdfe6; padding-top: 15px;">
-            <div style="margin-bottom: 10px; color: #606266; font-size: 0.24rem; font-weight: bold;">
+          <div v-if="isEditMode" style="margin-top: 15px; border-top: 1px dashed #dcdfe6; padding-top: 15px">
+            <div style="margin-bottom: 10px; color: #606266; font-size: 0.24rem; font-weight: bold">
               柜门控制与状态变更：
             </div>
 
@@ -313,31 +353,31 @@
                 通过管理员点击“入柜”，我们是在做业务确认。
                 -->
               <el-col :span="8">
-                <el-button type="success" size="large" style="width: 100%" @click="handleOperation('entry')"
-                  :disabled="form_add_new.group_status === '在位' && form_add_new.hardware_status === '导通'">
+                <el-button type="success" size="large" style="width: 100%" @click="handleOperation('entry')" :disabled="form_add_new.group_status === '在位' && form_add_new.hardware_status === '导通'
+                  ">
                   执行入柜 (开门和入柜)
                 </el-button>
               </el-col>
 
               <!-- 按钮C: 执行出柜 (开门 + 修正状态) -->
               <el-col :span="8">
-                <el-button size="large" type="primary" style="width: 100%" @click="handleOperation('exit')"
-                  :disabled="form_add_new.group_status === '未入柜' || form_add_new.group_status === '已出柜'">
+                <el-button size="large" type="primary" style="width: 100%" @click="handleOperation('exit')" :disabled="form_add_new.group_status === '未入柜' || form_add_new.group_status === '已出柜'
+                  ">
                   执行出柜 (开门和出柜)
                 </el-button>
               </el-col>
             </el-row>
 
             <!-- 提示信息 -->
-            <div style="margin-top: 10px; font-size: 0.22rem; color: #909399;">
-              * 注意：微动开关状态应与入/出柜操作一致。如开关显示“断开（表示未检测到装备）”但强行“入柜”，可能导致数据不符。
+            <div style="margin-top: 10px; font-size: 0.22rem; color: #909399">
+              *
+              注意：微动开关状态应与入/出柜操作一致。如开关显示“断开（表示未检测到装备）”但强行“入柜”，可能导致数据不符。
             </div>
           </div>
         </div>
-
       </el-form>
       <!-- 原来的按钮代码被替换 -->
-      <el-row style="margin-top: 30px; margin-bottom: 30px; justify-content: center;">
+      <el-row style="margin-top: 30px; margin-bottom: 30px; justify-content: center">
         <!-- === 场景1：新增模式 (isEditMode === false) === -->
         <template v-if="!isEditMode">
           <el-button type="primary" size="large" @click="submitForm('insert')">立即创建</el-button>
@@ -457,24 +497,24 @@
             </div>
 
             <!-- === 优化核心：直接在模板里写逻辑，清晰直观 === -->
-            <div class="status-box" style="margin-top: 15px; font-size: 16px;">
+            <div class="status-box" style="margin-top: 15px; font-size: 16px">
               <div v-if="currentOperationType === 'entry'">
                 <div>请将装备放入指定位置</div>
-                <div style="margin-top: 8px;">
+                <div style="margin-top: 8px">
                   当前开关状态：
                   <!-- 根据 isSensorActive 变量变色 -->
                   <span :class="isSensorActive ? 'status-green' : 'status-red'">
                     {{ isSensorActive ? '【已检测到装备】' : '【未检测到装备】' }}
                   </span>
                 </div>
-                <div v-if="isSensorActive" style="color: #67C23A; font-size: 0.23rem; margin-top:5px;">
+                <div v-if="isSensorActive" style="color: #67c23a; font-size: 0.23rem; margin-top: 5px">
                   <i class="el-icon-loading"></i> 信号稳定确认中...
                 </div>
               </div>
 
               <div v-else>
                 <div>请将装备从柜中取出</div>
-                <div style="margin-top: 8px;">
+                <div style="margin-top: 8px">
                   当前开关状态：
                   <span :class="isSensorActive ? 'status-orange' : 'status-gray'">
                     {{ isSensorActive ? '【还有装备】' : '【已取走(空)】' }}
@@ -483,7 +523,6 @@
               </div>
             </div>
             <!-- =========================================== -->
-
           </div>
         </div>
 
@@ -495,7 +534,7 @@
             </span>
           </el-button>
           <!-- 增加一个取消按钮，防止用户不想操作了只能强制执行 -->
-          <el-button size="large" @click="stop_settings" style="margin-left: 10px;">
+          <el-button size="large" @click="stop_settings" style="margin-left: 10px">
             中断操作
           </el-button>
         </div>
@@ -532,7 +571,7 @@ const checkGlobalDoorStatus = async () => {
   // 2. 获取所有配置中涉及到的通道 (Channel)
   // 逻辑：不同的柜门对应锁控板上的不同通道 (如通道1对应索引6，通道2对应索引7)
   const usedChannels = new Set()
-  config_blob.value.lock.details.forEach(lock => {
+  config_blob.value.lock.details.forEach((lock) => {
     if (lock.channel_address) usedChannels.add(lock.channel_address)
   })
 
@@ -544,9 +583,9 @@ const checkGlobalDoorStatus = async () => {
     const res = await window.electronAPI.el_post({
       action: 'read_all_inputs',
       payload: {
-        deviceAddress: 201,   // 锁控板固定地址
+        deviceAddress: 201, // 锁控板固定地址
         startAddress: 0x0000, // 起始寄存器
-        registerCount: 10,    // 读取数量
+        registerCount: 10, // 读取数量
       },
     })
 
@@ -572,14 +611,13 @@ const checkGlobalDoorStatus = async () => {
     }
 
     // 如果读取数据失败或格式不对，为了安全起见，返回 false (阻止退出)
-    console.error("读取门锁数据格式错误", res)
+    console.error('读取门锁数据格式错误', res)
     return false
-
   } catch (e) {
-    console.error("全局门锁状态读取异常", e)
+    console.error('全局门锁状态读取异常', e)
     // 硬件通讯失败时，根据需求决定：
     // return true; // 放行 (防止卡死)
-    return false; // 阻断 (安全优先) -> 这里建议选 false，让用户通过"强制退出"按钮离开
+    return false // 阻断 (安全优先) -> 这里建议选 false，让用户通过"强制退出"按钮离开
   }
 }
 // 中断操作
@@ -593,13 +631,13 @@ const tableRef = ref(null) // 用于获取表格实例
 // 1. 辅助函数：状态颜色（修改后，同时支持装备状态和开关状态）
 const getStatusTagType = (status) => {
   // === 装备状态 ===
-  if (status === '在位') return 'success'       // 绿色
-  if (status === '已出柜') return 'warning'     // 橙色
+  if (status === '在位') return 'success' // 绿色
+  if (status === '已出柜') return 'warning' // 橙色
   if (status === '未入柜' || status === '已取出') return 'info' // 灰色
 
   // === 开关硬件状态 ===
-  if (status === '导通') return 'success'       // 绿色
-  if (status === '断开') return 'danger'        // 红色 (或者用 info 灰色)
+  if (status === '导通') return 'success' // 绿色
+  if (status === '断开') return 'danger' // 红色 (或者用 info 灰色)
 
   // === 管理状态 (如果有用到) ===
   if (status === '已启用') return 'success'
@@ -950,8 +988,8 @@ const deleteSelectedEquipment = async () => {
     (item) => item.group_status === '已取出' || item.group_status === '在位',
   )
   // 提取所有不同的状态
-  const statuses = [...new Set(riskyItems.map(item => item.group_status))];
-  const statusText = statuses.join('、');
+  const statuses = [...new Set(riskyItems.map((item) => item.group_status))]
+  const statusText = statuses.join('、')
   let confirmResult = false
 
   try {
@@ -991,7 +1029,7 @@ const deleteSelectedEquipment = async () => {
           type: 'warning',
           center: true, // 内容居中布局
           closeOnClickModal: false,
-          width: '420px' //稍微加宽一点点
+          width: '420px', //稍微加宽一点点
         },
       )
       confirmResult = true
@@ -1029,7 +1067,7 @@ const deleteSelectedEquipment = async () => {
           type: 'info', // 使用 info 类型图标
           center: true,
           closeOnClickModal: false,
-          width: '420px'
+          width: '420px',
         },
       )
       confirmResult = true
@@ -1173,27 +1211,27 @@ const submitForm = async () => {
 */
 // 修改 submitForm，接收操作类型参数
 // ============================================================
-  // === 【关键修复】本地定义时间格式化函数 ===
-  // 作用：将 ElementPlus 的 Date 对象转换为 "YYYY-MM-DD" 字符串
-  // ============================================================
-  const formatTime = (val) => {
-    // 1. 如果是空值 (null/undefined)，返回 null (数据库存为 NULL)
-    if (!val) return null;
+// === 【关键修复】本地定义时间格式化函数 ===
+// 作用：将 ElementPlus 的 Date 对象转换为 "YYYY-MM-DD" 字符串
+// ============================================================
+const formatTime = (val) => {
+  // 1. 如果是空值 (null/undefined)，返回 null (数据库存为 NULL)
+  if (!val) return null
 
-    // 2. 如果已经是字符串 (例如没修改过，从后台读回来就是字符串)，直接返回
-    if (typeof val === 'string') return val;
+  // 2. 如果已经是字符串 (例如没修改过，从后台读回来就是字符串)，直接返回
+  if (typeof val === 'string') return val
 
-    // 3. 如果是 Date 对象 (用户刚修改过)，提取年月日拼接
-    if (val instanceof Date) {
-      const y = val.getFullYear();
-      const m = String(val.getMonth() + 1).padStart(2, '0');
-      const d = String(val.getDate()).padStart(2, '0');
-      return `${y}-${m}-${d}`;
-    }
-
-    // 4. 其他情况返回 null
-    return null;
+  // 3. 如果是 Date 对象 (用户刚修改过)，提取年月日拼接
+  if (val instanceof Date) {
+    const y = val.getFullYear()
+    const m = String(val.getMonth() + 1).padStart(2, '0')
+    const d = String(val.getDate()).padStart(2, '0')
+    return `${y}-${m}-${d}`
   }
+
+  // 4. 其他情况返回 null
+  return null
+}
 const submitForm = async (operationType) => {
   // 1. 表单验证
   try {
@@ -1209,7 +1247,9 @@ const submitForm = async (operationType) => {
   // 解释：如果是"复制"操作，哪怕当前处于编辑模式，也不能使用原来的地址或编号。
   // 因为复制是创建新数据，必须保证唯一性。
   if (operationType === 'copy') {
-    const isAddressDuplicate = tableData.some(item => String(item.self_address) === String(form_add_new.self_address))
+    const isAddressDuplicate = tableData.some(
+      (item) => String(item.self_address) === String(form_add_new.self_address),
+    )
     //const isCodeDuplicate = tableData.some(item => String(item.group_code) === String(form_add_new.group_code))
 
     if (isAddressDuplicate /*|| isCodeDuplicate*/) {
@@ -1217,13 +1257,14 @@ const submitForm = async (operationType) => {
       return
     }
   }
- console.log('before group_distribution_time:', form_add_new.group_distribution_time)
+  console.log('before group_distribution_time:', form_add_new.group_distribution_time)
   // 3. 构造通用数据
   const payloadData = {
     group_code: form_add_new.group_code,
     group_name: form_add_new.group_name,
     group_type: form_add_new.group_type,
     group_remark: form_add_new.group_remark,
+    group_image: form_add_new.group_image, // 【新增】
     // 如果是复制或新增，状态重置为未入柜；如果是更新，保持原状态(或根据需求修改)
     group_status: operationType === 'update' ? undefined : '未入柜',
     group_chip_count: form_add_new.group_chip_count,
@@ -1238,15 +1279,20 @@ const submitForm = async (operationType) => {
     terminal_id: configStore.terminal.terminal_id,
   }
   console.log('after group_distribution_time:', form_add_new.group_distribution_time)
-  console.log('form_add_new.group_distribution_time=== undefined:', form_add_new.group_distribution_time === undefined)
+  console.log(
+    'form_add_new.group_distribution_time=== undefined:',
+    form_add_new.group_distribution_time === undefined,
+  )
 
   // 清理 undefined 属性
   // 在**“编辑/更新”模式下，实现“只更新有值的字段，没值的字段保持原样”**。
-  Object.keys(payloadData).forEach(key => payloadData[key] === undefined && delete payloadData[key])
+  Object.keys(payloadData).forEach(
+    (key) => payloadData[key] === undefined && delete payloadData[key],
+  )
 
- console.log('')
+  console.log('')
   try {
-    let response;
+    let response
 
     // 4. 根据操作类型调用不同接口
     if (operationType === 'update') {
@@ -1257,8 +1303,8 @@ const submitForm = async (operationType) => {
         payload: {
           tableName: 'equipment',
           setValues: payloadData,
-          condition: `id = ${currentEditId.value}`
-        }
+          condition: `id = ${currentEditId.value}`,
+        },
       })
     } else {
       // --- 新增 OR 复制模式 (都是 Insert) ---
@@ -1269,7 +1315,7 @@ const submitForm = async (operationType) => {
         payload: {
           tableName: 'equipment',
           setValues: payloadData,
-        }
+        },
       })
     }
 
@@ -1350,11 +1396,9 @@ const switchView = async () => {
 
     // 3. === 核心修改：直接使用 tableData 匹配装备状态 ===
     if (config_blob.value?.switch?.details) {
-      config_blob.value.switch.details.forEach(switchItem => {
+      config_blob.value.switch.details.forEach((switchItem) => {
         // 在 tableData 中查找 "self_address" 和当前开关一致的装备
-        const targetEquip = tableData.find(
-          equip => equip.self_address == switchItem.self_address
-        )
+        const targetEquip = tableData.find((equip) => equip.self_address == switchItem.self_address)
 
         if (targetEquip) {
           // 如果找到了装备，把它的 group_status (例如"在位"、"已取出") 赋值给新字段
@@ -1379,7 +1423,6 @@ const switchView = async () => {
         body.style.height = '10.8rem'
       })
     }, 50)
-
   } catch (error) {
     audioStore.play(`/audio/开关列表更新失败.mp3`)
     console.error('switchView error:', error)
@@ -1427,16 +1470,26 @@ const take_photo = async () => {
 
   // stopCamera()
 }
-
+// 约 955 行 附近
+const startCameraForGroup = () => {
+  currentChipIndex.value = -2 // 使用 -2 标记当前是给“装备分组”拍照
+  startCamera()
+}
+// 修改约 938 行的 confirm_use_photo
 const confirm_use_photo = async () => {
   if (!photoDataUrl.value) {
     await audioStore.play(`/audio/没有可用的照片数据.mp3`)
     return
   }
-  if (currentChipIndex.value !== -1) {
-    // 把照片推入对应芯片的图片数组
+
+  if (currentChipIndex.value === -2) {
+    // 【新增】处理装备整体照片
+    form_add_new.group_image = photoDataUrl.value
+  } else if (currentChipIndex.value !== -1) {
+    // 原有的处理芯片照片逻辑
     form_add_new.chip_list[currentChipIndex.value].chip_image.push(photoDataUrl.value)
   }
+
   photoDataUrl.value = null
   stopCamera()
 }
@@ -1528,19 +1581,19 @@ const handleKeyPress = (button) => {
 }
 
 // ================== 新增状态变量 ==================
-const isApplying = ref(false)  // 弹框控制
+const isApplying = ref(false) // 弹框控制
 const isPolling = ref(false) // 控制while循环的开关
 const isForceExecuting = ref(false) // 是否强制执行
 const currentOperationType = ref('') // 'entry' | 'exit' 出入柜操作类型
-const isSensorActive = ref(false)    // 绑定给界面显示的实时状态
+const isSensorActive = ref(false) // 绑定给界面显示的实时状态
 
 // 配置项
-const MAX_TIMEOUT = 60 * 1000; // 60秒超时
-const POLL_INTERVAL = 800;     // 800毫秒轮询一次
-const STABILITY_COUNT = 3;     // 需要连续检测到3次稳定状态才算成功
+const MAX_TIMEOUT = 60 * 1000 // 60秒超时
+const POLL_INTERVAL = 800 // 800毫秒轮询一次
+const STABILITY_COUNT = 3 // 需要连续检测到3次稳定状态才算成功
 
 // 辅助函数：延时
-const sleep = (ms) => new Promise(resolve => setTimeout(resolve, ms))
+const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms))
 // 2. 核心：入柜/出柜 处理函数
 const handleOperation = async (type) => {
   if (!checkLockConfig()) return
@@ -1555,7 +1608,7 @@ const handleOperation = async (type) => {
   isApplying.value = true
   isPolling.value = true
   isForceExecuting.value = false
-  isSensorActive.value = (type === 'entry' ? false : true) // 初始假设
+  isSensorActive.value = type === 'entry' ? false : true // 初始假设
 
   let startTime = Date.now()
   let stableCounter = 0 // 稳定性计数器
@@ -1563,9 +1616,8 @@ const handleOperation = async (type) => {
   // 2. 开门
   try {
     await sendOpenLockCommand()
-
   } catch (e) {
-    console.error("开门指令发送异常", e)
+    console.error('开门指令发送异常', e)
   }
 
   // 3. 循环检测
@@ -1584,7 +1636,7 @@ const handleOperation = async (type) => {
     isSensorActive.value = currentStatus // 更新 UI 显示
 
     // --- C. 业务判断 + 防抖动 ---
-    const isEntry = (type === 'entry')
+    const isEntry = type === 'entry'
 
     // 入库目标：检测到有物体 (currentStatus === true)
     // 出库目标：检测到无物体 (currentStatus === false)
@@ -1613,7 +1665,7 @@ const handleOperation = async (type) => {
 const getRealTimeSensorStatus = async () => {
   try {
     const targetSwitch = config_blob.value?.switch?.details?.find(
-      (item) => Number(item.self_address) === Number(form_add_new.self_address)
+      (item) => Number(item.self_address) === Number(form_add_new.self_address),
     )
     console.log('targetSwitch', toRaw(targetSwitch))
     if (!targetSwitch) return false
@@ -1623,7 +1675,7 @@ const getRealTimeSensorStatus = async () => {
       payload: {
         deviceAddress: targetSwitch.expansion_board_address,
         startAddress: 0x0001,
-        registerCount: 10
+        registerCount: 10,
       },
     })
     console.log('读取开关状态返回result:', result)
@@ -1633,7 +1685,7 @@ const getRealTimeSensorStatus = async () => {
     }
     return false
   } catch (error) {
-    console.warn("传感器读取失败，忽略本次错误", error)
+    console.warn('传感器读取失败，忽略本次错误', error)
     return isSensorActive.value // 读取失败时保持上一次的状态，避免UI闪烁
   }
 }
@@ -1661,20 +1713,20 @@ const finishOperation = async (statusText, audioUrl) => {
         tableName: 'equipment',
         setValues: {
           group_status: statusText,
-          last_modified: new Date().toLocaleString()
+          last_modified: new Date().toLocaleString(),
         },
-        condition: `id = ${currentEditId.value}`
-      }
+        condition: `id = ${currentEditId.value}`,
+      },
     })
 
     if (updateRes.success) {
       updateSwitchDetails()
       // 更新前端数据
       form_add_new.group_status = statusText
-      form_add_new.hardware_status = (statusText === '在位') ? '导通' : '断开'
+      form_add_new.hardware_status = statusText === '在位' ? '导通' : '断开'
 
       // 更新表格行
-      const row = tableData.find(item => item.id == currentEditId.value)
+      const row = tableData.find((item) => item.id == currentEditId.value)
       if (row) {
         row.group_status = statusText
         row.hardware_status = form_add_new.hardware_status
@@ -1830,10 +1882,10 @@ const validateMainLockAddress = (rule, value, callback) => {
   // === 核心修改 4：验证时排除当前编辑的 ID ===
   if (rule.field === 'self_address') {
     // 查找是否存在【地址相同】且【ID不等于当前编辑ID】的记录
-    const isAddressUsed = tableData.some(item => {
+    const isAddressUsed = tableData.some((item) => {
       const isSameAddress = String(item.self_address) === String(value)
       // 如果是编辑模式，还需要判断 id 是否不同；如果是新增模式(id为null)，条件自然成立
-      const isDifferentId = isEditMode.value ? (item.id !== currentEditId.value) : true
+      const isDifferentId = isEditMode.value ? item.id !== currentEditId.value : true
       return isSameAddress && isDifferentId
     })
 
@@ -1859,6 +1911,7 @@ const form_add_new = reactive({
   group_name: '', // 装备名称
   group_type: '', // 装备类型
   group_remark: '', // 装备备注
+  group_image: '', // 【新增】用于存储装备整体实照 (Base64字符串)
   group_chip_count: 1, // 芯片数量
   group_status: '未入柜', // 装备(芯片)状态 removed(已出柜) not_installed(未入柜) take_out(已取出) in_position(在位)
   group_distribution_time: null, // 装备分配时间
@@ -1932,11 +1985,11 @@ const editEquipment = async () => {
   // 2. 计算可用开关地址 (逻辑不变，保持你原来的)
   const allSwitches = config_blob.value?.switch?.details || []
   const otherUsedAddresses = tableData
-    .filter(item => item.id !== row.id)
-    .map(item => Number(item.self_address))
+    .filter((item) => item.id !== row.id)
+    .map((item) => Number(item.self_address))
 
-  availableOptions.value = allSwitches.filter(item =>
-    !otherUsedAddresses.includes(Number(item.self_address))
+  availableOptions.value = allSwitches.filter(
+    (item) => !otherUsedAddresses.includes(Number(item.self_address)),
   )
 
   // 3. 数据回显
@@ -1944,6 +1997,7 @@ const editEquipment = async () => {
   form_add_new.group_name = row.group_name
   form_add_new.group_type = row.group_type
   form_add_new.group_remark = row.group_remark
+  form_add_new.group_image = row.group_image // 【新增】回显图片
   form_add_new.group_chip_count = row.group_chip_count
   form_add_new.group_status = row.group_status
 
@@ -2001,6 +2055,7 @@ const clearForm = async () => {
   // 1. 基础信息重置
   form_add_new.group_code = ''
   form_add_new.group_name = ''
+  form_add_new.group_image = '' // 【新增】清空图片
   form_add_new.group_type = ''
   form_add_new.group_remark = ''
   form_add_new.group_chip_count = 1
@@ -2059,15 +2114,17 @@ const tableHeight = ref(1500) // 默认值
 const goBack = async () => {
   // 1. 阻断：如果正在进行入柜/出柜等待流程 (可选，防止状态冲突)
   if (isApplying.value) {
-     ElMessageBox.alert('当前正在执行出入柜操作，请先完成或中断操作。', '操作受限', { type: 'warning' })
-     return
+    ElMessageBox.alert('当前正在执行出入柜操作，请先完成或中断操作。', '操作受限', {
+      type: 'warning',
+    })
+    return
   }
 
   // 2. 初次检查 (显示 Loading，防止检测过程卡顿)
   const loading = ElLoading.service({
     lock: true,
     text: '正在扫描所有柜门状态...',
-    background: 'rgba(0, 0, 0, 0.7)'
+    background: 'rgba(0, 0, 0, 0.7)',
   })
 
   let isAllClosed = false
@@ -2090,7 +2147,7 @@ const goBack = async () => {
   audioStore.play('/audio/安全警告检测到柜门未关闭.mp3') // 请确保有此音频
 
   // --- 状态控制标志 ---
-  let stopPolling = false  // 控制循环结束
+  let stopPolling = false // 控制循环结束
   let isAutoAction = false // 标记是否由硬件触发（防止catch块重复处理）
 
   // --- 定义后台轮询任务 ---
@@ -2098,7 +2155,7 @@ const goBack = async () => {
     while (!stopPolling) {
       try {
         // 等待 1 秒
-        await new Promise(resolve => setTimeout(resolve, 1000))
+        await new Promise((resolve) => setTimeout(resolve, 1000))
 
         if (stopPolling) break
 
@@ -2168,14 +2225,13 @@ const goBack = async () => {
       closeOnPressEscape: false,
       confirmButtonClass: 'el-button--danger',
       customClass: 'cyber-message-box error-mode',
-      center: true
+      center: true,
     })
 
     // 路径 1: 用户点击了“强制退出”按钮 (Promise Resolved)
     stopPolling = true
     console.log('用户点击强制退出')
     router.back() // 退出
-
   } catch (action) {
     console.log('弹窗被关闭', action)
     // 路径 2: 弹窗被关闭 (被上面的 ElMessageBox.close() 触发)
@@ -2255,11 +2311,13 @@ const add_equipment = () => {
 
   // 2. 获取当前表格中已经占用的地址 (提取 self_address)
   // 统一类型：在比较前将类型统一为字符串或数字。
-  const usedAddresses = tableData.map(item => Number(item.self_address))
+  const usedAddresses = tableData.map((item) => Number(item.self_address))
   console.log('已占用的地址:', usedAddresses)
 
   // 3. 过滤：只保留未被占用的
-  availableOptions.value = allSwitches.filter(item => !usedAddresses.includes(Number(item.self_address)))
+  availableOptions.value = allSwitches.filter(
+    (item) => !usedAddresses.includes(Number(item.self_address)),
+  )
 
   console.log('当前可用开关数量:', availableOptions.value.length)
   // ===================================================
@@ -2267,7 +2325,8 @@ const add_equipment = () => {
   // 初始化门锁地址
   if (config_blob.value?.lock?.details?.length > 0) {
     form_add_new.lock_self_address = config_blob.value.lock.details[0].self_address
-    form_add_new.open_lock_register_address = config_blob.value.lock.details[0].open_lock_register_address
+    form_add_new.open_lock_register_address =
+      config_blob.value.lock.details[0].open_lock_register_address
   }
 
   audioStore.play(`/audio/添加新装备.mp3`)
@@ -2325,10 +2384,10 @@ const sendOpenLockCommand = async () => {
     action: 'control_register',
     payload: {
       deviceAddress: 201, // 门控板地址
-      registerAddress: form_add_new.open_lock_register_address,  // 开门寄存器地址
+      registerAddress: form_add_new.open_lock_register_address, // 开门寄存器地址
       value: 50, //寄存器通电时间，80代表8s
       isWrite: true, // 是否为写操作
-    }
+    },
   })
   // 开灯
   await window.electronAPI.el_post({
@@ -2715,22 +2774,6 @@ onUnmounted(async () => {
   font-size: 0.3rem;
 }
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 /* ================== 新增：等待对话框样式 ================== */
 
 /* 对话框内容容器 */
@@ -2906,7 +2949,9 @@ onUnmounted(async () => {
 /* 注意：如果样式不生效，可能需要去掉 scoped 或使用 :deep() */
 :deep(.waiting-dialog) {
   border-radius: 12px !important;
-  box-shadow: 0 20px 40px rgba(0, 0, 0, 0.1), 0 0 0 1px rgba(0, 0, 0, 0.05) !important;
+  box-shadow:
+    0 20px 40px rgba(0, 0, 0, 0.1),
+    0 0 0 1px rgba(0, 0, 0, 0.05) !important;
   overflow: hidden;
   margin-top: 100px;
 }
@@ -2923,21 +2968,18 @@ onUnmounted(async () => {
   /* 覆盖你在其他地方设置的固定高度 */
 }
 
-
-
-
 .status-green {
-  color: #67C23A;
+  color: #67c23a;
   font-weight: bold;
 }
 
 .status-red {
-  color: #F56C6C;
+  color: #f56c6c;
   font-weight: bold;
 }
 
 .status-orange {
-  color: #E6A23C;
+  color: #e6a23c;
   font-weight: bold;
 }
 

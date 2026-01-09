@@ -73,7 +73,7 @@
 
               <!-- 装备大图展示区 -->
               <div class="equip-image-preview">
-                <el-image :src="item.photo" fit="cover" style="width: 100%; height: 100%">
+                <el-image :src="item.group_image" fit="cover" style="width: 100%; height: 100%">
                   <!-- 指定加载时的占位 -->
                   <template #placeholder>
                     <div style="background: #0d121c; width: 100%; height: 100%;"></div>
