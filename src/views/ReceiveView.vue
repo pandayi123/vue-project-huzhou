@@ -71,13 +71,21 @@
                 {{ item.group_status }}
               </div>
 
-              <div class="card-icon">
-                <el-icon v-if="item.group_status === '在位'" :size="32" class="icon-active">
-                  <Files />
-                </el-icon>
-                <el-icon v-else :size="32" class="icon-locked">
-                  <Lock />
-                </el-icon>
+              <!-- 装备大图展示区 -->
+              <div class="equip-image-preview">
+                <el-image :src="item.photo" fit="cover" style="width: 100%; height: 100%">
+                  <!-- 指定加载时的占位 -->
+                  <template #placeholder>
+                    <div style="background: #0d121c; width: 100%; height: 100%;"></div>
+                  </template>
+                  <template #error>
+                    <div class="image-error-slot">
+                      <el-icon :size="24">
+                        <Box />
+                      </el-icon>
+                    </div>
+                  </template>
+                </el-image>
               </div>
 
               <div class="card-info">
@@ -191,7 +199,7 @@
                   <div class="text-group">
                     <span class="btn-main-text">{{
                       singleItem.group_status === '在位' ? '立即领用' : '不可领用'
-                      }}</span>
+                    }}</span>
                     <span class="btn-sub-text">{{
                       singleItem.group_status === '在位'
                         ? '操作留痕 · 错取报警'
@@ -487,8 +495,8 @@ import {
   Box,
   SwitchButton,
   Location,
-  Files,
-  Lock,
+  // Files,
+  // Lock,
   Unlock,
   CircleCloseFilled,
   Warning,
@@ -2120,7 +2128,7 @@ onUnmounted(async () => {
 
 .sub-title {
   color: var(--primary-dark);
-  font-size: 11px;
+  font-size: 12px;
   letter-spacing: 1px;
   font-weight: bold;
 }
@@ -2279,13 +2287,14 @@ onUnmounted(async () => {
   background: rgba(255, 255, 255, 0.03);
   border: 1px solid var(--border);
   border-radius: 6px;
-  padding: 12px 12px;
+  /*padding: 12px 12px;*/
   cursor: pointer;
   transition: all 0.2s;
   display: flex;
   flex-direction: column;
   justify-content: space-between;
-  height: 145px;
+  height: 220px;
+  /* 增加高度 */
   overflow: hidden;
 }
 
@@ -2339,12 +2348,51 @@ onUnmounted(async () => {
 .card-status-badge {
   position: absolute;
   top: 8px;
-  right: 8px;
+  left: 8px;
+  /* 从 right 改为 left */
   padding: 2px 6px;
   border-radius: 4px;
   font-size: 10px;
   font-weight: bold;
-  z-index: 1;
+  z-index: 5;
+  /* 确保在图片之上 */
+}
+
+/* 装备图片区域样式 */
+.equip-image-preview {
+  width: 100%;
+  height: 120px;
+  /* 固定图片高度 */
+  background: #000;
+  border-bottom: 1px solid var(--border);
+}
+.equip-image-preview :deep(.el-image__inner) {
+  /* 确保图片加载前不显示白色 */
+  background-color: transparent !important;
+}
+
+.equip-image-preview :deep(.el-image__placeholder),
+.equip-image-preview :deep(.el-image__wrapper) {
+  background-color: #0d121c !important; /* 跟你的卡片背景色一致 */
+}
+.image-error-slot {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #333;
+  background: #0d121c;
+}
+
+/* 调整文字信息区的间距 */
+.card-info {
+  padding: 10px 12px;
+  /* 给文字留出内边距 */
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
 }
 
 .st-in {
@@ -2364,19 +2412,6 @@ onUnmounted(async () => {
   opacity: 0.6;
 }
 
-.card-icon {
-  margin-bottom: 5px;
-}
-
-.icon-active {
-  color: var(--primary);
-  filter: drop-shadow(0 0 5px var(--primary-dark));
-}
-
-.icon-locked {
-  color: #444;
-}
-
 .equip-name {
   font-size: 14px;
   font-weight: bold;
@@ -2388,7 +2423,7 @@ onUnmounted(async () => {
 }
 
 .equip-code {
-  font-size: 11px;
+  font-size: 12px;
   color: var(--text-sec);
   font-family: 'Consolas', monospace;
   margin-bottom: 6px;
@@ -2817,7 +2852,7 @@ onUnmounted(async () => {
 }
 
 .btn-sub-text {
-  font-size: 10px;
+  font-size: 12px;
   opacity: 0.7;
   letter-spacing: 1px;
   margin-top: 2px;
