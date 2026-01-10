@@ -10,7 +10,7 @@
         </div>
         <div class="title-text">
           <h1>装备领用</h1>
-          <span class="sub-title">智能感知 · 实时物联 · 动态监管</span>
+          <span class="sub-title">智能感知 · 实时物联 · 智慧监管</span>
         </div>
       </div>
 
@@ -59,7 +59,7 @@
           <div class="card-grid">
             <div v-for="item in filteredList" :key="item.id" class="equip-card" :class="{
               active: selectedIds.includes(item.id),
-              'status-out': item.group_status !== '在位',
+              'borrow-card-removed': item.group_status !== '在位',
             }" @click="toggleSelect(item.id)">
               <div class="check-ribbon" v-if="selectedIds.includes(item.id)">
                 <el-icon>
@@ -67,7 +67,7 @@
                 </el-icon>
               </div>
 
-              <div class="card-status-badge" :class="item.group_status === '在位' ? 'st-in' : 'st-out'">
+              <div class="card-status-badge" :class="item.group_status === '在位' ? 'st-in' : 'borrow-tag-removed'">
                 {{ item.group_status }}
               </div>
 
@@ -112,16 +112,6 @@
         <!-- 场景1：未选中 -->
         <template v-if="selectedIds.length === 0">
           <div class="empty-placeholder">
-            <!-- [插入这里] 开始 -->
-            <div class="reason-section" style="width: 80%; margin-bottom: 30px">
-              <div class="reason-label">请先选择领用用途</div>
-              <el-select v-model="borrowReason" placeholder="请选择用途" allow-create filterable class="cyber-select"
-                popper-class="cyber-dropdown">
-                <el-option v-for="opt in reasonOptions" :key="opt.value" :label="opt.label" :value="opt.value" />
-              </el-select>
-            </div>
-            <!-- [插入这里] 结束 -->
-
             <div class="icon-circle">
               <el-icon :size="50">
                 <Mouse />
@@ -138,7 +128,7 @@
             <div class="detail-header">
               <div class="header-title-group">
                 <div class="big-name">{{ singleItem.group_name }}</div>
-                <div class="status-tag-large" :class="singleItem.group_status === '在位' ? 'st-in' : 'st-out'">
+                <div class="status-tag-large" :class="singleItem.group_status === '在位' ? 'st-in' : 'borrow-tag-removed'">
                   {{ singleItem.group_status }}
                 </div>
               </div>
@@ -199,10 +189,10 @@
                   <div class="text-group">
                     <span class="btn-main-text">{{
                       singleItem.group_status === '在位' ? '立即领用' : '不可领用'
-                    }}</span>
+                      }}</span>
                     <span class="btn-sub-text">{{
                       singleItem.group_status === '在位'
-                        ? '操作留痕 · 错取报警'
+                        ? '操作溯源 · 异常监控'
                         : '装备已取出 · 禁止操作'
                     }}</span>
                   </div>
@@ -254,7 +244,7 @@
                         <View />
                       </el-icon>
                     </button>
-                    <span class="mini-tag" :class="item.group_status === '在位' ? 'st-in' : 'st-out'">
+                    <span class="mini-tag" :class="item.group_status === '在位' ? 'st-in' : 'borrow-tag-removed'">
                       {{ item.group_status }}
                     </span>
                     <div class="b-pos">{{ item.self_address }}号</div>
@@ -294,7 +284,7 @@
                   </el-icon>
                   <div class="text-group">
                     <span class="btn-main-text">批量领用 ({{ validItemsCount }}项)</span>
-                    <span class="btn-sub-text">操作留痕 · 错取报警</span>
+                    <span class="btn-sub-text">操作溯源 · 异常监控</span>
                   </div>
                 </div>
                 <div class="scan-line" v-if="validItemsCount > 0"></div>
@@ -485,6 +475,39 @@
           </div>
         </div>
       </el-dialog>
+
+
+      <!-- ================= [新增] 专门的用途确认弹窗 ================= -->
+      <el-dialog v-model="reasonDialogVisible" title="操作确认" width="400px" class="cyber-dialog"
+        :close-on-click-modal="false" :append-to-body="true" destroy-on-close>
+        <div style="padding: 20px;">
+          <div style="color: #00f2ff; margin-bottom: 15px; font-size: 14px;">
+            <el-icon style="vertical-align: middle; margin-right: 5px;">
+              <InfoFilled />
+            </el-icon>
+            请先选择本次领用/维护的用途
+          </div>
+
+          <div class="reason-section" style="background: rgba(255,255,255,0.05); padding: 15px; border-radius: 4px;">
+            <div class="reason-label">领用用途</div>
+            <el-select v-model="borrowReason" placeholder="点击选择或输入..." allow-create filterable default-first-option
+              class="cyber-select" popper-class="cyber-dropdown">
+              <el-option v-for="opt in reasonOptions" :key="opt.value" :label="opt.label" :value="opt.value" />
+            </el-select>
+          </div>
+        </div>
+
+        <template #footer>
+          <div style="display: flex; gap: 10px; justify-content: center; padding-bottom: 10px;">
+            <el-button @click="reasonDialogVisible = false"
+              style="background: transparent; color: #888; border: 1px solid #444;">取消</el-button>
+            <el-button type="primary" :disabled="!borrowReason" @click="confirmReasonAndOpen"
+              style="background: linear-gradient(90deg, #0099a1 0%, #005f66 100%); border: 1px solid #00f2ff;">
+              确定开门
+            </el-button>
+          </div>
+        </template>
+      </el-dialog>
     </div>
   </div>
 </template>
@@ -528,6 +551,9 @@ const isSensorDisabled = (address) => {
   // 兼容数字和字符串类型的判断
   return conf && (conf.admin_status == 0 || conf.admin_status === '0')
 }
+
+// 1. 新增一个控制变量
+const reasonDialogVisible = ref(false)
 
 // 动作：手动确认取出
 const manualConfirmTaken = (item) => {
@@ -695,79 +721,58 @@ const fetchConfigData = async () => {
 // import { ..., Unlock } from '@element-plus/icons-vue'
 
 // 2. 实现手动开门逻辑
+// 2. 修改 handleManualOpenDoor 逻辑
 const handleManualOpenDoor = async () => {
-  // --- A. 校验用途 (依然保留，操作留痕) ---
+  // 如果没有选择用途，直接弹出对话框，而不是返回
   if (!borrowReason.value) {
-    audioStore.play('/audio/请选择装备领用用途.mp3')
-    // ElMessage.warning('请先选择用途（如：检修/维护），再开启柜门')
+    audioStore.play('/audio/请选择装备领用用途.mp3') // 播放语音提示
+    reasonDialogVisible.value = true // 弹出专门的选择框
     return
   }
 
-  // --- B. 确定目标 ---
+  // 如果已经选了，直接走原有的开门逻辑函数
+  executeActualOpenDoor()
+}
+// 3. 弹窗点击确认后的逻辑
+const confirmReasonAndOpen = () => {
+  reasonDialogVisible.value = false
+  executeActualOpenDoor()
+}
+
+// 4. 将原本 handleManualOpenDoor 里的核心开门逻辑封装成一个函数
+const executeActualOpenDoor = async () => {
+  // --- A. 确定目标 ---
   let targets = []
-  let isMaintenanceMode = false // 标记是否为手动维护模式
+  let isMaintenanceMode = false
 
   if (selectedIds.value.length > 0) {
-    // 如果有选中项，只针对选中且在位的项
     targets = selectedItems.value.filter((item) => item.group_status === '在位')
   } else {
-    // 如果没有选中项，默认监控所有“在位”的装备（全开模式）
     targets = equipmentList.value.filter((item) => item.group_status === '在位')
   }
 
-  // --- C. 核心逻辑调整：如果没有装备在位，或者用户没选，询问进入手动模式 ---
+  // --- B. 维护模式逻辑 ---
   if (targets.length === 0) {
     try {
       await ElMessageBox.confirm(
         '当前列表无可领用装备，是否开启柜门进行手动维护/清理操作？',
         '维护模式确认',
-        {
-          confirmButtonText: '确定开门',
-          cancelButtonText: '取消',
-          type: 'info',
-          center: true,
-          customClass: 'cyber-message-box',
-        },
+        { confirmButtonText: '确定开门', cancelButtonText: '取消', type: 'info', center: true, customClass: 'cyber-message-box' }
       )
       isMaintenanceMode = true
-    } catch {
-      return
-    }
+    } catch { return }
   }
 
+  // --- C. 硬件与状态初始化 ---
   try {
-    // 如果不是维护模式，正常二次确认
-    if (!isMaintenanceMode && targets.length > 0) {
-      await ElMessageBox.confirm(
-        `确认开启柜门并领用 ${selectedIds.value.length > 0 ? '已选' : '全部'} 装备吗？`,
-        '操作指令确认',
-        {
-          confirmButtonText: '确定开门',
-          cancelButtonText: '取消',
-          center: true,
-          customClass: 'cyber-message-box',
-        },
-      )
-    }
+    // (这里保留你原来的初始化逻辑...)
+    activeBorrowList.value = isMaintenanceMode ? [] : targets.map((item) => ({ ...item, isTaken: false }))
 
-    // --- D. 初始化监控状态 ---
-    // 领用列表：如果是维护模式，则为空
-    activeBorrowList.value = isMaintenanceMode
-      ? []
-      : targets.map((item) => ({ ...item, isTaken: false }))
+    const targetIds = targets.map((i) => i.id)
+    allInPlaceItems.value = equipmentList.value.filter(
+      (item) => item.group_status === '在位' && !targetIds.includes(item.id)
+    )
 
-    // 关键：安全红线！
-    // 如果是维护模式，所有当前在位的装备都加入“误拿监控”，任何一个被拿走都会报警
-    if (isMaintenanceMode) {
-      allInPlaceItems.value = equipmentList.value.filter((item) => item.group_status === '在位')
-    } else {
-      const targetIds = targets.map((i) => i.id)
-      allInPlaceItems.value = equipmentList.value.filter(
-        (item) => item.group_status === '在位' && !targetIds.includes(item.id),
-      )
-    }
-
-    // UI 显示
     borrowProcessVisible.value = true
     isPolling.value = true
     areDoorsClosed.value = false
@@ -799,7 +804,7 @@ const handleManualOpenDoor = async () => {
 
     startMonitorLoop()
   } catch (error) {
-    if (error !== 'cancel') console.error('流程异常:', error)
+    console.error('流程异常:', error)
   }
 }
 const getData = async () => {
@@ -2366,6 +2371,7 @@ onUnmounted(async () => {
   background: #000;
   border-bottom: 1px solid var(--border);
 }
+
 .equip-image-preview :deep(.el-image__inner) {
   /* 确保图片加载前不显示白色 */
   background-color: transparent !important;
@@ -2373,8 +2379,10 @@ onUnmounted(async () => {
 
 .equip-image-preview :deep(.el-image__placeholder),
 .equip-image-preview :deep(.el-image__wrapper) {
-  background-color: #0d121c !important; /* 跟你的卡片背景色一致 */
+  background-color: #0d121c !important;
+  /* 跟你的卡片背景色一致 */
 }
+
 .image-error-slot {
   width: 100%;
   height: 100%;
@@ -3243,6 +3251,103 @@ onUnmounted(async () => {
   font-size: 12px;
   margin-top: 8px;
 }
+/* ==========================================================
+   领用页面专属：已取出装备的红色视觉风格
+   ========================================================== */
+
+/* 专属标签样式 */
+.borrow-tag-removed {
+  color: var(--error) !important;
+  background: rgba(255, 77, 79, 0.12) !important;
+  border: 1px solid rgba(255, 77, 79, 0.3) !important;
+  box-shadow: 0 0 5px rgba(255, 77, 79, 0.1);
+}
+
+/* 专属卡片边框样式 */
+.equip-card.borrow-card-removed {
+  opacity: 0.85;
+  background: rgba(255, 77, 79, 0.02);
+  border-color: var(--error) !important; /* 边框变红 */
+}
+
+/* 当已取出的卡片被选中时，依然保持红色边框高亮，而不是原来的青色 */
+.equip-card.active.borrow-card-removed {
+  border-color: var(--error) !important;
+  box-shadow: inset 0 0 20px rgba(255, 77, 79, 0.15), 0 0 10px rgba(255, 77, 79, 0.2) !important;
+}
+/* 当“已取出”卡片被激活时，底部的动画条和发光效果也要变红 */
+.equip-card.active.borrow-card-removed .active-bar {
+  background: var(--error) !important;
+  box-shadow: 0 -2px 10px var(--error) !important;
+}
+/* 如果需要，选中时的右上角勾选角标也变红 */
+.equip-card.active.borrow-card-removed .check-ribbon {
+  border-top-color: var(--error) !important;
+}
+
+/* 覆盖 hover 效果，防止 hover 时变成青色边框 */
+.equip-card.borrow-card-removed:hover {
+  border-color: var(--error) !important;
+  background: rgba(255, 77, 79, 0.05);
+}
+
+/* ==========================================================
+   领用页面专属：已取出装备的红色视觉风格
+   ========================================================== */
+
+/* 1. 专属标签样式 */
+.borrow-tag-removed {
+  color: var(--error) !important;
+  background: rgba(255, 77, 79, 0.12) !important;
+  border: 1px solid rgba(255, 77, 79, 0.3) !important;
+  box-shadow: 0 0 5px rgba(255, 77, 79, 0.1);
+}
+
+/* 2. 专属卡片边框样式 */
+.equip-card.borrow-card-removed {
+  opacity: 0.9; /* 稍微提高透明度增加文字可读性 */
+  background: rgba(255, 77, 79, 0.02);
+  border-color: var(--error) !important;
+}
+
+/* 3. 【新增】针对“已取出”卡片底部的文字和图标颜色覆盖 */
+
+/* 柜位位置：图标和文字全部变红 */
+.borrow-card-removed .equip-pos {
+  color: var(--error) !important;
+}
+
+/* 4. 当已取出的卡片被选中时，边框和内发光变红 */
+.equip-card.active.borrow-card-removed {
+  border-color: var(--error) !important;
+  box-shadow: inset 0 0 20px rgba(255, 77, 79, 0.15) !important;
+}
+
+/* 5. 当“已取出”卡片被激活时，底部的动画条变红 */
+.equip-card.active.borrow-card-removed .active-bar {
+  background: var(--error) !important;
+  box-shadow: 0 -2px 10px var(--error) !important;
+}
+
+/* 6. 选中时的右上角勾选角标变红 */
+.equip-card.active.borrow-card-removed .check-ribbon {
+  border-top-color: var(--error) !important;
+}
+
+/* 7. 覆盖 hover 效果，防止 hover 时变成青色 */
+.equip-card.borrow-card-removed:hover {
+  border-color: var(--error) !important;
+  background: rgba(255, 77, 79, 0.05);
+}
+/*
+   关键修改：去掉 .active 限制。
+   只要卡片是“已取出”状态，它的动画条就永远是红色的。
+   这样在选中（展开）和取消选中（缩回）的过程中，颜色都不会变蓝。
+*/
+.borrow-card-removed .active-bar {
+  background: var(--error) !important;
+  box-shadow: 0 -2px 10px var(--error) !important;
+}
 </style>
 
 <style>
@@ -3310,35 +3415,5 @@ onUnmounted(async () => {
 .manual-confirm-btn:hover {
   background: rgba(230, 162, 60, 0.4);
   transform: scale(1.05);
-}
-</style>
-
-<style>
-/* 1. 基础灰显状态修正 */
-.equip-card.status-out {
-  opacity: 0.5;
-  /* 降低透明度 */
-  background: rgba(0, 0, 0, 0.2);
-  /* 深色背景 */
-  border-color: #333;
-  /* 暗淡边框 */
-}
-
-/* 2. [核心] 覆盖选中状态：当“已取出”被选中时，强制变暗 */
-.equip-card.active.status-out {
-  border-color: #4a5c76 !important;
-  /* 覆盖原来的 var(--primary) */
-  box-shadow: none !important;
-  /* 去掉发光 */
-  background-color: rgba(255, 255, 255, 0.08) !important;
-}
-
-/* 3. 覆盖右上角选中角标颜色 */
-.equip-card.active.status-out .check-ribbon {
-  border-top-color: #4a5c76 !important;
-}
-
-.equip-card.active.status-out .check-ribbon .el-icon {
-  color: #aaa !important;
 }
 </style>
