@@ -128,7 +128,8 @@
             <div class="detail-header">
               <div class="header-title-group">
                 <div class="big-name">{{ singleItem.group_name }}</div>
-                <div class="status-tag-large" :class="singleItem.group_status === '在位' ? 'st-in' : 'borrow-tag-removed'">
+                <div class="status-tag-large"
+                  :class="singleItem.group_status === '在位' ? 'st-in' : 'borrow-tag-removed'">
                   {{ singleItem.group_status }}
                 </div>
               </div>
@@ -338,11 +339,15 @@
       <!-- ================= 核心：实时领用监控弹窗 (全屏遮罩) ================= -->
       <el-dialog v-model="borrowProcessVisible" :show-close="false" :close-on-click-modal="false" width="600px"
         class="cyber-dialog process-dialog" center :append-to-body="true">
-        <div class="process-container">
-          <!-- 标题区 -->
+        <div class="process-container" :class="{ 'mode-maintenance': currentProcessMode === 'MAINTENANCE' }">
+          <!-- 标题区：动态文案 -->
           <div class="process-header">
-            <div class="p-title">正在领用装备</div>
-            <div class="p-sub">柜门已打开，请取走选中的装备</div>
+            <div class="p-title">
+              {{ currentProcessMode === 'BORROW' ? '正在领用装备' : '柜内维护/检修' }}
+            </div>
+            <div class="p-sub">
+              {{ currentProcessMode === 'BORROW' ? '柜门已打开，请取走选中的装备' : '柜门已打开，请进行清洁或检修，完成后请关门' }}
+            </div>
           </div>
 
           <!-- 动画指示器 -->
@@ -357,7 +362,9 @@
                 <Tools />
               </el-icon>
               <div class="tip-text">当前处于手动维护/检修模式</div>
+              <!--
               <div class="tip-sub">系统已开启安全监控，请勿随意移动柜内装备</div>
+            -->
             </div>
             <!-- 待领取的正确装备 -->
             <div v-for="item in activeBorrowList" :key="'target-' + item.id" class="m-item"
@@ -489,8 +496,8 @@
           </div>
 
           <div class="reason-section" style="background: rgba(255,255,255,0.05); padding: 15px; border-radius: 4px;">
-            <div class="reason-label">领用用途</div>
-            <el-select v-model="borrowReason" placeholder="点击选择或输入..." allow-create filterable default-first-option
+            <div class="reason-label">使用用途</div>
+            <el-select size="large" placement="top" v-model="borrowReason" placeholder="点击选择或输入..." allow-create filterable default-first-option
               class="cyber-select" popper-class="cyber-dropdown">
               <el-option v-for="opt in reasonOptions" :key="opt.value" :label="opt.label" :value="opt.value" />
             </el-select>
@@ -533,6 +540,7 @@ import {
   CircleCheck,
   Tools,
   Pointer,
+  InfoFilled
 } from '@element-plus/icons-vue'
 import { ElMessage, ElMessageBox, ElLoading } from 'element-plus'
 import { useTimerStore } from '@/stores/timerStore'
@@ -738,6 +746,8 @@ const confirmReasonAndOpen = () => {
   reasonDialogVisible.value = false
   executeActualOpenDoor()
 }
+// 在变量定义区添加
+const currentProcessMode = ref('BORROW'); // 'BORROW' 或 'MAINTENANCE'
 
 // 4. 将原本 handleManualOpenDoor 里的核心开门逻辑封装成一个函数
 const executeActualOpenDoor = async () => {
@@ -760,7 +770,10 @@ const executeActualOpenDoor = async () => {
         { confirmButtonText: '确定开门', cancelButtonText: '取消', type: 'info', center: true, customClass: 'cyber-message-box' }
       )
       isMaintenanceMode = true
+      currentProcessMode.value = 'MAINTENANCE'; // 设置为维护模式
     } catch { return }
+  } else {
+    currentProcessMode.value = 'BORROW'; // 设置为领用模式
   }
 
   // --- C. 硬件与状态初始化 ---
@@ -3251,6 +3264,7 @@ onUnmounted(async () => {
   font-size: 12px;
   margin-top: 8px;
 }
+
 /* ==========================================================
    领用页面专属：已取出装备的红色视觉风格
    ========================================================== */
@@ -3267,7 +3281,8 @@ onUnmounted(async () => {
 .equip-card.borrow-card-removed {
   opacity: 0.85;
   background: rgba(255, 77, 79, 0.02);
-  border-color: var(--error) !important; /* 边框变红 */
+  border-color: var(--error) !important;
+  /* 边框变红 */
 }
 
 /* 当已取出的卡片被选中时，依然保持红色边框高亮，而不是原来的青色 */
@@ -3275,11 +3290,13 @@ onUnmounted(async () => {
   border-color: var(--error) !important;
   box-shadow: inset 0 0 20px rgba(255, 77, 79, 0.15), 0 0 10px rgba(255, 77, 79, 0.2) !important;
 }
+
 /* 当“已取出”卡片被激活时，底部的动画条和发光效果也要变红 */
 .equip-card.active.borrow-card-removed .active-bar {
   background: var(--error) !important;
   box-shadow: 0 -2px 10px var(--error) !important;
 }
+
 /* 如果需要，选中时的右上角勾选角标也变红 */
 .equip-card.active.borrow-card-removed .check-ribbon {
   border-top-color: var(--error) !important;
@@ -3305,7 +3322,8 @@ onUnmounted(async () => {
 
 /* 2. 专属卡片边框样式 */
 .equip-card.borrow-card-removed {
-  opacity: 0.9; /* 稍微提高透明度增加文字可读性 */
+  opacity: 0.9;
+  /* 稍微提高透明度增加文字可读性 */
   background: rgba(255, 77, 79, 0.02);
   border-color: var(--error) !important;
 }
@@ -3339,6 +3357,7 @@ onUnmounted(async () => {
   border-color: var(--error) !important;
   background: rgba(255, 77, 79, 0.05);
 }
+
 /*
    关键修改：去掉 .active 限制。
    只要卡片是“已取出”状态，它的动画条就永远是红色的。

@@ -26,7 +26,7 @@ const router = useRouter()
 const activeButton = ref('')
 const isAnimating = ref(false)
 
-const serviceMenu = ref(['领用', '归还', /*'盘点', '修改密码', '系统日志', '系统状态',*/'系统设置', /*'出厂测试'*/])
+const serviceMenu = ref(['领用', '归还', '盘点', '日志', '系统状态', '系统设置', '帮助反馈' /*'出厂测试'*/])
 // === 新增：统一跳转到验证页面的函数 ===
 const goToVerification = (targetPath, functionName) => {
   router.push({
@@ -206,6 +206,7 @@ const handleFunctionClick = async (functionName) => {
 .gutter-box:active {
   filter: brightness(1.2);
 }
+
 .keyboard-container {
   background: white;
   border-radius: 8px;
