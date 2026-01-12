@@ -76,7 +76,7 @@
                 <el-image :src="item.group_image" fit="cover" style="width: 100%; height: 100%">
                   <!-- 指定加载时的占位 -->
                   <template #placeholder>
-                    <div style="background: #0d121c; width: 100%; height: 100%;"></div>
+                    <div style="background: #0d121c; width: 100%; height: 100%"></div>
                   </template>
                   <template #error>
                     <div class="image-error-slot">
@@ -190,7 +190,7 @@
                   <div class="text-group">
                     <span class="btn-main-text">{{
                       singleItem.group_status === '在位' ? '立即领用' : '不可领用'
-                      }}</span>
+                    }}</span>
                     <span class="btn-sub-text">{{
                       singleItem.group_status === '在位'
                         ? '操作溯源 · 异常监控'
@@ -346,7 +346,11 @@
               {{ currentProcessMode === 'BORROW' ? '正在领用装备' : '柜内维护/检修' }}
             </div>
             <div class="p-sub">
-              {{ currentProcessMode === 'BORROW' ? '柜门已打开，请取走选中的装备' : '柜门已打开，请进行清洁或检修，完成后请关门' }}
+              {{
+                currentProcessMode === 'BORROW'
+                  ? '柜门已打开，请取走选中的装备'
+                  : '柜门已打开，请进行清洁或检修，完成后请关门'
+              }}
             </div>
           </div>
 
@@ -483,44 +487,77 @@
         </div>
       </el-dialog>
 
-
       <!-- ================= [新增] 专门的用途确认弹窗 ================= -->
-      <el-dialog v-model="reasonDialogVisible" title="操作确认" width="400px" class="cyber-dialog"
-        :close-on-click-modal="false" :append-to-body="true" destroy-on-close>
-        <div style="padding: 20px;">
-          <div style="color: #00f2ff; margin-bottom: 15px; font-size: 14px;">
-            <el-icon style="vertical-align: middle; margin-right: 5px;">
-              <InfoFilled />
-            </el-icon>
-            请先选择本次领用/维护的用途
+      <el-dialog v-model="reasonDialogVisible" title="请选择或输入本次操作的用途" width="550px"
+        class="cyber-dialog cyber-dialog-reason" :class="{ 'is-keyboard-open': showKeyboard }"
+        :close-on-click-modal="false" destroy-on-close @close="handleCloseReasonDialog">
+        <div class="reason-modal-content">
+          <!-- 1. 快捷选项卡片网格 -->
+          <div class="reason-card-grid">
+            <div v-for="opt in quickReasons" :key="opt.value" class="reason-card"
+              :class="{ active: borrowReason === opt.value }" @click="selectQuickReason(opt.value)">
+              <!-- 修改点：使用 el-icon 包装动态组件 -->
+              <el-icon class="card-icon" :size="28">
+                <component :is="opt.icon" />
+              </el-icon>
+              <span class="card-label">{{ opt.label }}</span>
+              <div class="active-dot"></div>
+            </div>
           </div>
 
-          <div class="reason-section" style="background: rgba(255,255,255,0.05); padding: 15px; border-radius: 4px;">
-            <div class="reason-label">使用用途</div>
-            <el-select size="large" placement="top" v-model="borrowReason" placeholder="点击选择或输入..." allow-create filterable default-first-option
-              class="cyber-select" popper-class="cyber-dropdown">
-              <el-option v-for="opt in reasonOptions" :key="opt.value" :label="opt.label" :value="opt.value" />
-            </el-select>
+          <!-- 2. 自定义输入区 -->
+          <div class="custom-input-section">
+            <div class="section-divider">
+              <span>或者输入自定义详细用途</span>
+            </div>
+            <el-input v-model="borrowReason" placeholder="在此输入自定义详细用途..." class="cyber-custom-input"
+              @focus="openKeyboard('default', 'borrowReason', $event)" @click="updateCursorPos"
+              @keyup="updateCursorPos">
+              <template #prefix>
+                <el-icon>
+                  <EditPen />
+                </el-icon>
+              </template>
+            </el-input>
           </div>
         </div>
 
         <template #footer>
-          <div style="display: flex; gap: 10px; justify-content: center; padding-bottom: 10px;">
-            <el-button @click="reasonDialogVisible = false"
-              style="background: transparent; color: #888; border: 1px solid #444;">取消</el-button>
-            <el-button type="primary" :disabled="!borrowReason" @click="confirmReasonAndOpen"
-              style="background: linear-gradient(90deg, #0099a1 0%, #005f66 100%); border: 1px solid #00f2ff;">
-              确定开门
-            </el-button>
+          <div class="reason-footer">
+            <button class="footer-btn cancel" @click="cancelReasonDialog">取消</button>
+            <button class="footer-btn confirm" :class="{ disabled: !borrowReason }" :disabled="!borrowReason"
+              @click="confirmReasonAndOpen">
+              <el-icon>
+                <Unlock />
+              </el-icon>
+              确认开门
+            </button>
           </div>
         </template>
       </el-dialog>
+    </div>
+
+    <!-- 关键点2：在容器上添加 @mousedown.prevent -->
+    <!-- 这可以防止点击键盘背景时焦点丢失，但不会阻止 SimpleKeyboard 的按键点击 -->
+    <div v-if="showKeyboard" class="keyboard-container" :style="keyboardPosition" @mousedown.prevent>
+      <SimpleKeyboard v-model="currentInputValue" :defaultLayout="currentLayout" @onKeyPress="handleKeyPress"
+        @onClose.stop="showKeyboard = false" keyboardClass="show-keyboard" />
     </div>
   </div>
 </template>
 
 <script setup>
-import { ref, computed, onMounted, onUnmounted, nextTick, watch, reactive } from 'vue'
+import {
+  defineAsyncComponent,
+  ref,
+  computed,
+  onMounted,
+  onUnmounted,
+  nextTick,
+  watch,
+  reactive,
+  toRaw,
+} from 'vue'
 import {
   Box,
   SwitchButton,
@@ -540,7 +577,13 @@ import {
   CircleCheck,
   Tools,
   Pointer,
-  InfoFilled
+  // InfoFilled,
+  Aim,
+  Checked,
+  Monitor,
+  Promotion,
+  EditPen,
+  Memo,
 } from '@element-plus/icons-vue'
 import { ElMessage, ElMessageBox, ElLoading } from 'element-plus'
 import { useTimerStore } from '@/stores/timerStore'
@@ -548,6 +591,39 @@ import { useAudioStore } from '@/stores/audioStore'
 import { useConfigStore } from '@/stores/configStore'
 import { useRouter } from 'vue-router'
 const router = useRouter()
+
+import { useAuthStore } from '@/stores/authStore'
+const authStore = useAuthStore()
+
+// 快捷用途配置
+const quickReasons = [
+  { label: '作战演训', value: '作战演训', icon: Aim },
+  { label: '检修保养', value: '检修保养', icon: Tools },
+  { label: '日常勤务', value: '日常勤务', icon: Promotion },
+  { label: '公差外带', value: '公差外带', icon: Memo },
+  { label: '调拨轮换', value: '调拨轮换', icon: Checked },
+  { label: '巡检抽查', value: '巡检抽查', icon: Monitor },
+]
+
+// 选择快捷用途
+const selectQuickReason = (val) => {
+  borrowReason.value = val
+  audioStore.play('/audio/按钮点击声.mp3')
+  // 如果希望点完直接开门，可以取消注释下面这行
+  // confirmReasonAndOpen()
+}
+// 统一处理用途弹窗的取消/关闭
+const handleCloseReasonDialog = () => {
+  reasonDialogVisible.value = false
+  if (showKeyboard.value) {
+    showKeyboard.value = false
+  }
+}
+// 新增一个专门的取消函数（用于取消按钮）
+const cancelReasonDialog = () => {
+  borrowReason.value = '' // 只有点取消时才清空
+  handleCloseReasonDialog()
+}
 
 const timerStore = useTimerStore()
 const audioStore = useAudioStore()
@@ -662,6 +738,89 @@ const remainingCount = computed(() => {
   return activeBorrowList.value.filter((i) => !i.isTaken).length
 })
 
+// 2. 键盘相关状态变量
+const SimpleKeyboard = defineAsyncComponent(() => import('@/components/SimpleKeyboard_black.vue'))
+const showKeyboard = ref(false)
+const currentInputValue = ref('')
+const currentLayout = ref('default')
+const activeField = ref('')
+const cursorIndex = ref(0)
+const activeInputDom = ref(null)
+const keyboardPosition = ref({
+  bottom: '0px',
+  width: '100%',
+  left: '0px',
+  position: 'fixed',
+  'z-index': 9999,
+})
+
+// 3. 键盘核心方法
+const openKeyboard = (layout, fieldName, event) => {
+  activeField.value = fieldName
+  currentInputValue.value = borrowReason.value || '' // 绑定到领用用途
+  currentLayout.value = layout
+  showKeyboard.value = true
+
+  if (event && event.target) {
+    // 处理 el-select 内部 input 的情况
+    const inputEl =
+      event.target.tagName === 'INPUT' ? event.target : event.target.querySelector('input')
+    activeInputDom.value = inputEl
+    cursorIndex.value = inputEl.selectionStart || currentInputValue.value.length
+
+    nextTick(() => {
+      inputEl.focus()
+      inputEl.setSelectionRange(cursorIndex.value, cursorIndex.value)
+    })
+  }
+}
+
+const updateCursorPos = (event) => {
+  const inputEl =
+    event.target.tagName === 'INPUT' ? event.target : event.target.querySelector('input')
+  if (inputEl) {
+    cursorIndex.value = inputEl.selectionStart
+    activeInputDom.value = inputEl
+    console.log('光标位置已记录:', cursorIndex.value)
+  }
+}
+
+const handleKeyPress = (button) => {
+  if (button === '{close}' || button === '{submit}') {
+    showKeyboard.value = false
+    if (activeInputDom.value) activeInputDom.value.blur()
+  }
+}
+
+// 监听键盘输入同步到 borrowReason
+// 修改后的 watch 逻辑
+watch(currentInputValue, (newValue, oldValue) => {
+  if (showKeyboard.value && activeField.value === 'borrowReason') {
+    // 1. 更新数据
+    borrowReason.value = newValue
+
+    // 2. 计算光标应该移动多少位 (新长度 - 旧长度)
+    const oldLength = (oldValue || '').length
+    const newLength = (newValue || '').length
+    const diff = newLength - oldLength
+
+    // 3. 动态更新光标记录位置
+    cursorIndex.value += diff
+
+    // 边界处理：防止光标越界
+    if (cursorIndex.value < 0) cursorIndex.value = 0
+    if (cursorIndex.value > newLength) cursorIndex.value = newLength
+
+    // 4. 强制设定 DOM 光标位置
+    nextTick(() => {
+      if (activeInputDom.value) {
+        activeInputDom.value.focus()
+        activeInputDom.value.setSelectionRange(cursorIndex.value, cursorIndex.value)
+      }
+    })
+  }
+})
+
 // =================================================================
 // UI 交互方法
 // =================================================================
@@ -747,7 +906,7 @@ const confirmReasonAndOpen = () => {
   executeActualOpenDoor()
 }
 // 在变量定义区添加
-const currentProcessMode = ref('BORROW'); // 'BORROW' 或 'MAINTENANCE'
+const currentProcessMode = ref('BORROW') // 'BORROW' 或 'MAINTENANCE'
 
 // 4. 将原本 handleManualOpenDoor 里的核心开门逻辑封装成一个函数
 const executeActualOpenDoor = async () => {
@@ -767,23 +926,33 @@ const executeActualOpenDoor = async () => {
       await ElMessageBox.confirm(
         '当前列表无可领用装备，是否开启柜门进行手动维护/清理操作？',
         '维护模式确认',
-        { confirmButtonText: '确定开门', cancelButtonText: '取消', type: 'info', center: true, customClass: 'cyber-message-box' }
+        {
+          confirmButtonText: '确定开门',
+          cancelButtonText: '取消',
+          type: 'info',
+          center: true,
+          customClass: 'cyber-message-box',
+        },
       )
       isMaintenanceMode = true
-      currentProcessMode.value = 'MAINTENANCE'; // 设置为维护模式
-    } catch { return }
+      currentProcessMode.value = 'MAINTENANCE' // 设置为维护模式
+    } catch {
+      return
+    }
   } else {
-    currentProcessMode.value = 'BORROW'; // 设置为领用模式
+    currentProcessMode.value = 'BORROW' // 设置为领用模式
   }
 
   // --- C. 硬件与状态初始化 ---
   try {
     // (这里保留你原来的初始化逻辑...)
-    activeBorrowList.value = isMaintenanceMode ? [] : targets.map((item) => ({ ...item, isTaken: false }))
+    activeBorrowList.value = isMaintenanceMode
+      ? []
+      : targets.map((item) => ({ ...item, isTaken: false }))
 
     const targetIds = targets.map((i) => i.id)
     allInPlaceItems.value = equipmentList.value.filter(
-      (item) => item.group_status === '在位' && !targetIds.includes(item.id)
+      (item) => item.group_status === '在位' && !targetIds.includes(item.id),
     )
 
     borrowProcessVisible.value = true
@@ -1290,7 +1459,7 @@ const startMonitorLoop = async () => {
         // 如果想自动完成，可以在这里判断：
         if (areDoorsClosed.value) {
           // 增加一个 500ms 的二次确认（防抖），防止传感器瞬时跳变
-          await new Promise(r => setTimeout(r, 500))
+          await new Promise((r) => setTimeout(r, 500))
           const doubleCheck = await checkGlobalDoorStatus()
           if (doubleCheck) {
             await finalizeBorrow()
@@ -1374,7 +1543,17 @@ const finalizeBorrow = async () => {
 
   // await new Promise((resolve) => setTimeout(resolve, 10000)) // 模拟延迟
 
-  const currentUser = { id: 1, username: '管理员' } // 建议后期对接实际登录用户
+  // 1. 从 authStore 中获取验证通过的人员名单
+  // 假设我们将所有验证人的名字拼在一起存入数据库
+  const verifiedUsers = authStore.verifiedUsers || []
+
+  // 生成记录姓名：例如 "张三, 李四"
+  const operatorNames =
+    verifiedUsers.length > 0 ? verifiedUsers.map((u) => u.real_name).join(', ') : '系统管理员' // 兜底方案
+
+  const operatorIdCards = verifiedUsers.length > 0
+    ? verifiedUsers.map(u => u.id_card).join(', ')
+    : 'SYSTEM_ADMIN_BYPASS'
 
   // 生成标准的 YYYY-MM-DD HH:mm:ss 格式
   const now = new Date()
@@ -1401,8 +1580,10 @@ const finalizeBorrow = async () => {
                 equipment_id: item.id,
                 group_code: item.group_code,
                 group_name: item.group_name,
-                username: currentUser.username,
-                id_card: currentUser.id_card || '',
+                // --- 这里使用动态获取的姓名和身份证 ---
+                username: operatorNames,
+                id_card: operatorIdCards,
+                // ----------------------------------
                 borrow_time: timeNow,
                 status: 0, // 0 = 未归还
                 is_synced: 0,
@@ -1434,17 +1615,17 @@ const finalizeBorrow = async () => {
     borrowProcessVisible.value = false
     selectedIds.value = []
 
-    // 【修改点 3】：逻辑分支跳转
-    if (activeBorrowList.value.length > 0) {
-      // 如果发生了领用，50ms 后跳转回首页
-      setTimeout(() => {
-        router.replace('/')
-      }, 50)
-    } else {
-      // 如果只是维护开门，不跳转，留在当前页并刷新数据列表即可
-      await getData()
-      ElMessage.success('维护操作已记录，数据已刷新')
+    // 统一跳转：无论是领用还是维护，完成后均返回首页
+    if (activeBorrowList.value.length === 0) {
+      // ElMessage.success('维护操作已记录')
     }
+
+    setTimeout(() => {
+      router.replace('/')
+    }, 50)
+    // 所有数据库操作完成后，在这里统一清空
+    borrowReason.value = ''
+    borrowProcessVisible.value = false
   } catch (e) {
     audioStore.play('/audio/数据保存失败请联系管理员.mp3')
     console.error('结算失败:', e)
@@ -1556,6 +1737,7 @@ const forceExitProcess = async () => {
       })
   }
 }
+
 // entryType: 'NORMAL'(正常), 'FORCE'(强制全取), 'PARTIAL'(部分结算)
 // --- 修改后的安全提交包装器 (While循环版) ---
 // 逻辑：门没关 -> 弹窗提示(只有强制按钮) + 后台循环检测 -> 门关了自动提交 OR 用户点强制提交
@@ -1771,6 +1953,7 @@ const closeBorrowProcess = () => {
 
 // --- 生命周期 ---
 onMounted(async () => {
+  console.log('users:', toRaw(authStore.verifiedUsers))
   if (timerStore.isTimerActive) timerStore.stopInterval()
   await fetchConfigData()
   await getData()
@@ -1788,6 +1971,8 @@ onUnmounted(async () => {
       isWrite: true,
     },
   })
+  // 退出时清空用户信息
+  authStore.clearAuth()
   isPolling.value = false
   if (!timerStore.isTimerActive) timerStore.startInterval()
 })
@@ -3288,7 +3473,9 @@ onUnmounted(async () => {
 /* 当已取出的卡片被选中时，依然保持红色边框高亮，而不是原来的青色 */
 .equip-card.active.borrow-card-removed {
   border-color: var(--error) !important;
-  box-shadow: inset 0 0 20px rgba(255, 77, 79, 0.15), 0 0 10px rgba(255, 77, 79, 0.2) !important;
+  box-shadow:
+    inset 0 0 20px rgba(255, 77, 79, 0.15),
+    0 0 10px rgba(255, 77, 79, 0.2) !important;
 }
 
 /* 当“已取出”卡片被激活时，底部的动画条和发光效果也要变红 */
@@ -3367,6 +3554,43 @@ onUnmounted(async () => {
   background: var(--error) !important;
   box-shadow: 0 -2px 10px var(--error) !important;
 }
+
+/* 1. 键盘容器（移植自人员管理页） */
+.keyboard-container {
+  position: fixed !important;
+  bottom: 0 !important;
+  left: 0 !important;
+  width: 100% !important;
+  z-index: 9999 !important;
+  background-color: #141b2d !important;
+  border-top: 1px solid #00f2ff;
+  box-shadow: 0 -4px 20px rgba(0, 0, 0, 0.6);
+  border-radius: 0 !important;
+  padding: 5px 0 20px 0 !important;
+  box-sizing: border-box;
+}
+
+:deep(.show-keyboard) {
+  background-color: transparent !important;
+  color: #fff !important;
+}
+
+:deep(.show-keyboard .hg-button) {
+  background: #2a3546 !important;
+  color: #fff !important;
+  border-bottom: 2px solid #151a23 !important;
+  transition: all 0.1s;
+}
+
+:deep(.show-keyboard .hg-button:active) {
+  background: #00f2ff !important;
+  color: #000 !important;
+  transform: translateY(2px);
+}
+
+:deep(.show-keyboard .hg-functionBtn) {
+  background: #1c2538 !important;
+}
 </style>
 
 <style>
@@ -3434,5 +3658,261 @@ onUnmounted(async () => {
 .manual-confirm-btn:hover {
   background: rgba(230, 162, 60, 0.4);
   transform: scale(1.05);
+}
+</style>
+
+<style>
+/* 2. 弹窗基础样式及居中（独立命名） */
+.cyber-dialog-reason.el-dialog {
+  background-color: #141b2d !important;
+  border: 1px solid #0099a1 !important;
+  box-shadow: 0 0 20px rgba(0, 0, 0, 0.8) !important;
+  border-radius: 8px !important;
+  transition:
+    transform 0.3s cubic-bezier(0.25, 0.8, 0.25, 1),
+    top 0.3s !important;
+  top: 0 !important;
+  /* 将起点固定在屏幕最顶端 */
+  /* 初始居中状态 */
+  margin-top: 0 !important;
+  transform: translateY(calc(50vh - 50%)) !important;
+}
+
+/* 3. 键盘打开时上移（关键） */
+.cyber-dialog-reason.is-keyboard-open {
+  /*
+     直接修改偏移量：
+     将其设为一个较小的值（如 20px），弹窗就会平滑地滑向顶部
+  */
+  transform: translateY(3px) !important;
+}
+
+/* 针对 el-select 内部样式的微调 */
+:deep(.cyber-select .el-input__inner) {
+  cursor: text !important;
+}
+</style>
+
+<style>
+/* 弹窗内部布局 */
+.reason-modal-content {
+  padding: 10px 20px;
+}
+
+.tip-banner {
+  background: rgba(0, 242, 255, 0.05);
+  border-left: 3px solid var(--primary);
+  padding: 10px 15px;
+  font-size: 13px;
+  color: #00f2ff;
+  margin-bottom: 20px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+/* 卡片网格 */
+.reason-card-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 12px;
+  margin-bottom: 25px;
+}
+
+.reason-card {
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid #2a3546;
+  border-radius: 6px;
+  padding: 15px 10px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  cursor: pointer;
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  position: relative;
+  overflow: hidden;
+}
+
+.reason-card:hover {
+  background: rgba(0, 242, 255, 0.05);
+  border-color: #4a5c76;
+}
+
+.reason-card.active {
+  background: rgba(0, 242, 255, 0.1);
+  border-color: var(--primary);
+  box-shadow: 0 0 15px rgba(0, 242, 255, 0.2);
+}
+
+.card-icon {
+  font-size: 24px;
+  color: var(--text-sec);
+  transition: all 0.3s;
+}
+
+.reason-card.active .card-icon {
+  color: var(--primary);
+  transform: scale(1.1);
+}
+
+.card-label {
+  font-size: 14px;
+  color: #ccc;
+}
+
+.reason-card.active .card-label {
+  color: #fff;
+  font-weight: bold;
+}
+
+/* 激活点状态 */
+.active-dot {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--primary);
+  opacity: 0;
+  transition: opacity 0.3s;
+}
+
+.reason-card.active .active-dot {
+  opacity: 1;
+  box-shadow: 0 0 5px var(--primary);
+}
+
+/* 自定义输入区 */
+.section-divider {
+  display: flex;
+  align-items: center;
+  margin-bottom: 15px;
+}
+
+.section-divider::before,
+.section-divider::after {
+  content: '';
+  flex: 1;
+  height: 1px;
+  background: rgba(255, 255, 255, 0.05);
+}
+
+.section-divider span {
+  padding: 0 15px;
+  font-size: 12px;
+  color: #555;
+  text-transform: uppercase;
+}
+
+/* 底部按钮 */
+.reason-footer {
+  display: flex;
+  gap: 15px;
+  justify-content: center;
+  padding: 10px 20px 20px;
+}
+
+/* 键盘打开时，压缩底部留白 */
+.cyber-dialog-reason.is-keyboard-open .reason-footer {
+  padding-bottom: 0px !important;
+  padding-top: 0px !important;
+}
+
+.footer-btn {
+  flex: 1;
+  height: 45px;
+  border-radius: 4px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  font-size: 15px;
+  font-weight: bold;
+  transition: all 0.3s;
+}
+
+.footer-btn.cancel {
+  background: transparent;
+  border: 1px solid #444;
+  color: #888;
+}
+
+.footer-btn.confirm {
+  background: linear-gradient(90deg, #0099a1 0%, #005f66 100%);
+  border: 1px solid var(--primary);
+  color: #fff;
+}
+
+.footer-btn.confirm.disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+  filter: grayscale(1);
+}
+
+.footer-btn.confirm:not(.disabled):hover {
+  box-shadow: 0 0 15px rgba(0, 242, 255, 0.4);
+}
+</style>
+
+<style scoped>
+/* ==========================================================
+   [优化] 自定义用途输入框样式 - 借鉴人员管理页面风格
+   ========================================================== */
+.cyber-custom-input {
+  width: 100%;
+}
+
+/* 1. 输入框容器：深色背景 + 细边框 */
+.cyber-custom-input :deep(.el-input__wrapper) {
+  background-color: rgba(20, 27, 45, 0.9) !important;
+  /* 深蓝色背景 */
+  box-shadow: 0 0 0 1px #4a5c76 inset !important;
+  /* 默认灰色内边框 */
+  border-radius: 4px !important;
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  height: 45px;
+  padding: 0 15px;
+}
+
+/* 2. 悬停与聚焦状态：青色发光边框 */
+.cyber-custom-input :deep(.el-input__wrapper:hover),
+.cyber-custom-input :deep(.el-input__wrapper.is-focus) {
+  box-shadow: 0 0 0 1px var(--primary) inset !important;
+  /* 青色边框 */
+  background-color: rgba(0, 242, 255, 0.05) !important;
+  /* 淡淡的青色光晕 */
+}
+
+/* 3. 输入文字颜色：纯白 */
+.cyber-custom-input :deep(.el-input__inner) {
+  color: #ffffff !important;
+  font-family: 'Segoe UI', sans-serif;
+  font-size: 14px;
+}
+
+/* 4. 占位符颜色：灰蓝色 */
+.cyber-custom-input :deep(.el-input__inner::placeholder) {
+  color: #5c6d82 !important;
+}
+
+/* 5. 前缀图标颜色：青色 */
+.cyber-custom-input :deep(.el-input__prefix) {
+  color: var(--primary) !important;
+  font-size: 18px;
+}
+
+/* 6. 额外：针对 Section Divider 的文字微调，使其更协调 */
+.section-divider span {
+  padding: 0 15px;
+  font-size: 13px;
+  color: #8899a6;
+  /* 改为稍亮的灰蓝色 */
+  text-transform: uppercase;
+  letter-spacing: 2px;
+  text-shadow: 0 0 5px rgba(0, 0, 0, 0.5);
 }
 </style>

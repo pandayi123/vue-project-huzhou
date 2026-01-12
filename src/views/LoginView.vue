@@ -179,6 +179,9 @@ const router = useRouter()
 const route = useRoute()
 const timerStore = useTimerStore()
 
+import { useAuthStore } from '@/stores/authStore'
+const authStore = useAuthStore()
+
 
 // ==========================================
 // 👇 1. 新增：倒计时状态
@@ -362,7 +365,26 @@ const handleFaceSuccess = (userData) => {
 // 5. 登录成功跳转
 // ======================================================
 const triggerLoginSuccess = () => {
-  stopCountdown() // ✅ 验证成功，就不需要再倒计时了
+  stopCountdown()
+
+  // --- [新增] 提取所有验证通过的人员信息 ---
+  const users = verificationSlots.value
+    .filter(slot => slot.verified && slot.verifierInfo)
+    .map(slot => ({
+      id: slot.verifierInfo.id,
+      real_name: slot.verifierInfo.real_name,
+      role: slot.type, // user, admin, approver
+      id_card: slot.verifierInfo.id_card || '' // 假设数据库有此字段
+    }))
+
+  // 如果是系统管理员特权进入，手动构造一个身份
+  if (users.length === 0 && verificationSlots.value.every(s => s.roleName === '系统管理员')) {
+    users.push({ id: 'SYS', real_name: '系统管理员', role: 'system_admin' })
+  }
+
+  authStore.setVerifiedUsers(users) // 存入全局状态
+  // ------------------------------------
+
   setTimeout(() => {
     const targetPath = route.query.redirect || '/'
     router.replace(targetPath)
