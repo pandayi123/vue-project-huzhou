@@ -15,12 +15,12 @@
       </div>
 
       <div class="header-right">
-        <!-- 新增：一键开门按钮 -->
+        <!-- 新增：快捷领用按钮 -->
         <button class="btn-open-door" @click="handleManualOpenDoor">
           <el-icon>
             <Unlock />
           </el-icon>
-          一键开门
+          快捷领用
         </button>
 
         <button class="btn-exit" @click="handleSafeExit">
@@ -118,7 +118,7 @@
               </el-icon>
             </div>
             <div class="empty-text">等待操作指令</div>
-            <div class="empty-sub">选择装备或直接点击上方“一键开门”</div>
+            <div class="empty-sub">选择装备或直接点击上方“快捷领用”</div>
           </div>
         </template>
 
@@ -168,16 +168,6 @@
             </div>
 
             <div class="action-footer">
-              <!-- [新增] 用途选择区域 -->
-              <div class="reason-section" v-if="singleItem.group_status === '在位'">
-                <div class="reason-label">领用用途</div>
-                <el-select v-model="borrowReason" placeholder="请选择装备领用用途" allow-create filterable default-first-option
-                  class="cyber-select" popper-class="cyber-dropdown">
-                  <el-option v-for="opt in reasonOptions" :key="opt.value" :label="opt.label" :value="opt.value" />
-                </el-select>
-              </div>
-              <!-- [新增结束] -->
-
               <button class="cyber-btn" :class="{ disabled: singleItem.group_status !== '在位' }"
                 :disabled="singleItem.group_status !== '在位'" @click="handleStartBorrowProcess">
                 <div class="btn-content">
@@ -266,16 +256,6 @@
                 </el-icon>
                 系统将自动跳过 {{ selectedItems.length - validItemsCount }} 个不可用装备
               </div>
-
-              <!-- [新增] 用途选择区域 (仅当有有效项时显示) -->
-              <div class="reason-section" v-if="validItemsCount > 0">
-                <div class="reason-label">领用用途</div>
-                <el-select v-model="borrowReason" placeholder="请选择装备领用用途" allow-create filterable default-first-option
-                  class="cyber-select" popper-class="cyber-dropdown">
-                  <el-option v-for="opt in reasonOptions" :key="opt.value" :label="opt.label" :value="opt.value" />
-                </el-select>
-              </div>
-              <!-- [新增结束] -->
 
               <button class="cyber-btn" :class="{ disabled: validItemsCount === 0 }" :disabled="validItemsCount === 0"
                 @click="handleStartBorrowProcess">
@@ -389,12 +369,29 @@
                   <Tools />
                 </el-icon>
 
+                <div class="m-item-thumb">
+                  <el-image :src="item.group_image" fit="cover">
+                    <!-- 加载过程中的背景：设为深色 -->
+                    <template #placeholder>
+                      <div class="thumb-placeholder-bg"></div>
+                    </template>
+                    <!-- 加载失败或无图的显示：深色背景 + 图标 -->
+                    <template #error>
+                      <div class="thumb-err">
+                        <el-icon :size="18">
+                          <Box />
+                        </el-icon>
+                      </div>
+                    </template>
+                  </el-image>
+                </div>
+
                 <div class="m-info-group">
                   <span class="m-name">{{ item.group_name }}</span>
                   <span class="m-addr">
                     位置: {{ item.self_address }}号
                     <span v-if="isSensorDisabled(item.self_address)"
-                      style="color: #e6a23c; font-size: 10px; margin-left: 5px">(传感器已禁用)</span>
+                      style="color: #e6a23c; font-size: 13px; margin-left: 5px">(传感器已禁用)</span>
                   </span>
                 </div>
               </div>
@@ -424,12 +421,28 @@
                 <el-icon color="#ff4d4f" :size="24">
                   <Warning />
                 </el-icon>
+
+                <div class="m-item-thumb error-border">
+                  <el-image :src="errItem.group_image" fit="cover">
+                    <template #placeholder>
+                      <div class="thumb-placeholder-bg"></div>
+                    </template>
+                    <template #error>
+                      <div class="thumb-err">
+                        <el-icon :size="18">
+                          <Box />
+                        </el-icon>
+                      </div>
+                    </template>
+                  </el-image>
+                </div>
+
                 <div class="m-info-group">
                   <span class="m-name" style="color: #ff4d4f">误拿警告: {{ errItem.group_name }}</span>
                   <span class="m-addr" style="color: #ff8888">位置: {{ errItem.self_address }}号</span>
                 </div>
               </div>
-              <div class="m-status error-text">请立即放回!</div>
+              <div class="m-status error-text">误拿请放回</div>
             </div>
           </div>
 
@@ -621,7 +634,6 @@ const handleCloseReasonDialog = () => {
 }
 // 新增一个专门的取消函数（用于取消按钮）
 const cancelReasonDialog = () => {
-  borrowReason.value = '' // 只有点取消时才清空
   handleCloseReasonDialog()
 }
 
@@ -655,14 +667,6 @@ const hasPlayedCloseDoorPrompt = ref(false) // [新增] 控制关门提示音只
 
 // --- [新增] 领用用途相关变量 ---
 const borrowReason = ref('') // 绑定的用途值
-const reasonOptions = [
-  { value: '演习演练', label: '演习演练' },
-  { value: '战备执勤', label: '战备执勤' },
-  { value: '借调使用', label: '借调使用' },
-  { value: '维护保养', label: '维护保养' },
-  { value: '装备盘点', label: '装备盘点' },
-  { value: '报废处置', label: '报废处置' },
-]
 
 // --- 核心数据变量 ---
 const config_blob = ref(null)
@@ -887,98 +891,97 @@ const fetchConfigData = async () => {
 // 1. 确保引入了 Unlock 图标
 // import { ..., Unlock } from '@element-plus/icons-vue'
 
-// 2. 实现手动开门逻辑
-// 2. 修改 handleManualOpenDoor 逻辑
-const handleManualOpenDoor = async () => {
-  // 如果没有选择用途，直接弹出对话框，而不是返回
-  if (!borrowReason.value) {
-    audioStore.play('/audio/请选择装备领用用途.mp3') // 播放语音提示
-    reasonDialogVisible.value = true // 弹出专门的选择框
-    return
-  }
-
-  // 如果已经选了，直接走原有的开门逻辑函数
-  executeActualOpenDoor()
+// --- 逻辑控制变量 ---
+const isManualFullOpen = ref(false) // 标记：是否为“快捷领用”模式（打开所有锁）
+// 1. 【调整】快捷领用按钮触发
+const handleManualOpenDoor = () => {
+  isManualFullOpen.value = true // 标记为：全开模式
+  borrowReason.value = ''
+  audioStore.play('/audio/请选择装备领用用途.mp3')
+  reasonDialogVisible.value = true
 }
 // 3. 弹窗点击确认后的逻辑
 const confirmReasonAndOpen = () => {
+  if (!borrowReason.value) return
   reasonDialogVisible.value = false
-  executeActualOpenDoor()
+  executeActualOpenDoor() // 此函数会处理：有选中则领用，没选中则进入维护/全部模式
 }
 // 在变量定义区添加
 const currentProcessMode = ref('BORROW') // 'BORROW' 或 'MAINTENANCE'
 
-// 4. 将原本 handleManualOpenDoor 里的核心开门逻辑封装成一个函数
+// 4. 【核心重构】合并并增强执行逻辑
 const executeActualOpenDoor = async () => {
-  // --- A. 确定目标 ---
   let targets = []
   let isMaintenanceMode = false
 
-  if (selectedIds.value.length > 0) {
-    targets = selectedItems.value.filter((item) => item.group_status === '在位')
-  } else {
+  // --- A. 确定监控目标 ---
+  if (isManualFullOpen.value) {
+    // 【全开模式】：目标是列表里所有在位的装备
     targets = equipmentList.value.filter((item) => item.group_status === '在位')
-  }
-
-  // --- B. 维护模式逻辑 ---
-  if (targets.length === 0) {
-    try {
-      await ElMessageBox.confirm(
-        '当前列表无可领用装备，是否开启柜门进行手动维护/清理操作？',
-        '维护模式确认',
-        {
-          confirmButtonText: '确定开门',
-          cancelButtonText: '取消',
-          type: 'info',
-          center: true,
-          customClass: 'cyber-message-box',
-        },
-      )
+    if (targets.length === 0) {
       isMaintenanceMode = true
-      currentProcessMode.value = 'MAINTENANCE' // 设置为维护模式
-    } catch {
-      return
+      currentProcessMode.value = 'MAINTENANCE'
+    } else {
+      currentProcessMode.value = 'BORROW'
     }
   } else {
-    currentProcessMode.value = 'BORROW' // 设置为领用模式
+    // 【精准领用模式】：目标仅为选中的在位装备
+    targets = selectedItems.value.filter((item) => item.group_status === '在位')
+    currentProcessMode.value = 'BORROW'
   }
 
-  // --- C. 硬件与状态初始化 ---
+  // --- B. 初始化数据状态 (合并 handleStartBorrowProcess 的初始化逻辑) ---
+  activeBorrowList.value = targets.map((item) => ({ ...item, isTaken: false }))
+  wrongTakenList.value = []
+
+  const targetIds = targets.map((i) => i.id)
+  // 计算哪些是在位但“不该拿”的装备 (用于误拿报警)
+  allInPlaceItems.value = equipmentList.value.filter(
+    (item) => item.group_status === '在位' && !targetIds.includes(item.id),
+  )
+
+  borrowProcessVisible.value = true
+  isPolling.value = true
+  areDoorsClosed.value = false
+  hasPlayedCloseDoorPrompt.value = false
+
+  // --- C. 硬件操作：根据模式决定开锁范围 ---
   try {
-    // (这里保留你原来的初始化逻辑...)
-    activeBorrowList.value = isMaintenanceMode
-      ? []
-      : targets.map((item) => ({ ...item, isTaken: false }))
-
-    const targetIds = targets.map((i) => i.id)
-    allInPlaceItems.value = equipmentList.value.filter(
-      (item) => item.group_status === '在位' && !targetIds.includes(item.id),
-    )
-
-    borrowProcessVisible.value = true
-    isPolling.value = true
-    areDoorsClosed.value = false
-    hasPlayedCloseDoorPrompt.value = false
-
-    // --- E. 硬件操作：开启所有柜门 ---
     const uniqueLockAddresses = new Set()
-    // 获取配置中所有的锁地址 (因为是手动/维护模式，通常需要打开所有门)
-    if (config_blob.value?.lock?.details) {
-      config_blob.value.lock.details.forEach((l) => {
-        if (l.open_lock_register_address) uniqueLockAddresses.add(l.open_lock_register_address)
+
+    if (isManualFullOpen.value || isMaintenanceMode) {
+      // 【全开/维护模式】：获取配置中所有的锁地址
+      if (config_blob.value?.lock?.details) {
+        config_blob.value.lock.details.forEach((l) => {
+          if (l.open_lock_register_address) uniqueLockAddresses.add(l.open_lock_register_address)
+        })
+      }
+    } else {
+      // 【精准领用模式】：只获取选中装备对应的锁地址
+      targets.forEach((item) => {
+        const addr = getLockRegisterAddress(item)
+        if (addr) uniqueLockAddresses.add(addr)
       })
     }
 
-    // audioStore.play('/audio/柜门已打开请取出装备.mp3')
+    // 执行开锁音效
+    audioStore.play('/audio/柜门已打开请取出装备.mp3')
 
+    // 循环发送开锁指令
     for (const lockRegister of uniqueLockAddresses) {
       await window.electronAPI.el_post({
         action: 'control_register',
-        payload: { deviceAddress: 201, registerAddress: lockRegister, value: 80, isWrite: true },
+        payload: {
+          deviceAddress: 201,
+          registerAddress: lockRegister,
+          value: 80,
+          isWrite: true,
+        },
       })
-      await new Promise((r) => setTimeout(r, 300))
+      await new Promise((r) => setTimeout(r, 200)) // 适当缩短间隔提高响应感
     }
-    // 亮灯
+
+    // 统一亮灯
     await window.electronAPI.el_post({
       action: 'control_register',
       payload: { deviceAddress: 201, registerAddress: 12, value: 900000, isWrite: true },
@@ -986,7 +989,8 @@ const executeActualOpenDoor = async () => {
 
     startMonitorLoop()
   } catch (error) {
-    console.error('流程异常:', error)
+    console.error('流程执行异常:', error)
+    // ElMessage.error('硬件响应超时，请重试')
   }
 }
 const getData = async () => {
@@ -1239,19 +1243,33 @@ const checkGlobalDoorStatus = async () => {
 // =================================================================
 
 // 1. 启动领用流程
-const handleStartBorrowProcess = async () => {
-  // --- [新增] 校验用途必填 ---
-  if (!borrowReason.value) {
-    audioStore.play('/audio/请选择装备领用用途.mp3') // 建议加一个提示音
+// 2. 【调整】右下角“立即领用/批量领用”按钮触发
+const handleStartBorrowProcess = () => {
+  // 校验是否有选中的在位装备
+  const itemsToBorrow = selectedItems.value.filter((item) => item.group_status === '在位')
+  if (itemsToBorrow.length === 0) {
+    audioStore.play('/audio/没有可领用的装备选中.mp3')
     return
   }
 
+  isManualFullOpen.value = false // 标记为：精准领用模式（仅开选中的锁）
+  borrowReason.value = ''
+  audioStore.play('/audio/请选择装备领用用途.mp3')
+  reasonDialogVisible.value = true
+}
+/*
+const handleStartBorrowProcess = async () => {
   const itemsToBorrow = selectedItems.value.filter((item) => item.group_status === '在位')
 
   if (itemsToBorrow.length === 0) {
     audioStore.play('/audio/没有可领用的装备选中.mp3')
     return
   }
+
+  // B. 逻辑对齐：像快捷领用一样，先清空用途并弹出确认框
+  borrowReason.value = ''
+  audioStore.play('/audio/请选择装备领用用途.mp3')
+  reasonDialogVisible.value = true
 
   // 1.1 初始化状态
   activeBorrowList.value = itemsToBorrow.map((item) => ({
@@ -1313,6 +1331,7 @@ const handleStartBorrowProcess = async () => {
   // 1.5 启动硬件轮询
   startMonitorLoop()
 }
+*/
 
 // 辅助：获取锁地址
 const getLockRegisterAddress = (item) => {
@@ -1551,9 +1570,10 @@ const finalizeBorrow = async () => {
   const operatorNames =
     verifiedUsers.length > 0 ? verifiedUsers.map((u) => u.real_name).join(', ') : '系统管理员' // 兜底方案
 
-  const operatorIdCards = verifiedUsers.length > 0
-    ? verifiedUsers.map(u => u.id_card).join(', ')
-    : 'SYSTEM_ADMIN_BYPASS'
+  const operatorIdCards =
+    verifiedUsers.length > 0
+      ? verifiedUsers.map((u) => u.id_card).join(', ')
+      : 'SYSTEM_ADMIN_BYPASS'
 
   // 生成标准的 YYYY-MM-DD HH:mm:ss 格式
   const now = new Date()
@@ -3219,7 +3239,7 @@ onUnmounted(async () => {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  padding: 12px;
+  padding: 10px 12px; /* 稍微减小上下 padding，增加紧凑感 */
   border-bottom: 1px solid rgba(255, 255, 255, 0.05);
   transition: all 0.3s;
 }
@@ -3250,13 +3270,68 @@ onUnmounted(async () => {
 }
 
 .m-addr {
-  font-size: 11px;
+  font-size: 13px;
   color: #666;
 }
 
 .m-status {
   font-size: 12px;
   color: #888;
+}
+
+/* ==========================================================
+   监控列表缩略图样式优化
+   ========================================================== */
+.m-item-thumb {
+  width: 90px;   /* 宽度设为 90px */
+  height: 65px;  /* 高度设为 55px */
+  border-radius: 4px;
+  overflow: hidden;
+  border: 1px solid var(--border);
+  background: #0d121c; /* 默认底色：与主背景一致的深色 */
+  flex-shrink: 0;
+  margin-right: 2px;
+}
+
+/* 拿错时的图片边框 */
+.m-item-thumb.error-border {
+  border-color: var(--error);
+  box-shadow: 0 0 8px rgba(255, 77, 79, 0.4);
+}
+
+/* 强制 el-image 撑满容器 */
+.m-item-thumb :deep(.el-image) {
+  width: 100%;
+  height: 100%;
+  display: block;
+}
+
+/* 占位/加载中背景 */
+.thumb-placeholder-bg {
+  width: 100%;
+  height: 100%;
+  background: #0d121c;
+}
+
+/* 错误/无图状态 */
+.thumb-err {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: #0d121c; /* 关键：确保这里不是白色 */
+  color: #334155; /* 图标颜色设为灰蓝色，不刺眼 */
+}
+
+/* 让 el-image 内部组件背景透明 */
+.m-item-thumb :deep(.el-image__inner) {
+  background: transparent !important;
+}
+
+.m-item-thumb :deep(.el-image__error),
+.m-item-thumb :deep(.el-image__placeholder) {
+  background: #0d121c !important; /* 强制覆盖 Element Plus 默认的浅色背景 */
 }
 
 .pulse-icon {

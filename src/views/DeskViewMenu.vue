@@ -26,7 +26,7 @@ const router = useRouter()
 const activeButton = ref('')
 const isAnimating = ref(false)
 
-const serviceMenu = ref(['领用', '归还', '盘点', '日志', '系统状态', '系统设置', '反馈更新' /*'出厂测试'*/])
+const serviceMenu = ref(['领用', '归还', '盘点', '日志', /*'系统状态',*/ '系统设置', /*'反馈更新','出厂测试'*/])
 // === 新增：统一跳转到验证页面的函数 ===
 const goToVerification = (targetPath, functionName) => {
   router.push({
@@ -61,6 +61,10 @@ const handleFunctionClick = async (functionName) => {
         break;
       case '出厂测试':
         router.push('/factorytest')
+        break;
+      case '反馈更新':
+        // 无需 goToVerification，直接跳转
+        router.push('/feedbackupdate')
         break;
       default:
         console.warn(`未配置的功能: ${functionName}`)
