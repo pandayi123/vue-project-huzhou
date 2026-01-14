@@ -197,7 +197,7 @@ const startCountdown = () => {
   // 先清除旧的，防止重复启动
   if (countdownTimer.value) clearInterval(countdownTimer.value)
 
-  countdown.value = 60 // 每次重置为 60 秒
+  countdown.value = 120 // 每次重置为 60 秒
 
   countdownTimer.value = setInterval(() => {
     countdown.value--

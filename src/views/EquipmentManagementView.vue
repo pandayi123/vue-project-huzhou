@@ -79,7 +79,7 @@
             </el-form-item>
           </el-col>
           <el-col :span="12">
-            <el-form-item label="装备名称">
+            <el-form-item label="装备名称" prop="group_name">
               <el-input v-model="form_add_new.group_name" placeholder="请输入装备名称"
                 @focus="openKeyboard('default', 'group_name', -1)" size="large"
                 style="width: 5.6rem; font-size: 0.26rem"></el-input>
@@ -280,12 +280,12 @@
                   size="large">一体柜</el-button>
                 <div v-else-if="config_blob?.lock?.details?.length === 2">
                   <el-button size="large" style="font-size: 0.26rem" @click="handleCabinetSelection(0)" :type="form_add_new.lock_self_address === config_blob.lock.details[0].self_address
-                      ? 'primary'
-                      : 'default'
+                    ? 'primary'
+                    : 'default'
                     ">上柜体</el-button>
                   <el-button size="large" style="font-size: 0.26rem" @click="handleCabinetSelection(1)" :type="form_add_new.lock_self_address === config_blob.lock.details[1].self_address
-                      ? 'primary'
-                      : 'default'
+                    ? 'primary'
+                    : 'default'
                     ">下柜体</el-button>
                 </div>
               </el-form-item>
@@ -1869,6 +1869,8 @@ const validateMainLockAddress = (rule, value, callback) => {
   if (value === null || value === undefined || value === '') {
     if (rule.field === 'group_code') {
       callback(new Error('装备编号不能为空'))
+    } else if (rule.field === 'group_name') { // <-- 新增这一行
+      callback(new Error('装备名称不能为空'))  // <-- 新增这一行
     } else if (rule.field.includes('chip_code')) {
       callback(new Error('芯片编号不能为空'))
     } else if (rule.field === 'self_address') {
@@ -2095,6 +2097,8 @@ const clearForm = async () => {
 }
 const rules = {
   group_code: [{ required: true, validator: validateMainLockAddress, trigger: ['blur', 'change'] }],
+  // === 新增：装备名称校验规则 ===
+  group_name: [{ required: true, validator: validateMainLockAddress, trigger: ['blur', 'change'] }],
   equipment_code: [
     { required: true, validator: validateMainLockAddress, trigger: ['blur', 'change'] },
   ],

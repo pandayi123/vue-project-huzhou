@@ -69,10 +69,15 @@ const router = createRouter({
       name: 'informationsettings',
       component: () => import('@/views/InformationSettings.vue'),
     },
-     {
+    {
       path: '/feedbackupdate',
       name: 'feedbackupdate',
       component: () => import('@/views/feedbackUpdate.vue'),
+    },
+    {
+      path: '/logs',
+      name: 'logs',
+      component: () => import('@/views/logsView.vue'),
     },
   ],
 })

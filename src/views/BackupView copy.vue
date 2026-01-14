@@ -15,12 +15,12 @@
       </div>
 
       <div class="header-right">
-        <!-- 新增：一键开门按钮 -->
+        <!-- 新增：快捷领用按钮 -->
         <button class="btn-open-door" @click="handleManualOpenDoor">
           <el-icon>
             <Unlock />
           </el-icon>
-          一键开门
+          快捷领用
         </button>
 
         <button class="btn-exit" @click="handleSafeExit">
@@ -47,14 +47,9 @@
           <!-- 平滑切换的标签栏 -->
           <div class="filter-tabs" ref="tabsContainer">
             <div class="tab-glider" :style="gliderStyle"></div>
-            <span
-              v-for="(tab, index) in filterOptions"
-              :key="tab.value"
-              class="tab"
-              :class="{ active: currentFilter === tab.value }"
-              :ref="(el) => (tabRefs[index] = el)"
-              @click="setFilter(tab.value)"
-            >
+            <span v-for="(tab, index) in filterOptions" :key="tab.value" class="tab"
+              :class="{ active: currentFilter === tab.value }" :ref="(el) => (tabRefs[index] = el)"
+              @click="setFilter(tab.value)">
               {{ tab.label }}
             </span>
           </div>
@@ -62,26 +57,17 @@
 
         <el-scrollbar class="scroll-area">
           <div class="card-grid">
-            <div
-              v-for="item in filteredList"
-              :key="item.id"
-              class="equip-card"
-              :class="{
-                active: selectedIds.includes(item.id),
-                'borrow-card-removed': item.group_status !== '在位',
-              }"
-              @click="toggleSelect(item.id)"
-            >
+            <div v-for="item in filteredList" :key="item.id" class="equip-card" :class="{
+              active: selectedIds.includes(item.id),
+              'borrow-card-removed': item.group_status !== '在位',
+            }" @click="toggleSelect(item.id)">
               <div class="check-ribbon" v-if="selectedIds.includes(item.id)">
                 <el-icon>
                   <Check />
                 </el-icon>
               </div>
 
-              <div
-                class="card-status-badge"
-                :class="item.group_status === '在位' ? 'st-in' : 'borrow-tag-removed'"
-              >
+              <div class="card-status-badge" :class="item.group_status === '在位' ? 'st-in' : 'borrow-tag-removed'">
                 {{ item.group_status }}
               </div>
 
@@ -132,7 +118,7 @@
               </el-icon>
             </div>
             <div class="empty-text">等待操作指令</div>
-            <div class="empty-sub">选择装备或直接点击上方“一键开门”</div>
+            <div class="empty-sub">选择装备或直接点击上方“快捷领用”</div>
           </div>
         </template>
 
@@ -142,10 +128,8 @@
             <div class="detail-header">
               <div class="header-title-group">
                 <div class="big-name">{{ singleItem.group_name }}</div>
-                <div
-                  class="status-tag-large"
-                  :class="singleItem.group_status === '在位' ? 'st-in' : 'borrow-tag-removed'"
-                >
+                <div class="status-tag-large"
+                  :class="singleItem.group_status === '在位' ? 'st-in' : 'borrow-tag-removed'">
                   {{ singleItem.group_status }}
                 </div>
               </div>
@@ -163,10 +147,8 @@
               </div>
               <div class="info-row">
                 <span class="label">存放位置</span>
-                <span class="value"
-                  >{{ singleItem.self_address }} 号位 /
-                  {{ singleItem.lock_self_address === 1 ? '上柜' : '下柜' }}</span
-                >
+                <span class="value">{{ singleItem.self_address }} 号位 /
+                  {{ singleItem.lock_self_address === 1 ? '上柜' : '下柜' }}</span>
               </div>
               <div class="info-row">
                 <span class="label">包含芯片</span>
@@ -186,12 +168,8 @@
             </div>
 
             <div class="action-footer">
-              <button
-                class="cyber-btn"
-                :class="{ disabled: singleItem.group_status !== '在位' }"
-                :disabled="singleItem.group_status !== '在位'"
-                @click="handleStartBorrowProcess"
-              >
+              <button class="cyber-btn" :class="{ disabled: singleItem.group_status !== '在位' }"
+                :disabled="singleItem.group_status !== '在位'" @click="handleStartBorrowProcess">
                 <div class="btn-content">
                   <el-icon :size="24" v-if="singleItem.group_status === '在位'">
                     <Unlock />
@@ -202,7 +180,7 @@
                   <div class="text-group">
                     <span class="btn-main-text">{{
                       singleItem.group_status === '在位' ? '立即领用' : '不可领用'
-                    }}</span>
+                      }}</span>
                     <span class="btn-sub-text">{{
                       singleItem.group_status === '在位'
                         ? '操作溯源 · 异常监控'
@@ -252,19 +230,12 @@
                     <div class="b-code" :title="item.group_code">{{ item.group_code }}</div>
                   </div>
                   <div class="item-right">
-                    <button
-                      class="btn-icon-view"
-                      @click.stop="openDetailModal(item)"
-                      title="查看详情"
-                    >
+                    <button class="btn-icon-view" @click.stop="openDetailModal(item)" title="查看详情">
                       <el-icon>
                         <View />
                       </el-icon>
                     </button>
-                    <span
-                      class="mini-tag"
-                      :class="item.group_status === '在位' ? 'st-in' : 'borrow-tag-removed'"
-                    >
+                    <span class="mini-tag" :class="item.group_status === '在位' ? 'st-in' : 'borrow-tag-removed'">
                       {{ item.group_status }}
                     </span>
                     <div class="b-pos">{{ item.self_address }}号</div>
@@ -286,12 +257,8 @@
                 系统将自动跳过 {{ selectedItems.length - validItemsCount }} 个不可用装备
               </div>
 
-              <button
-                class="cyber-btn"
-                :class="{ disabled: validItemsCount === 0 }"
-                :disabled="validItemsCount === 0"
-                @click="handleStartBorrowProcess"
-              >
+              <button class="cyber-btn" :class="{ disabled: validItemsCount === 0 }" :disabled="validItemsCount === 0"
+                @click="handleStartBorrowProcess">
                 <div class="btn-content">
                   <el-icon :size="24">
                     <Collection />
@@ -309,21 +276,12 @@
       </div>
 
       <!-- 详情查看弹窗 (只读) -->
-      <el-dialog
-        v-model="detailVisible"
-        title="装备详情概览"
-        width="400px"
-        class="cyber-dialog"
-        :append-to-body="true"
-        :destroy-on-close="true"
-      >
+      <el-dialog v-model="detailVisible" title="装备详情概览" width="400px" class="cyber-dialog" :append-to-body="true"
+        :destroy-on-close="true">
         <div class="detail-card-modal">
           <div class="detail-header-modal">
             <div class="big-name-modal">{{ viewingItem.group_name }}</div>
-            <div
-              class="status-tag-large"
-              :class="viewingItem.group_status === '在位' ? 'st-in' : 'st-out'"
-            >
+            <div class="status-tag-large" :class="viewingItem.group_status === '在位' ? 'st-in' : 'st-out'">
               {{ viewingItem.group_status }}
             </div>
           </div>
@@ -359,19 +317,9 @@
       </el-dialog>
 
       <!-- ================= 核心：实时领用监控弹窗 (全屏遮罩) ================= -->
-      <el-dialog
-        v-model="borrowProcessVisible"
-        :show-close="false"
-        :close-on-click-modal="false"
-        width="600px"
-        class="cyber-dialog process-dialog"
-        center
-        :append-to-body="true"
-      >
-        <div
-          class="process-container"
-          :class="{ 'mode-maintenance': currentProcessMode === 'MAINTENANCE' }"
-        >
+      <el-dialog v-model="borrowProcessVisible" :show-close="false" :close-on-click-modal="false" width="600px"
+        class="cyber-dialog process-dialog" center :append-to-body="true">
+        <div class="process-container" :class="{ 'mode-maintenance': currentProcessMode === 'MAINTENANCE' }">
           <!-- 标题区：动态文案 -->
           <div class="process-header">
             <div class="p-title">
@@ -400,14 +348,11 @@
               <div class="tip-text">当前处于手动维护/检修模式</div>
               <!--
               <div class="tip-sub">系统已开启安全监控，请勿随意移动柜内装备</div>
-            --></div>
+            -->
+            </div>
             <!-- 待领取的正确装备 -->
-            <div
-              v-for="item in activeBorrowList"
-              :key="'target-' + item.id"
-              class="m-item"
-              :class="{ taken: item.isTaken }"
-            >
+            <div v-for="item in activeBorrowList" :key="'target-' + item.id" class="m-item"
+              :class="{ taken: item.isTaken }">
               <div class="m-left">
                 <!-- 情况1：已经取出了 (无论是自动感应还是手动点击) -->
                 <el-icon v-if="item.isTaken" color="#00ff9d" :size="20">
@@ -415,12 +360,7 @@
                 </el-icon>
 
                 <!-- 情况2：还没取出，且传感器是好的 -> 显示雷达动画等待感应 -->
-                <el-icon
-                  v-else-if="!isSensorDisabled(item.self_address)"
-                  class="pulse-icon"
-                  color="#00f2ff"
-                  :size="20"
-                >
+                <el-icon v-else-if="!isSensorDisabled(item.self_address)" class="pulse-icon" color="#00f2ff" :size="20">
                   <Location />
                 </el-icon>
 
@@ -429,15 +369,29 @@
                   <Tools />
                 </el-icon>
 
+                <div class="m-item-thumb">
+                  <el-image :src="item.group_image" fit="cover">
+                    <!-- 加载过程中的背景：设为深色 -->
+                    <template #placeholder>
+                      <div class="thumb-placeholder-bg"></div>
+                    </template>
+                    <!-- 加载失败或无图的显示：深色背景 + 图标 -->
+                    <template #error>
+                      <div class="thumb-err">
+                        <el-icon :size="18">
+                          <Box />
+                        </el-icon>
+                      </div>
+                    </template>
+                  </el-image>
+                </div>
+
                 <div class="m-info-group">
                   <span class="m-name">{{ item.group_name }}</span>
                   <span class="m-addr">
                     位置: {{ item.self_address }}号
-                    <span
-                      v-if="isSensorDisabled(item.self_address)"
-                      style="color: #e6a23c; font-size: 10px; margin-left: 5px"
-                      >(传感器已禁用)</span
-                    >
+                    <span v-if="isSensorDisabled(item.self_address)"
+                      style="color: #e6a23c; font-size: 13px; margin-left: 5px">(传感器已禁用)</span>
                   </span>
                 </div>
               </div>
@@ -448,11 +402,8 @@
                 <span v-if="item.isTaken" class="success-text">已取出</span>
 
                 <!-- 状态B: 传感器坏了/禁用 -> 显示手动按钮 -->
-                <button
-                  v-else-if="isSensorDisabled(item.self_address)"
-                  class="manual-confirm-btn"
-                  @click="manualConfirmTaken(item)"
-                >
+                <button v-else-if="isSensorDisabled(item.self_address)" class="manual-confirm-btn"
+                  @click="manualConfirmTaken(item)">
                   <el-icon>
                     <Pointer />
                   </el-icon>
@@ -465,25 +416,33 @@
             </div>
 
             <!-- 报警区域：检测到拿错的装备 -->
-            <div
-              v-for="errItem in wrongTakenList"
-              :key="'wrong-' + errItem.id"
-              class="m-item error-shake"
-            >
+            <div v-for="errItem in wrongTakenList" :key="'wrong-' + errItem.id" class="m-item error-shake">
               <div class="m-left">
                 <el-icon color="#ff4d4f" :size="24">
                   <Warning />
                 </el-icon>
+
+                <div class="m-item-thumb error-border">
+                  <el-image :src="errItem.group_image" fit="cover">
+                    <template #placeholder>
+                      <div class="thumb-placeholder-bg"></div>
+                    </template>
+                    <template #error>
+                      <div class="thumb-err">
+                        <el-icon :size="18">
+                          <Box />
+                        </el-icon>
+                      </div>
+                    </template>
+                  </el-image>
+                </div>
+
                 <div class="m-info-group">
-                  <span class="m-name" style="color: #ff4d4f"
-                    >误拿警告: {{ errItem.group_name }}</span
-                  >
-                  <span class="m-addr" style="color: #ff8888"
-                    >位置: {{ errItem.self_address }}号</span
-                  >
+                  <span class="m-name" style="color: #ff4d4f">误拿警告: {{ errItem.group_name }}</span>
+                  <span class="m-addr" style="color: #ff8888">位置: {{ errItem.self_address }}号</span>
                 </div>
               </div>
-              <div class="m-status error-text">请立即放回!</div>
+              <div class="m-status error-text">误拿请放回</div>
             </div>
           </div>
 
@@ -508,10 +467,8 @@
             <!-- [修改点] 底部增加关门提示与按钮禁用逻辑 -->
 
             <!-- 如果装备全取走，且没有拿错，但门没关，显示黄色闪烁提示 -->
-            <div
-              v-if="remainingCount === 0 && wrongTakenList.length === 0 && !areDoorsClosed"
-              class="door-warning-anim"
-            >
+            <div v-if="remainingCount === 0 && wrongTakenList.length === 0 && !areDoorsClosed"
+              class="door-warning-anim">
               <el-icon class="is-loading">
                 <Loading />
               </el-icon>
@@ -524,13 +481,8 @@
                  2. :class disabled-state 动态添加灰色样式
                  3. :disabled 动态禁用，如果门没关就不能点
               -->
-              <button
-                v-if="remainingCount === 0 && wrongTakenList.length === 0"
-                class="cyber-btn finish-btn"
-                :class="{ 'disabled-state': !areDoorsClosed }"
-                :disabled="!areDoorsClosed"
-                @click="finalizeBorrow"
-              >
+              <button v-if="remainingCount === 0 && wrongTakenList.length === 0" class="cyber-btn finish-btn"
+                :class="{ 'disabled-state': !areDoorsClosed }" :disabled="!areDoorsClosed" @click="finalizeBorrow">
                 <!----建议：目前的“手动点击完成”更安全，因为有时候传感器会因为风吹或者抖动瞬间闭合又断开，
                       自动完成可能会在用户还没完全确认时就提交了。保留手动点击按钮是更稳健的选择。-->
                 <span v-if="areDoorsClosed">确认已关门并完成</span>
@@ -538,11 +490,9 @@
               </button>
 
               <!-- 紧急停止/人工干预 -->
-              <button
-                class="btn-text-action danger"
+              <button class="btn-text-action danger"
                 style="margin-top: 15px; margin-left: auto; font-size: 14px; margin-right: auto"
-                @click="forceExitProcess"
-              >
+                @click="forceExitProcess">
                 人工强制结束
               </button>
             </div>
@@ -551,26 +501,14 @@
       </el-dialog>
 
       <!-- ================= [新增] 专门的用途确认弹窗 ================= -->
-      <el-dialog
-        v-model="reasonDialogVisible"
-        title="请选择或输入本次操作的用途"
-        width="550px"
-        class="cyber-dialog cyber-dialog-reason"
-        :class="{ 'is-keyboard-open': showKeyboard }"
-        :close-on-click-modal="false"
-        destroy-on-close
-        @close="handleCloseReasonDialog"
-      >
+      <el-dialog v-model="reasonDialogVisible" title="请选择或输入本次操作的用途" width="550px"
+        class="cyber-dialog cyber-dialog-reason" :class="{ 'is-keyboard-open': showKeyboard }"
+        :close-on-click-modal="false" destroy-on-close @close="handleCloseReasonDialog">
         <div class="reason-modal-content">
           <!-- 1. 快捷选项卡片网格 -->
           <div class="reason-card-grid">
-            <div
-              v-for="opt in quickReasons"
-              :key="opt.value"
-              class="reason-card"
-              :class="{ active: borrowReason === opt.value }"
-              @click="selectQuickReason(opt.value)"
-            >
+            <div v-for="opt in quickReasons" :key="opt.value" class="reason-card"
+              :class="{ active: borrowReason === opt.value }" @click="selectQuickReason(opt.value)">
               <!-- 修改点：使用 el-icon 包装动态组件 -->
               <el-icon class="card-icon" :size="28">
                 <component :is="opt.icon" />
@@ -585,14 +523,9 @@
             <div class="section-divider">
               <span>或者输入自定义详细用途</span>
             </div>
-            <el-input
-              v-model="borrowReason"
-              placeholder="在此输入自定义详细用途..."
-              class="cyber-custom-input"
-              @focus="openKeyboard('default', 'borrowReason', $event)"
-              @click="updateCursorPos"
-              @keyup="updateCursorPos"
-            >
+            <el-input v-model="borrowReason" placeholder="在此输入自定义详细用途..." class="cyber-custom-input"
+              @focus="openKeyboard('default', 'borrowReason', $event)" @click="updateCursorPos"
+              @keyup="updateCursorPos">
               <template #prefix>
                 <el-icon>
                   <EditPen />
@@ -605,12 +538,8 @@
         <template #footer>
           <div class="reason-footer">
             <button class="footer-btn cancel" @click="cancelReasonDialog">取消</button>
-            <button
-              class="footer-btn confirm"
-              :class="{ disabled: !borrowReason }"
-              :disabled="!borrowReason"
-              @click="confirmReasonAndOpen"
-            >
+            <button class="footer-btn confirm" :class="{ disabled: !borrowReason }" :disabled="!borrowReason"
+              @click="confirmReasonAndOpen">
               <el-icon>
                 <Unlock />
               </el-icon>
@@ -623,19 +552,9 @@
 
     <!-- 关键点2：在容器上添加 @mousedown.prevent -->
     <!-- 这可以防止点击键盘背景时焦点丢失，但不会阻止 SimpleKeyboard 的按键点击 -->
-    <div
-      v-if="showKeyboard"
-      class="keyboard-container"
-      :style="keyboardPosition"
-      @mousedown.prevent
-    >
-      <SimpleKeyboard
-        v-model="currentInputValue"
-        :defaultLayout="currentLayout"
-        @onKeyPress="handleKeyPress"
-        @onClose.stop="showKeyboard = false"
-        keyboardClass="show-keyboard"
-      />
+    <div v-if="showKeyboard" class="keyboard-container" :style="keyboardPosition" @mousedown.prevent>
+      <SimpleKeyboard v-model="currentInputValue" :defaultLayout="currentLayout" @onKeyPress="handleKeyPress"
+        @onClose.stop="showKeyboard = false" keyboardClass="show-keyboard" />
     </div>
   </div>
 </template>
@@ -685,6 +604,7 @@ import { useAudioStore } from '@/stores/audioStore'
 import { useConfigStore } from '@/stores/configStore'
 import { useRouter } from 'vue-router'
 const router = useRouter()
+import plugins from '../assets/js/plugin'
 
 import { useAuthStore } from '@/stores/authStore'
 const authStore = useAuthStore()
@@ -973,8 +893,8 @@ const fetchConfigData = async () => {
 // import { ..., Unlock } from '@element-plus/icons-vue'
 
 // --- 逻辑控制变量 ---
-const isManualFullOpen = ref(false) // 标记：是否为“一键开门”模式（打开所有锁）
-// 1. 【调整】一键开门按钮触发
+const isManualFullOpen = ref(false) // 标记：是否为“快捷领用”模式（打开所有锁）
+// 1. 【调整】快捷领用按钮触发
 const handleManualOpenDoor = () => {
   isManualFullOpen.value = true // 标记为：全开模式
   borrowReason.value = ''
@@ -1347,7 +1267,7 @@ const handleStartBorrowProcess = async () => {
     return
   }
 
-  // B. 逻辑对齐：像一键开门一样，先清空用途并弹出确认框
+  // B. 逻辑对齐：像快捷领用一样，先清空用途并弹出确认框
   borrowReason.value = ''
   audioStore.play('/audio/请选择装备领用用途.mp3')
   reasonDialogVisible.value = true
@@ -2059,6 +1979,7 @@ onMounted(async () => {
   await fetchConfigData()
   await getData()
   updateGlider()
+  plugins.logUserAction('点击事件', `登录装备领用页面`, {})
 })
 
 onUnmounted(async () => {
@@ -3320,7 +3241,8 @@ onUnmounted(async () => {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  padding: 12px;
+  padding: 10px 12px;
+  /* 稍微减小上下 padding，增加紧凑感 */
   border-bottom: 1px solid rgba(255, 255, 255, 0.05);
   transition: all 0.3s;
 }
@@ -3351,13 +3273,74 @@ onUnmounted(async () => {
 }
 
 .m-addr {
-  font-size: 11px;
+  font-size: 13px;
   color: #666;
 }
 
 .m-status {
   font-size: 12px;
   color: #888;
+}
+
+/* ==========================================================
+   监控列表缩略图样式优化
+   ========================================================== */
+.m-item-thumb {
+  width: 90px;
+  /* 宽度设为 90px */
+  height: 65px;
+  /* 高度设为 55px */
+  border-radius: 4px;
+  overflow: hidden;
+  border: 1px solid var(--border);
+  background: #0d121c;
+  /* 默认底色：与主背景一致的深色 */
+  flex-shrink: 0;
+  margin-right: 2px;
+}
+
+/* 拿错时的图片边框 */
+.m-item-thumb.error-border {
+  border-color: var(--error);
+  box-shadow: 0 0 8px rgba(255, 77, 79, 0.4);
+}
+
+/* 强制 el-image 撑满容器 */
+.m-item-thumb :deep(.el-image) {
+  width: 100%;
+  height: 100%;
+  display: block;
+}
+
+/* 占位/加载中背景 */
+.thumb-placeholder-bg {
+  width: 100%;
+  height: 100%;
+  background: #0d121c;
+}
+
+/* 错误/无图状态 */
+.thumb-err {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: #0d121c;
+  /* 关键：确保这里不是白色 */
+  color: #334155;
+  /* 图标颜色设为灰蓝色，不刺眼 */
+}
+
+/* 让 el-image 内部组件背景透明 */
+.m-item-thumb :deep(.el-image__inner) {
+  background: transparent !important;
+}
+
+.m-item-thumb :deep(.el-image__error),
+.m-item-thumb :deep(.el-image__placeholder) {
+  background: #0d121c !important;
+  /* 强制覆盖 Element Plus 默认的浅色背景 */
 }
 
 .pulse-icon {
@@ -3382,6 +3365,7 @@ onUnmounted(async () => {
 }
 
 @keyframes shake {
+
   0%,
   100% {
     transform: translateX(0);

@@ -180,7 +180,7 @@
                   <div class="text-group">
                     <span class="btn-main-text">{{
                       singleItem.group_status === '在位' ? '立即领用' : '不可领用'
-                    }}</span>
+                      }}</span>
                     <span class="btn-sub-text">{{
                       singleItem.group_status === '在位'
                         ? '操作溯源 · 异常监控'
@@ -604,9 +604,29 @@ import { useAudioStore } from '@/stores/audioStore'
 import { useConfigStore } from '@/stores/configStore'
 import { useRouter } from 'vue-router'
 const router = useRouter()
+import plugins from '../assets/js/plugin'
 
 import { useAuthStore } from '@/stores/authStore'
 const authStore = useAuthStore()
+
+// 用于累积用户操作足迹
+const operationTrace = ref([])
+
+/**
+ * 内部辅助函数：记录操作足迹（仅存入数组，不发请求）
+*/
+/**
+ * 内部辅助函数：记录操作足迹（仅存入数组，不发请求）
+ */
+const trace = (message) => {
+  const now = new Date()
+  const hours = String(now.getHours()).padStart(2, '0')
+  const minutes = String(now.getMinutes()).padStart(2, '0')
+  const seconds = String(now.getSeconds()).padStart(2, '0')
+  const timeNow = `${hours}:${minutes}:${seconds}` // 格式为 14:48:46
+
+  operationTrace.value.push(`[${timeNow}] ${message}`)
+}
 
 // 快捷用途配置
 const quickReasons = [
@@ -618,12 +638,11 @@ const quickReasons = [
   { label: '巡检抽查', value: '巡检抽查', icon: Monitor },
 ]
 
-// 选择快捷用途
+// 选择用途时
 const selectQuickReason = (val) => {
   borrowReason.value = val
   audioStore.play('/audio/按钮点击声.mp3')
-  // 如果希望点完直接开门，可以取消注释下面这行
-  // confirmReasonAndOpen()
+  trace(`选择用途: ${val}`)
 }
 // 统一处理用途弹窗的取消/关闭
 const handleCloseReasonDialog = () => {
@@ -842,21 +861,33 @@ const updateGlider = () => {
   })
 }
 
+// 修改过滤器时
 const setFilter = (filterType) => {
   currentFilter.value = filterType
+  const label = filterOptions.find(o => o.value === filterType)?.label
+  trace(`切换过滤器为: ${label}`)
 }
 
 watch(currentFilter, () => {
   updateGlider()
 })
 
+// 选中/取消选中时
+// 选中/取消选中时
 const toggleSelect = (id) => {
   audioStore.play(`/audio/按钮点击声.mp3`)
   const index = selectedIds.value.indexOf(id)
+  const item = equipmentList.value.find(e => e.id === id)
+
+  // 预设日志显示的名称和编号
+  const itemInfo = item ? `${item.group_name} [编号:${item.group_code}]` : `未知装备(ID:${id})`
+
   if (index === -1) {
     selectedIds.value.push(id)
+    trace(`选中装备: ${itemInfo}`)
   } else {
     selectedIds.value.splice(index, 1)
+    trace(`取消选中: ${itemInfo}`)
   }
 }
 
@@ -864,9 +895,11 @@ const clearSelection = () => {
   selectedIds.value = []
 }
 
+// 查看详情时
 const openDetailModal = (item) => {
   viewingItem.value = item
   detailVisible.value = true
+  trace(`查看详情: ${item.group_name}`)
 }
 
 // =================================================================
@@ -896,6 +929,7 @@ const isManualFullOpen = ref(false) // 标记：是否为“快捷领用”模�
 // 1. 【调整】快捷领用按钮触发
 const handleManualOpenDoor = () => {
   isManualFullOpen.value = true // 标记为：全开模式
+  trace(`点击“快捷领用”按钮`)
   borrowReason.value = ''
   audioStore.play('/audio/请选择装备领用用途.mp3')
   reasonDialogVisible.value = true
@@ -1978,10 +2012,48 @@ onMounted(async () => {
   await fetchConfigData()
   await getData()
   updateGlider()
+  plugins.logUserAction('点击事件', `登录装备领用页面`, {})
 })
+/**
+ * 汇总并提交本次页面的操作日志摘要
+ */
+const submitSessionLog = () => {
+  // 如果没有操作痕迹，则不提交
+  if (operationTrace.value.length === 0) return
 
+  // 1. 整理摘要字符串
+  const sessionSummary = operationTrace.value.join('\n')
+
+  // 2. 获取当前用户信息（从 authStore 提取）
+  const userNames = authStore.verifiedUsers.length > 0
+    ? authStore.verifiedUsers.map(u => u.real_name).join(', ')
+    : '系统管理员'
+
+  const userIdCards = authStore.verifiedUsers.length > 0
+    ? authStore.verifiedUsers.map(u => u.id_card).join(', ')
+    : 'SYSTEM'
+
+  // 3. 调用插件方法写入数据库 logs 表
+  // 参数1: action, 参数2: description, 参数3: extraData
+  plugins.logUserAction(
+    '装备领用',
+    sessionSummary,
+    {
+      username: userNames,
+      id_card: userIdCards,
+      log_level: '普通',
+      // description: sessionSummary // 将详细轨迹存入描述字段
+    }
+  )
+
+  // 4. 提交后清空队列，防止重复提交
+  operationTrace.value = []
+}
 onUnmounted(async () => {
-  // 关灯
+  // 1. 提交操作摘要日志
+  submitSessionLog()
+
+  // 2. 硬件控制：关灯
   await window.electronAPI.el_post({
     action: 'control_register',
     payload: {
@@ -1991,11 +2063,15 @@ onUnmounted(async () => {
       isWrite: true,
     },
   })
-  // 退出时清空用户信息
+
+  // 3. 清理状态
   authStore.clearAuth()
   isPolling.value = false
+
+  // 4. 恢复全局定时器（如果有）
   if (!timerStore.isTimerActive) timerStore.startInterval()
 })
+
 </script>
 
 <style>
@@ -3239,7 +3315,8 @@ onUnmounted(async () => {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  padding: 10px 12px; /* 稍微减小上下 padding，增加紧凑感 */
+  padding: 10px 12px;
+  /* 稍微减小上下 padding，增加紧凑感 */
   border-bottom: 1px solid rgba(255, 255, 255, 0.05);
   transition: all 0.3s;
 }
@@ -3283,12 +3360,15 @@ onUnmounted(async () => {
    监控列表缩略图样式优化
    ========================================================== */
 .m-item-thumb {
-  width: 90px;   /* 宽度设为 90px */
-  height: 65px;  /* 高度设为 55px */
+  width: 90px;
+  /* 宽度设为 90px */
+  height: 65px;
+  /* 高度设为 55px */
   border-radius: 4px;
   overflow: hidden;
   border: 1px solid var(--border);
-  background: #0d121c; /* 默认底色：与主背景一致的深色 */
+  background: #0d121c;
+  /* 默认底色：与主背景一致的深色 */
   flex-shrink: 0;
   margin-right: 2px;
 }
@@ -3320,8 +3400,10 @@ onUnmounted(async () => {
   display: flex;
   align-items: center;
   justify-content: center;
-  background: #0d121c; /* 关键：确保这里不是白色 */
-  color: #334155; /* 图标颜色设为灰蓝色，不刺眼 */
+  background: #0d121c;
+  /* 关键：确保这里不是白色 */
+  color: #334155;
+  /* 图标颜色设为灰蓝色，不刺眼 */
 }
 
 /* 让 el-image 内部组件背景透明 */
@@ -3331,7 +3413,8 @@ onUnmounted(async () => {
 
 .m-item-thumb :deep(.el-image__error),
 .m-item-thumb :deep(.el-image__placeholder) {
-  background: #0d121c !important; /* 强制覆盖 Element Plus 默认的浅色背景 */
+  background: #0d121c !important;
+  /* 强制覆盖 Element Plus 默认的浅色背景 */
 }
 
 .pulse-icon {
