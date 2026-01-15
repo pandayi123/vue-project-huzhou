@@ -180,7 +180,7 @@
                   <div class="text-group">
                     <span class="btn-main-text">{{
                       singleItem.group_status === '在位' ? '立即领用' : '不可领用'
-                      }}</span>
+                    }}</span>
                     <span class="btn-sub-text">{{
                       singleItem.group_status === '在位'
                         ? '操作溯源 · 异常监控'
@@ -653,6 +653,7 @@ const handleCloseReasonDialog = () => {
 }
 // 新增一个专门的取消函数（用于取消按钮）
 const cancelReasonDialog = () => {
+  trace(`取消了用途确认，中止领用流程`)
   handleCloseReasonDialog()
 }
 
@@ -674,6 +675,8 @@ const reasonDialogVisible = ref(false)
 const manualConfirmTaken = (item) => {
   // 直接修改状态
   item.isTaken = true
+  // [优化日志] 包含名称、编号和位置，信息链条完整
+  trace(`传感器异常，手动标记取出：${item.group_name} [编号:${item.group_code}] (柜位:${item.self_address}号)`);
   // 播放一个音效，给用户正向反馈
   audioStore.play('/audio/按钮点击声.mp3')
 
@@ -892,6 +895,7 @@ const toggleSelect = (id) => {
 }
 
 const clearSelection = () => {
+  trace(`清空了当前所有已选装备 (共 ${selectedIds.value.length} 项)`);
   selectedIds.value = []
 }
 
@@ -937,6 +941,8 @@ const handleManualOpenDoor = () => {
 // 3. 弹窗点击确认后的逻辑
 const confirmReasonAndOpen = () => {
   if (!borrowReason.value) return
+  const modeText = isManualFullOpen.value ? "快捷领用(全开)" : "精准领用";
+  trace(`点击确认开门，模式: ${modeText}, 填写的用途: ${borrowReason.value}`);
   reasonDialogVisible.value = false
   executeActualOpenDoor() // 此函数会处理：有选中则领用，没选中则进入维护/全部模式
 }
@@ -1461,6 +1467,8 @@ const startMonitorLoop = async () => {
         // 状态防抖：只有状态改变时才更新和播放音效
         if (isRemoved && !target.isTaken) {
           target.isTaken = true
+          // [优化日志] 加入编号和位置，实现精准追溯
+          trace(`感应到目标装备已移位: ${target.group_name} [编号:${target.group_code}] (位置:${target.self_address}号)`);
           audioStore.play('/audio/拿对提示音.mp3')
         } else if (!isRemoved && target.isTaken) {
           // 只有传感器是【好的/启用的】，才允许系统自动把状态改回 false
@@ -1481,7 +1489,16 @@ const startMonitorLoop = async () => {
 
       // 误拿报警触发
       if (currentWrongList.length > wrongTakenList.value.length) {
-        audioStore.play('/audio/拿错提示音.mp3')
+        // 【关键】找出那个“在旧列表里没有，但在新列表里出现”的装备，这就是刚才拿错的那件
+        const newlyTaken = currentWrongList.find(item =>
+          !wrongTakenList.value.some(old => old.id === item.id)
+        );
+
+        if (newlyTaken) {
+          // 加入编号，信息最全
+          trace(`检测到误拿装备: ${newlyTaken.group_name} [编号:${newlyTaken.group_code}] (${newlyTaken.self_address}号位)`);
+          audioStore.play('/audio/拿错提示音.mp3');
+        }
       }
       wrongTakenList.value = currentWrongList
 
@@ -1594,6 +1611,15 @@ const finalizeBorrow = async () => {
   isPolling.value = false
   el_loading.value = true
 
+  // --- [新增日志：逻辑开始前] ---
+  // 汇总所有被取出的装备名称和编号
+  const takenItemsSummary = activeBorrowList.value
+    .filter(i => i.isTaken)
+    .map(i => `${i.group_name}[${i.group_code}]`)
+    .join(', ');
+
+  trace(`开始写入数据库。取出清单: [${takenItemsSummary || '无(维护模式)'}]`);
+
   // await new Promise((resolve) => setTimeout(resolve, 10000)) // 模拟延迟
 
   // 1. 从 authStore 中获取验证通过的人员名单
@@ -1664,6 +1690,10 @@ const finalizeBorrow = async () => {
       console.log('没有领用任何装备')
     }
 
+    // --- [新增日志：成功后] ---
+    trace(`领用记录已保存，装备状态已同步更新至数据库。`);
+    // ----------------------------
+
     // --- 公共收尾逻辑 ---
     borrowReason.value = ''
     borrowProcessVisible.value = false
@@ -1682,6 +1712,7 @@ const finalizeBorrow = async () => {
     borrowProcessVisible.value = false
   } catch (e) {
     audioStore.play('/audio/数据保存失败请联系管理员.mp3')
+    trace(`数据库写入失败: ${e.message}`); // 建议在这里也加一个错误日志
     console.error('结算失败:', e)
   } finally {
     el_loading.value = false
@@ -1717,15 +1748,16 @@ const forceExitProcess = async () => {
           center: true,
         },
       )
-
       // === 用户选择了“强制忽略故障” ===
       // 1. 停止轮询，防止下一秒硬件又把报警状态写回来
       isPolling.value = false
+      trace(`选择强制忽略传感器故障，异常装备数: ${wrongTakenList.value.length}`)
 
       // 2. 清空误拿列表，假装它们都在位
       wrongTakenList.value = []
 
       // 3. 继续向下执行结算逻辑...
+
     } catch (action) {
       console.log('用户选择了取消或关闭，不做任何操作，继续留在监控界面:', action)
       // 用户选择了取消或关闭，不做任何操作，继续留在监控界面
@@ -1742,6 +1774,7 @@ const forceExitProcess = async () => {
 
   // 场景A：全部取走 (且无误拿/误拿已被忽略)
   if (allItemsTaken) {
+    trace(`全部装备已感应取出，进入结算`)
     secureFinalize('NORMAL')
   }
   // 场景B：还有物品未取出 (或者传感器坏了显示未取出)
@@ -1772,6 +1805,7 @@ const forceExitProcess = async () => {
       .then(() => {
         // === 逻辑分支 1：强制全部领用 ===
         isPolling.value = false // 再次确保停止轮询
+        trace(`点击“强制标记全取”，未感应项数: ${remainingNum}`)
         activeBorrowList.value.forEach((item) => {
           if (!item.isTaken) item.isTaken = true
         })
@@ -1782,8 +1816,10 @@ const forceExitProcess = async () => {
         // === 逻辑分支 2：放弃/部分领用 ===
         if (action === 'cancel') {
           if (takenCount > 0) {
+            trace(`选择“部分结算”，已取项数: ${takenCount}`)
             handlePartialSettlement(takenCount)
           } else {
+            trace(`点击放弃，且无已取项，取消领用流程`)
             closeBorrowProcess()
             audioStore.play('/audio/流程已取消未发生领用.mp3')
           }

@@ -40,19 +40,27 @@
 
         <!-- 右侧内容区 -->
         <section class="log-content">
-          <!-- 搜索控制栏 -->
+          <!-- 1. 修改后的搜索控制栏 -->
           <div class="filter-panel">
+            <!-- 日期依然保留在外，因为它是最常用的 -->
             <el-date-picker v-model="filterDate" type="daterange" range-separator="至" start-placeholder="开始日期"
               end-placeholder="结束日期" value-format="YYYY-MM-DD" class="cyber-date-picker" @change="handleDateChange"
               popper-class="cyber-date-picker-popper" />
-            <el-input v-model="searchKeyword" placeholder="搜索人员姓名、身份证号或动作、装备名称、装备编号..." class="cyber-input" clearable>
-              <template #prefix>
-                <el-icon>
-                  <Search />
-                </el-icon>
-              </template>
-            </el-input>
-            <el-button class="cyber-search-btn" @click="fetchLogs">查询</el-button>
+
+            <!-- 高级筛选触发按钮 -->
+             <!--
+            <el-button class="cyber-filter-btn" @click="filterVisible = true">
+              <el-icon>
+                <Filter />
+              </el-icon>
+              高级筛选
+              <span v-if="Object.values(searchForm).some(v => v !== '')" class="filter-badge">!</span>
+            </el-button>
+          -->
+            <div style="width:550px;"></div>
+            <!--
+            <el-button class="cyber-search-btn" @click="fetchLogs">执行查询</el-button>
+          -->
           </div>
 
           <!-- 数据表格 -->
@@ -103,7 +111,7 @@
       </div>
 
       <!-- 修改后的轨迹详情弹窗 -->
-      <el-dialog v-model="detailVisible" title="操作轨迹详情" width="550px" class="cyber-dialog" align-center
+      <el-dialog v-model="detailVisible" title="操作轨迹详情" center width="650px" class="cyber-dialog" align-center
         destroy-on-close>
         <div class="trace-detail-container">
           <!-- 优化1：解决粘连问题，增加布局控制 -->
@@ -127,19 +135,49 @@
           </div>
 
           <div class="trace-content custom-scroll">
-            <pre>{{ currentLog.description }}</pre>
+            <div v-for="(line, index) in formattedDescription" :key="index" class="trace-item">
+              <span class="trace-time">{{ line.time }}</span>
+              <span class="trace-desc">{{ line.text }}</span>
+            </div>
           </div>
         </div>
       </el-dialog>
     </div>
+    <!-- 2. 新增：高级筛选弹窗 -->
+    <el-dialog v-model="filterVisible" title="条件筛选" width="450px" class="cyber-dialog filter-dialog" align-center>
+      <div class="filter-form">
+        <div class="filter-row">
+          <label>操作人员</label>
+          <el-input v-model="searchForm.username" placeholder="请输入人员姓名" class="cyber-input" clearable />
+        </div>
+        <div class="filter-row">
+          <label>装备名称</label>
+          <el-input v-model="searchForm.group_name" placeholder="请输入装备名称" class="cyber-input" clearable />
+        </div>
+        <div class="filter-row">
+          <label>装备编号</label>
+          <el-input v-model="searchForm.group_code" placeholder="请输入装备编号" class="cyber-input" clearable />
+        </div>
+        <div class="filter-row" v-if="activeCategory === 'OP_LOG'">
+          <label>具体动作</label>
+          <el-input v-model="searchForm.action" placeholder="如：扫码、领用" class="cyber-input" clearable />
+        </div>
+      </div>
+      <template #footer>
+        <div class="filter-footer">
+          <el-button @click="resetFilters" class="btn-reset">重置条件</el-button>
+          <el-button @click="handleAdvancedSearch" class="btn-submit">开始搜索</el-button>
+        </div>
+      </template>
+    </el-dialog>
   </div>
 </template>
 
 <script setup>
-import { ref, onMounted } from 'vue'
+import { ref, onMounted, computed } from 'vue'
 import {
   Memo,
-  Search,
+  //Search,
   List,
   Warning,
   CircleCheck,
@@ -147,6 +185,9 @@ import {
   Upload,
   Download,
   SwitchButton,
+  Filter, // 新增
+  Delete, // 新增
+  Refresh // 新增
 } from '@element-plus/icons-vue'
 import { useRouter } from 'vue-router'
 // 在 script setup 顶部导入部分添加
@@ -171,14 +212,13 @@ const total = ref(0)
 const currentPage = ref(1)
 const loading = ref(false)
 const filterDate = ref([])
-const searchKeyword = ref('')
 const detailVisible = ref(false)
 const currentLog = ref({})
 
 // 增加处理日期变化的函数
 const handleDateChange = () => {
   // 1. 播放点击音效 (保持交互一致性)
-  audioStore.play('/audio/正在调取指定时段记录.mp3')
+  audioStore.play('/audio/调取指定时段日志.mp3')
 
   // 2. 将页码重置为 1 (防止在旧页码找不到新筛选条件下的数据)
   currentPage.value = 1
@@ -188,6 +228,26 @@ const handleDateChange = () => {
 
   // val 如果为 null 说明用户点击了清除按钮，fetchLogs 内部已处理空数组逻辑
 }
+
+const formattedDescription = computed(() => {
+  if (!currentLog.value.description) return [];
+
+  // 将字符串按行分割
+  const lines = currentLog.value.description.split('\n');
+
+  return lines.map(line => {
+    // 使用正则匹配 [时间] 内容，或者根据第一个空格/右中括号拆分
+    // 假设格式为: [2025-01-15 10:00:00] 操作了某某装备
+    const match = line.match(/^(\[.*?\])\s*(.*)/);
+    if (match) {
+      return {
+        time: match[1], // 提取时间部分
+        text: match[2]  // 提取描述部分
+      };
+    }
+    return { time: '', text: line }; // 如果不符合格式，则全部作为描述
+  }).filter(item => item.time || item.text); // 过滤掉空行
+});
 
 // 核心逻辑：数据请求
 const fetchLogs = async () => {
@@ -225,24 +285,56 @@ const fetchLogs = async () => {
   }
 }
 
+// --- 状态变量修改 ---
+const filterVisible = ref(false) // 控制筛选弹窗
+const searchForm = ref({
+  username: '',
+  group_name: '',
+  group_code: '',
+  action: ''
+})
+// 搜索执行
+const handleAdvancedSearch = () => {
+  currentPage.value = 1
+  fetchLogs()
+  filterVisible.value = false // 搜索后关闭弹窗
+}
+
+// 重置搜索
+const resetFilters = () => {
+  searchForm.value = { username: '', group_name: '', group_code: '', action: '' }
+  filterDate.value = []
+  handleAdvancedSearch()
+}
+// --- 核心逻辑修改：构建SQL条件 ---
 const buildCondition = () => {
   let cond = []
+
+  // 1. 基础类别过滤 (根据左侧菜单)
   if (activeCategory.value === 'OP_LOG') cond.push("action = '装备领用'")
   if (activeCategory.value === 'ALARM') cond.push("log_level = '报警'")
   if (activeCategory.value === 'BORROW') cond.push('status = 0')
   if (activeCategory.value === 'RETURN') cond.push('status = 1')
 
+  // 2. 日期筛选
   if (filterDate.value?.length === 2) {
-    cond.push(
-      `timestamp BETWEEN '${filterDate.value[0]} 00:00:00' AND '${filterDate.value[1]} 23:59:59'`,
-    )
+    cond.push(`timestamp BETWEEN '${filterDate.value[0]} 00:00:00' AND '${filterDate.value[1]} 23:59:59'`)
   }
 
-  if (searchKeyword.value) {
-    cond.push(
-      `(username LIKE '%${searchKeyword.value}%' OR description LIKE '%${searchKeyword.value}%')`,
-    )
+  // 3. 高级筛选表单 (动态拼接)
+  if (searchForm.value.username) {
+    cond.push(`username LIKE '%${searchForm.value.username}%'`)
   }
+  if (searchForm.value.group_name) {
+    cond.push(`group_name LIKE '%${searchForm.value.group_name}%'`)
+  }
+  if (searchForm.value.group_code) {
+    cond.push(`group_code LIKE '%${searchForm.value.group_code}%'`)
+  }
+  if (searchForm.value.action) {
+    cond.push(`action LIKE '%${searchForm.value.action}%'`)
+  }
+
   return cond.join(' AND ')
 }
 
@@ -500,12 +592,50 @@ onMounted(() => {
   border-radius: 4px;
 }
 
-pre {
-  color: #00ff9d;
-  font-family: 'Consolas', monospace;
-  white-space: pre-wrap;
-  margin: 0;
+/* 1. 删除原有的 pre 样式 */
+/* pre { ... } <- 删掉这段 */
+
+/* 2. 修改 trace-content 内部样式 */
+.trace-content {
+  background: #0d121c !important;
+  border: 1px solid var(--border);
+  padding: 15px;
+  max-height: 400px;
+  overflow-y: auto;
+  border-radius: 4px;
+}
+
+/* 3. 新增 trace-item 布局样式 */
+.trace-item {
+  display: flex;
+  /* 使用 Flex 布局 */
+  gap: 12px;
+  /* 时间和描述之间的间距 */
+  margin-bottom: 8px;
+  /* 行间距 */
+  line-height: 1.6;
+  font-family: 'Consolas', 'Monaco', monospace;
   font-size: 13px;
+  align-items: flex-start;
+  /* 顶部对齐 */
+}
+
+.trace-time {
+  color: #8899a6;
+  /* 时间颜色：灰色 */
+  white-space: nowrap;
+  /* 时间不换行 */
+  flex-shrink: 0;
+  /* 防止时间被挤压 */
+}
+
+.trace-desc {
+  color: #00ff9d;
+  /* 描述颜色：黑客绿 */
+  word-break: break-all;
+  /* 允许在任意字符间换行 */
+  flex: 1;
+  /* 占据剩余所有宽度，确保换行后对齐 */
 }
 
 /* 滚动条美化 */
@@ -776,6 +906,79 @@ pre {
 /* 优化弹窗遮罩层颜色（可选，全局有效） */
 :deep(.el-overlay) {
   background-color: rgba(0, 0, 0, 0.7) !important;
+}
+
+/* 高级筛选按钮样式 */
+.cyber-filter-btn {
+  background: rgba(0, 242, 255, 0.05) !important;
+  border: 1px solid var(--border) !important;
+  color: #fff !important;
+  position: relative;
+}
+
+.cyber-filter-btn:hover {
+  border-color: var(--primary) !important;
+  box-shadow: 0 0 10px rgba(0, 242, 255, 0.2);
+}
+
+.filter-badge {
+  position: absolute;
+  top: -5px;
+  right: -5px;
+  background: #ff4d4f;
+  color: white;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  font-size: 10px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 0 5px #ff4d4f;
+}
+
+/* 筛选弹窗表单布局 */
+.filter-form {
+  padding: 10px 5px;
+}
+
+.filter-row {
+  margin-bottom: 18px;
+}
+
+.filter-row label {
+  display: block;
+  color: var(--primary);
+  font-size: 12px;
+  margin-bottom: 8px;
+  letter-spacing: 1px;
+}
+
+/* 弹窗底部按钮自定义 */
+.filter-footer {
+  display: flex;
+  gap: 12px;
+  justify-content: center;
+  padding-bottom: 10px;
+}
+
+.btn-reset {
+  background: transparent !important;
+  border: 1px solid #475569 !important;
+  color: #94a3b8 !important;
+}
+
+.btn-submit {
+  background: var(--primary) !important;
+  border: none !important;
+  color: #000 !important;
+  font-weight: bold !important;
+  box-shadow: 0 0 15px rgba(0, 242, 255, 0.4);
+}
+
+.btn-submit:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 0 20px rgba(0, 242, 255, 0.6);
 }
 </style>
 <style>
