@@ -10,7 +10,7 @@
         </div>
         <div class="title-text">
           <h1>装备归还</h1>
-          <span class="sub-title">智能感知 · 实时物联 · 动态监管</span>
+          <span class="sub-title">智能感知 · 实时物联 · 智慧监管</span>
         </div>
       </div>
 

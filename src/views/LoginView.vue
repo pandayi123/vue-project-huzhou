@@ -174,6 +174,7 @@ import { useAudioStore } from '@/stores/audioStore'
 import AuthFingerprint from '@/components/AuthFingerprint.vue'
 import AuthFace from '@/components/AuthFace.vue'
 import { Clock, /* ...其他图标 */ } from '@element-plus/icons-vue'
+import plugins from '@/assets/js/plugin'
 const audioStore = useAudioStore()
 const router = useRouter()
 const route = useRoute()
@@ -641,6 +642,10 @@ const handleGlobalFailure = async (settings, now) => {
     updates.dynamic_code_locked_until = toLocalDateTime(lockDate)
     errorText = '错误过多，系统已锁定30分钟'
     audioPath = '/audio/系统已锁定.mp3'
+    // 👇 在此处添加报警日志
+    plugins.logUserAction('报警事件', `登录验证失败次数超限，系统已自动锁定30分钟`, {
+      log_level: '报警7', // 对应你 timerStore 中的通用报警等级
+    })
   } else {
     errorText = `验证失败，剩余 ${remaining} 次机会`
   }

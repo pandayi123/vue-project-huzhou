@@ -10,7 +10,7 @@
         </div>
         <div class="title-text">
           <h1>装备归还</h1>
-          <span class="sub-title">智能感知 · 实时物联 · 动态监管</span>
+          <span class="sub-title">智能感知 · 实时物联 · 智慧监管</span>
         </div>
       </div>
 
@@ -20,7 +20,7 @@
           <el-icon>
             <Unlock />
           </el-icon>
-          一键开门
+          快捷归还
         </button>
 
         <button class="btn-exit" @click="handleSafeExit">
@@ -74,15 +74,20 @@
                 {{ item.group_status === '在位' ? '在位' : '待归还' }}
               </div>
 
-              <div class="card-icon">
-                <!-- 修改 2: 图标逻辑翻转。'已取出'显示高亮图标，'在位'显示锁定图标 -->
-                <el-icon v-if="item.group_status !== '在位'" :size="32" class="icon-active">
-                  <SoldOut />
-                  <!-- 或者使用 Back/Upload 图标 -->
-                </el-icon>
-                <el-icon v-else :size="32" class="icon-locked">
-                  <Files />
-                </el-icon>
+              <!-- 插入大图展示区 -->
+              <div class="equip-image-preview">
+                <el-image :src="item.group_image" fit="cover" style="width: 100%; height: 100%">
+                  <template #placeholder>
+                    <div style="background: #0d121c; width: 100%; height: 100%"></div>
+                  </template>
+                  <template #error>
+                    <div class="image-error-slot">
+                      <el-icon :size="24">
+                        <Box />
+                      </el-icon>
+                    </div>
+                  </template>
+                </el-image>
               </div>
 
               <div class="card-info">
@@ -114,7 +119,7 @@
               </el-icon>
             </div>
             <div class="empty-text">等待操作指令</div>
-            <div class="empty-sub">请在左侧列表选择装备</div>
+            <div class="empty-sub">选择装备或直接点击上方“快捷归还”</div>
           </div>
         </template>
 
@@ -178,7 +183,7 @@
                     <!-- 文案修改 -->
                     <span class="btn-main-text">{{
                       singleItem.group_status !== '在位' ? '立即归还' : '已在位·无需归还'
-                      }}</span>
+                    }}</span>
                     <span class="btn-sub-text">{{
                       singleItem.group_status !== '在位'
                         ? '开门放入 · 自动感应'
@@ -264,7 +269,7 @@
                   </el-icon>
                   <div class="text-group">
                     <span class="btn-main-text">批量归还 ({{ validItemsCount }}项)</span>
-                    <span class="btn-sub-text">操作留痕 · 错取报警</span>
+                    <span class="btn-sub-text">操作溯源 · 异常监控</span>
                   </div>
                 </div>
                 <div class="scan-line" v-if="validItemsCount > 0"></div>
@@ -353,6 +358,22 @@
                   <Tools />
                 </el-icon>
 
+                <!-- [新增] 缩略图区域 -->
+                <div class="m-item-thumb">
+                  <el-image :src="item.group_image" fit="cover">
+                    <template #placeholder>
+                      <div class="thumb-placeholder-bg"></div>
+                    </template>
+                    <template #error>
+                      <div class="thumb-err">
+                        <el-icon :size="18">
+                          <Box />
+                        </el-icon>
+                      </div>
+                    </template>
+                  </el-image>
+                </div>
+
                 <div class="m-info-group">
                   <span class="m-name">{{ item.group_name }}</span>
                   <span class="m-addr">
@@ -385,6 +406,21 @@
                 <el-icon color="#ff4d4f" :size="24">
                   <Warning />
                 </el-icon>
+                <!-- [新增] 缩略图区域（带红色边框） -->
+                <div class="m-item-thumb error-border">
+                  <el-image :src="errItem.group_image" fit="cover">
+                    <template #placeholder>
+                      <div class="thumb-placeholder-bg"></div>
+                    </template>
+                    <template #error>
+                      <div class="thumb-err">
+                        <el-icon :size="18">
+                          <Box />
+                        </el-icon>
+                      </div>
+                    </template>
+                  </el-image>
+                </div>
                 <div class="m-info-group">
                   <span class="m-name" style="color: #ff4d4f">误拿警告: {{ errItem.group_name }}</span>
                   <span class="m-addr" style="color: #ff8888">位置: {{ errItem.self_address }}号</span>
@@ -456,7 +492,7 @@ import {
   Box,
   SwitchButton,
   Location,
-  Files,
+  // Files,
   CircleCloseFilled,
   Warning,
   Check,
@@ -482,6 +518,12 @@ const router = useRouter()
 const timerStore = useTimerStore()
 const audioStore = useAudioStore()
 // const configStore = useConfigStore()
+
+// 导入插件和 Store
+import plugins from '../assets/js/plugin'
+import { useAuthStore } from '@/stores/authStore'
+
+const authStore = useAuthStore()
 
 // --- 新增状态变量 ---
 const areDoorsClosed = ref(false) // 默认为 false，因为流程刚开始时门肯定是开的
@@ -528,9 +570,46 @@ const isSensorDisabled = (address) => {
   return conf && (conf.admin_status == 0 || conf.admin_status === '0')
 }
 
+// --- [新增] 日志追踪变量 ---
+const operationTrace = ref([])
+
+/**
+ * 内部辅助函数：记录操作足迹
+ */
+const trace = (message) => {
+  const now = new Date()
+  const timeNow = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}:${String(now.getSeconds()).padStart(2, '0')}`
+  operationTrace.value.push(`[${timeNow}] ${message}`)
+}
+/**
+ * 汇总并提交本次页面的操作日志摘要
+ */
+const submitSessionLog = () => {
+  if (operationTrace.value.length === 0) return
+  const sessionSummary = operationTrace.value.join('\n')
+  const userNames =
+    authStore.verifiedUsers.length > 0
+      ? authStore.verifiedUsers.map((u) => u.real_name).join(', ')
+      : '系统管理员'
+  const userIdCards =
+    authStore.verifiedUsers.length > 0
+      ? authStore.verifiedUsers.map((u) => u.id_card).join(', ')
+      : 'SYSTEM'
+
+  plugins.logUserAction('装备归还', sessionSummary, {
+    username: userNames,
+    id_card: userIdCards,
+    log_level: '普通',
+  })
+  operationTrace.value = []
+}
+
 // --- 动作：手动确认归还 (用于传感器损坏时) ---
 const manualConfirmReturned = (item) => {
-  item.isReturned = true // 在归还场景下，isReturned = true 代表“已归还”
+  item.isReturned = true
+  trace(
+    `传感器异常，手动标记已归还: ${item.group_name} [编号:${item.group_code}] (柜位:${item.self_address}号)`,
+  ) // [新增]
   audioStore.play('/audio/按钮点击声.mp3')
 }
 // =================================================================
@@ -732,6 +811,8 @@ const updateGlider = () => {
 
 const setFilter = (filterType) => {
   currentFilter.value = filterType
+  const label = filterOptions.find((o) => o.value === filterType)?.label
+  trace(`切换过滤器为: ${label}`) // [新增]
 }
 
 watch(currentFilter, () => {
@@ -741,20 +822,27 @@ watch(currentFilter, () => {
 const toggleSelect = (id) => {
   audioStore.play(`/audio/按钮点击声.mp3`)
   const index = selectedIds.value.indexOf(id)
+  const item = equipmentList.value.find((e) => e.id === id)
+  const itemInfo = item ? `${item.group_name} [编号:${item.group_code}]` : `ID:${id}`
+
   if (index === -1) {
     selectedIds.value.push(id)
+    trace(`选中装备: ${itemInfo}`) // [新增]
   } else {
     selectedIds.value.splice(index, 1)
+    trace(`取消选中: ${itemInfo}`) // [新增]
   }
 }
 
 const clearSelection = () => {
+  trace(`清空了当前所有已选装备 (共 ${selectedIds.value.length} 项)`) // [新增]
   selectedIds.value = []
 }
 
 const openDetailModal = (item) => {
   viewingItem.value = item
   detailVisible.value = true
+  trace(`查看详情: ${item.group_name} [编号:${item.group_code}]`) // [新增]
 }
 
 // =================================================================
@@ -993,6 +1081,9 @@ const startMonitorLoop = async () => {
         // 状态防抖：只有状态改变时才更新
         if (isInPlace && !target.isReturned) {
           target.isReturned = true // 标记为已归还
+          trace(
+            `感应到目标装备已归还入位: ${target.group_name} [编号:${target.group_code}] (位置:${target.self_address}号)`,
+          ) // [新增]
           audioStore.play('/audio/拿对提示音.mp3')
         } else if (!isInPlace && target.isReturned) {
           // 如果传感器是好的，但信号断了，说明用户又拿出来了 -> 状态回退
@@ -1015,6 +1106,14 @@ const startMonitorLoop = async () => {
 
       // 报警触发
       if (currentWrongList.length > wrongTakenList.value.length) {
+        const newlyTaken = currentWrongList.find(
+          (item) => !wrongTakenList.value.some((old) => old.id === item.id),
+        )
+        if (newlyTaken) {
+          trace(
+            `检测到误拿在位装备: ${newlyTaken.group_name} [编号:${newlyTaken.group_code}] (${newlyTaken.self_address}号位)`,
+          ) // [新增]
+        }
         audioStore.play('/audio/拿错提示音.mp3')
       }
       wrongTakenList.value = currentWrongList
@@ -1187,17 +1286,25 @@ const finalizeBorrow = async () => {
   isPolling.value = false
   el_loading.value = true
 
-  const currentUser = { id: 1, username: '管理员', id_card: 'ADMIN001' } // 假设有身份证字段
+  // 1. [新增] 动态获取当前归还人信息（与领用页对齐）
+  const verifiedUsers = authStore.verifiedUsers || []
+  const operatorNames =
+    verifiedUsers.length > 0 ? verifiedUsers.map((u) => u.real_name).join(', ') : '系统管理员'
+  const operatorIdCards =
+    verifiedUsers.length > 0
+      ? verifiedUsers.map((u) => u.id_card).join(', ')
+      : 'SYSTEM_RETURN_BYPASS'
 
-  // 生成时间字符串
+  // 2. [新增] 记录操作日志摘要
+  const returnedItemsSummary = activeBorrowList.value
+    .filter((i) => i.isReturned)
+    .map((i) => `${i.group_name}[${i.group_code}]`)
+    .join(', ')
+  trace(`开始写入数据库。归还清单: [${returnedItemsSummary || '无'}]`)
+
+  // 3. 生成标准时间字符串
   const now = new Date()
-  const year = now.getFullYear()
-  const month = String(now.getMonth() + 1).padStart(2, '0')
-  const day = String(now.getDate()).padStart(2, '0')
-  const hours = String(now.getHours()).padStart(2, '0')
-  const minutes = String(now.getMinutes()).padStart(2, '0')
-  const seconds = String(now.getSeconds()).padStart(2, '0')
-  const timeNow = `${year}-${month}-${day} ${hours}:${minutes}:${seconds}`
+  const timeNow = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')} ${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}:${String(now.getSeconds()).padStart(2, '0')}`
 
   try {
     for (const item of activeBorrowList.value) {
@@ -1213,16 +1320,15 @@ const finalizeBorrow = async () => {
           payload: {
             tableName: 'borrow_records',
             setValues: {
-              // --- 归还信息 ---
-              return_username: currentUser.username,
-              return_id_card: currentUser.id_card || '',
-              return_time: timeNow, // 写入归还时间
-              status: 1, // 1 = 已完结
-              return_remark: '正常归还', // 或者使用界面输入的 borrowReason
-              is_synced: 0, // 标记为未同步，等待上传
+              return_username: operatorNames,   // 记录谁还的
+              return_id_card: operatorIdCards,  // 记录归还人身份证
+              return_time: timeNow,             // 记录归还时间
+              status: 1,                        // 状态改为已还(1)
+              return_remark: '正常归还',
+              is_synced: 0,
               last_modified: timeNow,
             },
-            // 【核心关键点】条件：找到这个装备ID，且状态是未归还(0)的那条记录
+            // [关键]: 匹配该装备ID且当前处于“未归还(0)”状态的记录
             condition: `equipment_id = ${item.id} AND status = 0`,
           },
         })
@@ -1254,6 +1360,8 @@ const finalizeBorrow = async () => {
     borrowReason.value = ''
     audioStore.play('/audio/归还完成数据已保存.mp3') // 建议改为“归还完成...”
 
+    trace(`归还记录已保存，装备状态已同步为“在位”。`)
+
     borrowProcessVisible.value = false
     selectedIds.value = []
     setTimeout(() => {
@@ -1261,6 +1369,7 @@ const finalizeBorrow = async () => {
     }, 50)
   } catch (e) {
     audioStore.play('/audio/数据保存失败请联系管理员.mp3')
+    trace(`数据库写入失败: ${e.message}`)
     console.error('归还结算失败:', e)
   } finally {
     el_loading.value = false
@@ -1271,6 +1380,7 @@ const finalizeBorrow = async () => {
 const forceExitProcess = () => {
   // ================= Step 1: 安全拦截 (误拿) =================
   if (wrongTakenList.value.length > 0) {
+    trace(`尝试强制结束，但存在 ${wrongTakenList.value.length} 件误拿警报`)
     ElMessageBox.alert(
       `<div style="color: #ff4d4f; font-weight: bold;">检测到库存安全警报</div>
        <div style="margin-top: 10px; color: #ccc;">系统感应到柜内有 <span style="color: #ff4d4f; font-size: 16px;">${wrongTakenList.value.length}</span> 件误拿装备。</div>
@@ -1290,6 +1400,9 @@ const forceExitProcess = () => {
   // ================= Step 2: 正常/异常流程判断 =================
   const takenCount = activeBorrowList.value.filter((i) => i.isReturned).length
   const remainingNum = activeBorrowList.value.length - takenCount
+
+  // 【建议加在这里】：因为此时 takenCount 和 remainingNum 已经定义好了
+  trace(`点击“人工强制结束”，当前已归还数: ${takenCount}, 待归还数: ${remainingNum}`)
 
   // 场景A：全部归还 (正常情况)
   // 将变量名 allItemsTaken 改为 allItemsReturned 更有意义
@@ -1445,6 +1558,8 @@ const handleManualOpenDoor = async () => {
       customClass: 'cyber-message-box',
     })
 
+    trace(`点击“快捷归还”按钮`) // [新增]
+
     // 2. 获取所有配置中的锁地址
     if (!config_blob.value?.lock?.details) {
       // ElMessage.error('未找到柜门配置信息')
@@ -1507,6 +1622,8 @@ onMounted(async () => {
 })
 
 onUnmounted(async () => {
+  // 1. 提交操作摘要日志 [新增]
+  submitSessionLog()
   // 关灯
   await window.electronAPI.el_post({
     action: 'control_register',
@@ -1518,6 +1635,8 @@ onUnmounted(async () => {
     },
   })
   isPolling.value = false
+  // 3. 清理状态
+  authStore.clearAuth() // 如果归还页面也需要退出即销毁登录，请取消注释
   if (!timerStore.isTimerActive) timerStore.startInterval()
 })
 </script>
@@ -1866,7 +1985,7 @@ onUnmounted(async () => {
 
 .sub-title {
   color: var(--primary-dark);
-  font-size: 11px;
+  font-size: 12px;
   letter-spacing: 1px;
   font-weight: bold;
 }
@@ -2025,13 +2144,11 @@ onUnmounted(async () => {
   background: rgba(255, 255, 255, 0.03);
   border: 1px solid var(--border);
   border-radius: 6px;
-  padding: 12px 12px;
-  cursor: pointer;
   transition: all 0.2s;
   display: flex;
   flex-direction: column;
   justify-content: space-between;
-  height: 145px;
+  height: 220px;
   overflow: hidden;
 }
 
@@ -2085,12 +2202,14 @@ onUnmounted(async () => {
 .card-status-badge {
   position: absolute;
   top: 8px;
-  right: 8px;
+  left: 8px;
+  /* 从 right: 8px 改为 left: 8px */
   padding: 2px 6px;
   border-radius: 4px;
   font-size: 10px;
   font-weight: bold;
-  z-index: 1;
+  z-index: 5;
+  /* 确保在图片之上 */
 }
 
 .st-in {
@@ -2109,19 +2228,6 @@ onUnmounted(async () => {
   opacity: 0.6;
 }
 
-.card-icon {
-  margin-bottom: 5px;
-}
-
-.icon-active {
-  color: var(--primary);
-  filter: drop-shadow(0 0 5px var(--primary-dark));
-}
-
-.icon-locked {
-  color: #444;
-}
-
 .equip-name {
   font-size: 14px;
   font-weight: bold;
@@ -2133,12 +2239,14 @@ onUnmounted(async () => {
 }
 
 .equip-code {
-  font-size: 11px;
+  font-size: 12px;
   color: var(--text-sec);
   font-family: 'Consolas', monospace;
   margin-bottom: 6px;
   display: -webkit-box;
   -webkit-box-orient: vertical;
+  line-clamp: 2;
+  /* 添加标准属性 */
   -webkit-line-clamp: 2;
   overflow: hidden;
   word-break: break-all;
@@ -2301,7 +2409,7 @@ onUnmounted(async () => {
 
 .info-row .value.highlight {
   color: var(--primary);
-  font-family: 'Consolas';
+  font-family: 'Consolas', monospace;
 }
 
 .font-mono {
@@ -2498,7 +2606,7 @@ onUnmounted(async () => {
   background: rgba(230, 162, 60, 0.1);
   color: #e6a23c;
   padding: 6px;
-  font-size: 11px;
+  font-size: 12px;
   margin-bottom: 10px;
   display: flex;
   align-items: center;
@@ -2559,7 +2667,7 @@ onUnmounted(async () => {
 }
 
 .btn-sub-text {
-  font-size: 9px;
+  font-size: 12px;
   opacity: 0.7;
   letter-spacing: 1px;
   margin-top: 2px;
@@ -2631,6 +2739,72 @@ onUnmounted(async () => {
   min-height: 450px;
   display: flex;
   flex-direction: column;
+}
+
+/* 缩略图容器基础样式 */
+.m-item-thumb {
+  width: 90px;
+  height: 65px;
+  border-radius: 4px;
+  overflow: hidden;
+  border: 1px solid var(--border);
+  background: #0d121c;
+  flex-shrink: 0;
+  margin: 0 5px;
+  /* 增加左右间距 */
+}
+
+/* 报警时的红色边框 */
+.m-item-thumb.error-border {
+  border-color: var(--error);
+  box-shadow: 0 0 8px rgba(255, 77, 79, 0.4);
+}
+
+/* 图片内部样式 */
+.m-item-thumb :deep(.el-image) {
+  width: 100%;
+  height: 100%;
+  display: block;
+}
+
+.thumb-placeholder-bg {
+  width: 100%;
+  height: 100%;
+  background: #0d121c;
+}
+
+.thumb-err {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: #0d121c;
+  color: #334155;
+}
+
+/* 修正：确保 el-image 报错时不出现白色背景 */
+.m-item-thumb :deep(.el-image__error),
+.m-item-thumb :deep(.el-image__placeholder) {
+  background: #0d121c !important;
+}
+
+/* 调整监控列表条目布局，使其垂直居中 */
+.m-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 10px 12px;
+  /* 稍微压缩高度，适应图片显示 */
+  border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+  transition: all 0.3s;
+}
+
+.m-left {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  /* 增大图标、图片、文字之间的间距 */
 }
 
 .process-header {
@@ -2751,7 +2925,7 @@ onUnmounted(async () => {
 }
 
 .m-addr {
-  font-size: 11px;
+  font-size: 13px;
   color: #666;
 }
 
@@ -2928,6 +3102,42 @@ onUnmounted(async () => {
 .btn-open-all:hover {
   background: rgba(0, 242, 255, 0.1);
   box-shadow: 0 0 12px rgba(0, 242, 255, 0.4);
+}
+
+/* 装备图片区域 */
+.equip-image-preview {
+  width: 100%;
+  height: 120px;
+  background: #000;
+  border-bottom: 1px solid var(--border);
+}
+
+.equip-image-preview :deep(.el-image__inner) {
+  background-color: transparent !important;
+}
+
+.equip-image-preview :deep(.el-image__placeholder),
+.equip-image-preview :deep(.el-image__wrapper) {
+  background-color: #0d121c !important;
+}
+
+.image-error-slot {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #333;
+  background: #0d121c;
+}
+
+/* 文字信息区增加内边距 */
+.card-info {
+  padding: 10px 12px;
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
 }
 </style>
 

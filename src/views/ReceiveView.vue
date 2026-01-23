@@ -614,9 +614,6 @@ const operationTrace = ref([])
 
 /**
  * 内部辅助函数：记录操作足迹（仅存入数组，不发请求）
-*/
-/**
- * 内部辅助函数：记录操作足迹（仅存入数组，不发请求）
  */
 const trace = (message) => {
   const now = new Date()

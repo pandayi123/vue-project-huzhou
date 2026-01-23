@@ -28,8 +28,13 @@
       <div class="main-body">
         <!-- 左侧分类切换 -->
         <aside class="log-sidebar">
-          <div v-for="menu in menuOptions" :key="menu.value" class="menu-item"
-            :class="{ active: activeCategory === menu.value }" @click="handleCategoryChange(menu.value)">
+          <div
+            v-for="menu in menuOptions"
+            :key="menu.value"
+            class="menu-item"
+            :class="{ active: activeCategory === menu.value }"
+            @click="handleCategoryChange(menu.value)"
+          >
             <el-icon>
               <component :is="menu.icon" />
             </el-icon>
@@ -43,12 +48,20 @@
           <!-- 1. 修改后的搜索控制栏 -->
           <div class="filter-panel">
             <!-- 日期依然保留在外，因为它是最常用的 -->
-            <el-date-picker v-model="filterDate" type="daterange" range-separator="至" start-placeholder="开始日期"
-              end-placeholder="结束日期" value-format="YYYY-MM-DD" class="cyber-date-picker" @change="handleDateChange"
-              popper-class="cyber-date-picker-popper" />
+            <el-date-picker
+              v-model="filterDate"
+              type="daterange"
+              range-separator="至"
+              start-placeholder="开始日期"
+              end-placeholder="结束日期"
+              value-format="YYYY-MM-DD"
+              class="cyber-date-picker"
+              @change="handleDateChange"
+              popper-class="cyber-date-picker-popper"
+            />
 
             <!-- 高级筛选触发按钮 -->
-             <!--
+            <!--
             <el-button class="cyber-filter-btn" @click="filterVisible = true">
               <el-icon>
                 <Filter />
@@ -57,27 +70,38 @@
               <span v-if="Object.values(searchForm).some(v => v !== '')" class="filter-badge">!</span>
             </el-button>
           -->
-            <div style="width:550px;"></div>
+            <div style="width: 550px"></div>
             <!--
             <el-button class="cyber-search-btn" @click="fetchLogs">执行查询</el-button>
-          -->
-          </div>
+          --></div>
 
           <!-- 数据表格 -->
           <div class="table-container">
-            <el-table :data="tableData" highlight-current-row v-loading="loading" class="cyber-table" height="100%"
-              element-loading-background="rgba(10, 15, 24, 0.8)">
-              <el-table-column prop="timestamp" label="时间" width="190" />
-              <el-table-column prop="username" label="操作人" width="150" />
-
-              <!-- 动态列：根据分类展示不同内容 -->
+            <el-table
+              :data="tableData"
+              highlight-current-row
+              v-loading="loading"
+              class="cyber-table"
+              height="100%"
+            >
+              <!-- ================= 分支 A：操作轨迹 / 报警日志 (Logs表) ================= -->
               <template v-if="activeCategory === 'OP_LOG' || activeCategory === 'ALARM'">
+                <el-table-column prop="displayTime" label="时间" width="190" />
+                <el-table-column
+                  v-if="activeCategory === 'OP_LOG'"
+                  prop="username"
+                  label="操作人"
+                  width="150"
+                />
                 <el-table-column prop="action" label="动作" width="120">
                   <template #default="scope">
-                    <span :class="[
-                      'tag-status',
-                      scope.row.log_level === '报警' ? 'tag-alarm' : 'tag-normal',
-                    ]">
+                    <!-- 将 scope.row.log_level === '报警' 改为 scope.row.action === '报警事件' -->
+                    <span
+                      :class="[
+                        'tag-status',
+                        scope.row.action === '报警事件' ? 'tag-alarm' : 'tag-normal',
+                      ]"
+                    >
                       {{ scope.row.action }}
                     </span>
                   </template>
@@ -87,32 +111,123 @@
                     <span class="desc-text">{{ scope.row.description }}</span>
                   </template>
                 </el-table-column>
-                <el-table-column label="详情" width="100">
+                <el-table-column v-if="activeCategory === 'OP_LOG'" label="详情" width="100">
                   <template #default="scope">
-                    <el-button link type="primary" @click="showTraceDetail(scope.row)">查看轨迹</el-button>
+                    <el-button link type="primary" @click="showTraceDetail(scope.row)"
+                      >查看轨迹</el-button
+                    >
                   </template>
                 </el-table-column>
               </template>
 
+              <!-- ================= 分支 B：领用记录 / 归还记录 (BorrowRecords表) ================= -->
               <template v-else>
+                <!-- 新增：装备实照字段 -->
+                <el-table-column label="装备实照" width="130">
+                  <template #default="scope">
+                    <el-image
+                      class="equip-column-image"
+                      :src="scope.row.group_image"
+                      :preview-src-list="[scope.row.group_image]"
+                      preview-teleported
+                      fit="cover"
+                    >
+                      <!-- [新增] 加载占位，防止闪白 -->
+                      <template #placeholder>
+                        <div class="image-slot-loading">
+                          <el-icon class="is-loading">
+                            <Loading />
+                          </el-icon>
+                        </div>
+                      </template>
+
+                      <template #error>
+                        <div class="image-error-slot">
+                          <el-icon>
+                            <Picture />
+                          </el-icon>
+                        </div>
+                      </template>
+                    </el-image>
+                  </template>
+                </el-table-column>
+                <!-- 1. 装备信息 -->
                 <el-table-column prop="group_name" label="装备名称" width="150" />
-                <el-table-column prop="group_code" label="编号" width="180" />
-                <el-table-column prop="remark" label="用途/备注" />
+                <el-table-column prop="group_code" label="装备编号" width="150" />
+
+                <!-- 2. 时间详情 (领用显示单行，归还显示起止) -->
+                <el-table-column
+                  :label="activeCategory === 'RETURN' ? '归还/领用时间' : '领用时间'"
+                  width="220"
+                >
+                  <template #default="scope">
+                    <div v-if="activeCategory === 'RETURN'" class="time-chain">
+                      <div class="time-node end">还：{{ scope.row.return_time }}</div>
+                      <div class="time-node start">领：{{ scope.row.borrow_time }}</div>
+                    </div>
+                    <div v-else class="time-single">
+                      {{ scope.row.borrow_time }}
+                    </div>
+                  </template>
+                </el-table-column>
+
+                <!-- 3. 人员详情 (归还时显示 归还人+领用人) -->
+                <el-table-column label="人员详情" width="180">
+                  <template #default="scope">
+                    <div v-if="activeCategory === 'RETURN'" class="people-info">
+                      <div class="sub-p">
+                        <span class="label-mini">归还:</span> {{ scope.row.return_username }}
+                      </div>
+                      <div class="sub-p">
+                        <span class="label-mini">领用:</span> {{ scope.row.username }}
+                      </div>
+                    </div>
+                    <div v-else class="people-info">
+                      {{ scope.row.username }}
+                    </div>
+                  </template>
+                </el-table-column>
+
+                <!-- 4. 备注/用途 -->
+                <el-table-column label="用途/备注">
+                  <template #default="scope">
+                    <span class="remark-text">
+                      {{
+                        activeCategory === 'RETURN'
+                          ? scope.row.return_remark || '正常归还'
+                          : scope.row.remark || '-'
+                      }}
+                    </span>
+                  </template>
+                </el-table-column>
               </template>
             </el-table>
           </div>
 
           <!-- 分页 -->
           <div class="pagination-box">
-            <el-pagination background layout="total, prev, pager, next" :total="total"
-              v-model:current-page="currentPage" @current-change="fetchLogs" />
+            <el-pagination
+              background
+              layout="total, prev, pager, next"
+              :total="total"
+              :page-size="20"
+              v-model:current-page="currentPage"
+              @current-change="fetchLogs"
+            />
           </div>
         </section>
       </div>
 
       <!-- 修改后的轨迹详情弹窗 -->
-      <el-dialog v-model="detailVisible" title="操作轨迹详情" center width="650px" class="cyber-dialog" align-center
-        destroy-on-close>
+      <el-dialog
+        v-model="detailVisible"
+        title="操作轨迹详情"
+        center
+        width="650px"
+        class="cyber-dialog"
+        align-center
+        destroy-on-close
+      >
         <div class="trace-detail-container">
           <!-- 优化1：解决粘连问题，增加布局控制 -->
           <div class="user-info-mini">
@@ -122,7 +237,7 @@
             </div>
             <div class="info-item">
               <span class="label">时间：</span>
-              <span class="value">{{ currentLog.timestamp }}</span>
+              <span class="value">{{ currentLog.displayTime }}</span>
             </div>
           </div>
 
@@ -144,23 +259,49 @@
       </el-dialog>
     </div>
     <!-- 2. 新增：高级筛选弹窗 -->
-    <el-dialog v-model="filterVisible" title="条件筛选" width="450px" class="cyber-dialog filter-dialog" align-center>
+    <el-dialog
+      v-model="filterVisible"
+      title="条件筛选"
+      width="450px"
+      class="cyber-dialog filter-dialog"
+      align-center
+    >
       <div class="filter-form">
         <div class="filter-row">
           <label>操作人员</label>
-          <el-input v-model="searchForm.username" placeholder="请输入人员姓名" class="cyber-input" clearable />
+          <el-input
+            v-model="searchForm.username"
+            placeholder="请输入人员姓名"
+            class="cyber-input"
+            clearable
+          />
         </div>
         <div class="filter-row">
           <label>装备名称</label>
-          <el-input v-model="searchForm.group_name" placeholder="请输入装备名称" class="cyber-input" clearable />
+          <el-input
+            v-model="searchForm.group_name"
+            placeholder="请输入装备名称"
+            class="cyber-input"
+            clearable
+          />
         </div>
         <div class="filter-row">
           <label>装备编号</label>
-          <el-input v-model="searchForm.group_code" placeholder="请输入装备编号" class="cyber-input" clearable />
+          <el-input
+            v-model="searchForm.group_code"
+            placeholder="请输入装备编号"
+            class="cyber-input"
+            clearable
+          />
         </div>
         <div class="filter-row" v-if="activeCategory === 'OP_LOG'">
           <label>具体动作</label>
-          <el-input v-model="searchForm.action" placeholder="如：扫码、领用" class="cyber-input" clearable />
+          <el-input
+            v-model="searchForm.action"
+            placeholder="如：扫码、领用"
+            class="cyber-input"
+            clearable
+          />
         </div>
       </div>
       <template #footer>
@@ -185,9 +326,13 @@ import {
   Upload,
   Download,
   SwitchButton,
+  Picture, // 新增：用于图片占位
+  Loading, // 新增
+  /*
   Filter, // 新增
   Delete, // 新增
   Refresh // 新增
+  */
 } from '@element-plus/icons-vue'
 import { useRouter } from 'vue-router'
 // 在 script setup 顶部导入部分添加
@@ -215,6 +360,52 @@ const filterDate = ref([])
 const detailVisible = ref(false)
 const currentLog = ref({})
 
+const equipmentImageMap = ref({}) // 存储 { '编号': '图片路径' }
+const fetchEquipmentMap = async () => {
+  const map = {}
+  let currentPage = 1
+  let hasMoreData = true
+  const pageSize = 15 // 因为含有图片Base64，建议每页数量不要太大
+
+  console.log('开始分页拉取装备实照映射表...')
+
+  try {
+    while (hasMoreData) {
+      const response = await window.electronAPI.el_post({
+        action: 'queryPagination',
+        payload: {
+          tableName: 'equipment',
+          page: currentPage,
+          pageSize: pageSize,
+        },
+      })
+
+      if (response.success && response.data?.data?.length > 0) {
+        response.data.data.forEach((item) => {
+          if (item.id) {
+            // 关键：强制转字符串并去空格，确保匹配成功率
+            const codeKey = String(item.id).trim()
+            map[codeKey] = item.group_image
+          }
+        })
+
+        // 判断是否还有下一页
+        if (response.data.data.length < pageSize) {
+          hasMoreData = false
+        } else {
+          currentPage++
+        }
+      } else {
+        hasMoreData = false
+      }
+    }
+
+    equipmentImageMap.value = map
+    console.log('装备实照库加载完成，总计匹配到编号数:', Object.keys(map).length)
+  } catch (error) {
+    console.error('分页获取装备图片映射失败:', error)
+  }
+}
 // 增加处理日期变化的函数
 const handleDateChange = () => {
   // 1. 播放点击音效 (保持交互一致性)
@@ -230,38 +421,46 @@ const handleDateChange = () => {
 }
 
 const formattedDescription = computed(() => {
-  if (!currentLog.value.description) return [];
+  if (!currentLog.value.description) return []
 
   // 将字符串按行分割
-  const lines = currentLog.value.description.split('\n');
+  const lines = currentLog.value.description.split('\n')
 
-  return lines.map(line => {
-    // 使用正则匹配 [时间] 内容，或者根据第一个空格/右中括号拆分
-    // 假设格式为: [2025-01-15 10:00:00] 操作了某某装备
-    const match = line.match(/^(\[.*?\])\s*(.*)/);
-    if (match) {
-      return {
-        time: match[1], // 提取时间部分
-        text: match[2]  // 提取描述部分
-      };
-    }
-    return { time: '', text: line }; // 如果不符合格式，则全部作为描述
-  }).filter(item => item.time || item.text); // 过滤掉空行
-});
+  return lines
+    .map((line) => {
+      // 使用正则匹配 [时间] 内容，或者根据第一个空格/右中括号拆分
+      // 假设格式为: [2025-01-15 10:00:00] 操作了某某装备
+      const match = line.match(/^(\[.*?\])\s*(.*)/)
+      if (match) {
+        return {
+          time: match[1], // 提取时间部分
+          text: match[2], // 提取描述部分
+        }
+      }
+      return { time: '', text: line } // 如果不符合格式，则全部作为描述
+    })
+    .filter((item) => item.time || item.text) // 过滤掉空行
+})
 
 // 核心逻辑：数据请求
+// --- 修改 1: fetchLogs ---
 const fetchLogs = async () => {
   tableData.value = []
   loading.value = true
-  await new Promise((resolve) => setTimeout(resolve, 200)) // 模拟延迟
   try {
-    let response
     const payload = {
       page: currentPage.value,
-      pageSize: 15,
+      pageSize: 20,
       condition: buildCondition(),
+      orderBy:
+        activeCategory.value === 'RETURN'
+          ? 'return_time DESC'
+          : activeCategory.value === 'BORROW'
+            ? 'borrow_time DESC'
+            : 'timestamp DESC',
     }
 
+    let response
     if (activeCategory.value === 'OP_LOG' || activeCategory.value === 'ALARM') {
       response = await window.electronAPI.el_post({
         action: 'queryPagination',
@@ -275,7 +474,20 @@ const fetchLogs = async () => {
     }
 
     if (response.success) {
-      tableData.value = response.data.data
+      tableData.value = response.data.data.map((item) => {
+        // --- 核心匹配逻辑优化 ---
+        // 1. 获取当前日志行的编号，并进行清洗
+        const currentCode = item.equipment_id ? String(item.equipment_id).trim() : ''
+
+        // 2. 从内存 Map 中寻找对应的图片
+        const matchedImage = equipmentImageMap.value[currentCode] || item.group_image || ''
+
+        return {
+          ...item,
+          displayTime: item.timestamp || '未知时间',
+          group_image: matchedImage, // 注入图片
+        }
+      })
       total.value = response.data.total
     }
   } catch (error) {
@@ -291,7 +503,7 @@ const searchForm = ref({
   username: '',
   group_name: '',
   group_code: '',
-  action: ''
+  action: '',
 })
 // 搜索执行
 const handleAdvancedSearch = () => {
@@ -307,31 +519,50 @@ const resetFilters = () => {
   handleAdvancedSearch()
 }
 // --- 核心逻辑修改：构建SQL条件 ---
+// --- 修改 2: buildCondition ---
 const buildCondition = () => {
   let cond = []
 
-  // 1. 基础类别过滤 (根据左侧菜单)
-  if (activeCategory.value === 'OP_LOG') cond.push("action = '装备领用'")
-  if (activeCategory.value === 'ALARM') cond.push("log_level = '报警'")
-  if (activeCategory.value === 'BORROW') cond.push('status = 0')
-  if (activeCategory.value === 'RETURN') cond.push('status = 1')
+  // 1. 基础分类过滤
+  if (activeCategory.value === 'OP_LOG') {
+    if (!searchForm.value.action) cond.push("(action = '装备领用' OR action = '装备归还')")
+  } else if (activeCategory.value === 'ALARM') {
+    cond.push("action = '报警事件'")
+  } else if (activeCategory.value === 'RETURN') {
+    cond.push('status = 1') // 归还分类只看已还
+  }
+  // BORROW 不加条件，看全部领用
 
-  // 2. 日期筛选
+  // 2. 日期范围：匹配不同表的时间字段
   if (filterDate.value?.length === 2) {
-    cond.push(`timestamp BETWEEN '${filterDate.value[0]} 00:00:00' AND '${filterDate.value[1]} 23:59:59'`)
+    let timeField = 'timestamp'
+    if (activeCategory.value === 'BORROW') timeField = 'borrow_time'
+    if (activeCategory.value === 'RETURN') timeField = 'return_time'
+    cond.push(
+      `${timeField} BETWEEN '${filterDate.value[0]} 00:00:00' AND '${filterDate.value[1]} 23:59:59'`,
+    )
   }
 
-  // 3. 高级筛选表单 (动态拼接)
+  // 3. 人员搜索：如果是归还记录，搜“领用人”或“归还人”
   if (searchForm.value.username) {
-    cond.push(`username LIKE '%${searchForm.value.username}%'`)
+    if (activeCategory.value === 'RETURN') {
+      cond.push(
+        `(username LIKE '%${searchForm.value.username}%' OR return_username LIKE '%${searchForm.value.username}%')`,
+      )
+    } else {
+      cond.push(`username LIKE '%${searchForm.value.username}%'`)
+    }
   }
-  if (searchForm.value.group_name) {
-    cond.push(`group_name LIKE '%${searchForm.value.group_name}%'`)
-  }
-  if (searchForm.value.group_code) {
-    cond.push(`group_code LIKE '%${searchForm.value.group_code}%'`)
-  }
-  if (searchForm.value.action) {
+
+  // 4. 常规模糊查询
+  if (searchForm.value.group_name) cond.push(`group_name LIKE '%${searchForm.value.group_name}%'`)
+  if (searchForm.value.group_code) cond.push(`group_code LIKE '%${searchForm.value.group_code}%'`)
+
+  // 仅在 logs 表分类下才增加 action 搜索，防止报错
+  if (
+    searchForm.value.action &&
+    (activeCategory.value === 'OP_LOG' || activeCategory.value === 'ALARM')
+  ) {
     cond.push(`action LIKE '%${searchForm.value.action}%'`)
   }
 
@@ -351,8 +582,9 @@ const showTraceDetail = (row) => {
   detailVisible.value = true
 }
 
-onMounted(() => {
-  fetchLogs()
+onMounted(async () => {
+  await fetchEquipmentMap() // 先拿图片映射表
+  fetchLogs() // 再拿日志数据
 })
 </script>
 
@@ -979,6 +1211,120 @@ pre {
 .btn-submit:hover {
   transform: translateY(-2px);
   box-shadow: 0 0 20px rgba(0, 242, 255, 0.6);
+}
+
+/* 时间链排版 */
+.time-chain {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.time-node {
+  font-size: 14px;
+  font-family: 'Consolas', monospace;
+  white-space: nowrap;
+}
+
+.time-node.end {
+  color: var(--primary);
+}
+
+/* 归还时间用青色 */
+.time-node.start {
+  color: #8899a6;
+}
+
+/* 领用时间用灰色 */
+
+/* 人员信息排版 */
+.people-info {
+  line-height: 1.4;
+  font-size: 13px;
+}
+
+.sub-p {
+  font-size: 13px;
+  color: #8899a6;
+  margin-top: 2px;
+}
+
+.label-mini {
+  opacity: 0.5;
+  font-size: 14px;
+  margin-right: 4px;
+}
+
+/* 备注限制 */
+.remark-text {
+  font-size: 14px;
+  color: #ccdbe8;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  line-clamp: 2;
+  -webkit-line-clamp: 2;
+  overflow: hidden;
+}
+
+/* 装备实照列图片样式 */
+.equip-column-image {
+  width: 90px;
+  height: 60px;
+  border-radius: 4px;
+  border: 1px solid var(--border);
+  /* [核心修改] 即使图片没加载出来，也要显示这个深色底，防止闪白 */
+  background-color: #0d121c !important;
+  display: block;
+  margin: 0;
+  transition: all 0.3s;
+}
+
+.equip-column-image:hover {
+  border-color: var(--primary);
+  box-shadow: 0 0 10px rgba(0, 242, 255, 0.3);
+  transform: scale(1.05);
+  cursor: pointer;
+}
+
+/* [新增] 加载中插槽样式 */
+.image-slot-loading {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  width: 100%;
+  height: 100%;
+  background: #0d121c;
+  /* 必须是深色 */
+  color: var(--primary);
+  /* 加载图标用青色 */
+}
+
+/* 统一错误占位样式 */
+.image-error-slot {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  width: 100%;
+  height: 100%;
+  background: #0d121c;
+  /* 必须是深色 */
+  color: #3d4959;
+  font-size: 20px;
+}
+
+/* 让加载图标转起来 */
+.is-loading {
+  animation: rotating 2s linear infinite;
+}
+
+@keyframes rotating {
+  from {
+    transform: rotate(0deg);
+  }
+
+  to {
+    transform: rotate(360deg);
+  }
 }
 </style>
 <style>

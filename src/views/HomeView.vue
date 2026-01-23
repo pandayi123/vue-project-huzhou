@@ -7,7 +7,7 @@
         </div>
         <div class="title">
         <!--
-          <img class="logo" src="@/assets/images/deskview2.png" alt="系统Logo" />-->智能物柜管理系统
+          <img class="logo" src="@/assets/images/deskview2.png" alt="系统Logo" />-->智能装备管理系统
         </div>
         <div class="wendu_shidu">
           <div class="status-item" style="display: flex; align-items: center; gap: 0.08rem">
