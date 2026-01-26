@@ -100,7 +100,7 @@
             <div v-for="(log, index) in logList" :key="index" class="log-card">
               <!-- 装饰性光标 -->
               <div class="log-tag" :class="log.type === 'feature' ? 'tag-new' : 'tag-fix'">
-                {{ log.type === 'feature' ? 'NEW' : 'FIX' }}
+                {{ log.type === 'feature' ? '更新' : '修复' }}
               </div>
 
               <div class="log-header">
@@ -246,38 +246,92 @@ onMounted(async () => {
 </script>
 
 <style scoped>
-/* 继承自人员管理页面的基础变量与布局 */
+/* 1. 完善变量定义与基础容器 */
 .page-container {
+  /* 引入日志页面统一变量 */
+  --primary: #00f2ff;
+  --primary-dark: #0099a1;
+  --bg-dark: #0a0f18;
+  --border: #2a3546;
+  --active-bg: #1c2538;
+  --error: #ff4d4f; /* 退出按钮红色 */
+  --text-main: #ccdbe8;
+  --text-dim: #8899a6;
+
   width: 100%;
   height: 100vh;
-  background-color: #0a0e17;
-  color: #fff;
+  background-color: var(--bg-dark);
+  color: var(--text-main);
   display: flex;
   flex-direction: column;
   overflow: hidden;
 }
 
-/* 顶部导航与人员管理一致 */
+/* 2. 顶部导航条：完全对标日志页面 */
 .header-bar {
   height: 70px;
   background: #11151f;
-  border-bottom: 1px solid #2a3546;
+  border-bottom: 1px solid var(--border);
   display: flex;
   justify-content: space-between;
   align-items: center;
   padding: 0 25px;
+  flex-shrink: 0;
+  z-index: 10;
 }
 
+.header-left {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+/* 图标外框 */
 .icon-box-glow {
   width: 42px;
   height: 42px;
-  border: 1px solid #2a3546;
+  border: 1px solid var(--border);
   border-radius: 8px;
   display: flex;
   align-items: center;
   justify-content: center;
-  background: #1c2538;
+  background: var(--active-bg);
+  box-shadow: 0 0 15px rgba(0, 242, 255, 0.1);
 }
+
+
+
+/* 标题与副标题文字排版 */
+.title-text h1 {
+  margin: 0;
+  font-size: 22px;
+  font-weight: 600;
+  letter-spacing: 1px;
+  color: #fff;
+  text-shadow: 0 0 5px rgba(255, 255, 255, 0.3);
+  line-height: 1.2;
+}
+
+/* 3. 退出按钮：改为日志页面的红色风格 */
+.btn-exit {
+  background: transparent;
+  border: 1px solid var(--error);
+  color: var(--error);
+  padding: 6px 16px;
+  font-size: 13px;
+  border-radius: 4px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  transition: all 0.3s;
+}
+
+.btn-exit:hover {
+  background: rgba(255, 77, 79, 0.1);
+  box-shadow: 0 0 8px rgba(255, 77, 79, 0.4);
+}
+
 
 .primary-icon {
   color: #00f2ff;
@@ -361,8 +415,8 @@ onMounted(async () => {
   position: absolute;
   top: 0;
   right: 20px;
-  padding: 4px 10px;
-  font-size: 10px;
+  padding: 4px 12px; /* 稍微增加左右内边距 */
+  font-size: 11px;    /* 稍微调大一点点适合中文 */
   font-weight: bold;
   border-radius: 0 0 4px 4px;
 }

@@ -1098,6 +1098,46 @@ const deleteSelectedEquipment = async () => {
       })
       console.log('删除响应:', response)
       if (response.success) {
+
+        // ==========================================================
+        // === 【新增代码开始点】：记录出库日志 ===
+        // ==========================================================
+        try {
+          const opName = authStore.verifiedUsers.length > 0
+            ? authStore.verifiedUsers.map(u => u.real_name).join(',')
+            : '系统管理员';
+          const opId = authStore.verifiedUsers.length > 0
+            ? authStore.verifiedUsers.map(u => u.id_card).join(',')
+            : 'SYSTEM';
+
+          // 循环记录每一件被删除的装备（因为删除后表中没数据了，所以必须在此时抓取row信息）
+          for (const row of selectedRows) {
+            // 在 deleteSelectedEquipment 的循环内
+            await window.electronAPI.el_post({
+              action: 'insert',
+              payload: {
+                tableName: 'logs',
+                setValues: {
+                  terminal_id: configStore.terminal.terminal_id,
+                  action: '删除装备', // <--- 改为这个，更具辨识度
+                  description: '执行装备删除操作，对应装备信息已移除',
+                  username: opName,
+                  id_card: opId,
+                  equipment_id: row.id,
+                  group_name: row.group_name,
+                  group_code: row.group_code,
+                  log_level: '普通'
+                }
+              }
+            });
+          }
+        } catch (logError) {
+          console.error('出库审计日志记录失败:', logError);
+        }
+        // ==========================================================
+        // === 【新增代码结束点】 ===
+        // ==========================================================
+
         audioStore.play('/audio/删除成功.mp3')
         // 刷新数据
         getData()
@@ -1709,6 +1749,9 @@ const forceExecute = async () => {
 const finishOperation = async (statusText, audioUrl) => {
   isPolling.value = false // 双重保险停止轮询
 
+  // --- 【优化：获取变更前的旧状态】 ---
+  const oldStatus = form_add_new.group_status;
+
   try {
     const updateRes = await window.electronAPI.el_post({
       action: 'update',
@@ -1723,16 +1766,59 @@ const finishOperation = async (statusText, audioUrl) => {
     })
 
     if (updateRes.success) {
-      updateSwitchDetails()
-      // 更新前端数据
-      form_add_new.group_status = statusText
-      form_add_new.hardware_status = statusText === '在位' ? '导通' : '断开'
 
-      // 更新表格行
+      const opName = authStore.verifiedUsers.length > 0 ? authStore.verifiedUsers.map(u => u.real_name).join(',') : '系统管理员';
+      const opId = authStore.verifiedUsers.length > 0 ? authStore.verifiedUsers.map(u => u.id_card).join(',') : 'SYSTEM';
+
+      // --- 【精准日志逻辑】 ---
+      // 只有状态真的发生变化了，才记录入/出库日志，否则只记操作轨迹
+      let logAction = '操作轨迹';
+      let logDesc = `管理员在编辑界面执行了状态确认: ${statusText}`;
+
+      if (oldStatus !== '在位' && statusText === '在位') {
+        logAction = '装备入库';
+        logDesc = `装备入库成功 (位置:${form_add_new.self_address}号位)`;
+      } else if (oldStatus === '在位' && statusText !== '在位') {
+        logAction = '装备出库';
+        logDesc = `装备出库成功 (移出柜体)`;
+      }
+
+      await window.electronAPI.el_post({
+        action: 'insert',
+        payload: {
+          tableName: 'logs',
+          setValues: {
+            terminal_id: configStore.terminal.terminal_id,
+            action: logAction,
+            description: logDesc,
+            username: opName,
+            id_card: opId,
+            equipment_id: currentEditId.value,
+            group_name: form_add_new.group_name,
+            group_code: form_add_new.group_code,
+            log_level: '普通'
+          }
+        }
+      });
+
+      // 1. 先更新业务状态
+      form_add_new.group_status = statusText
       const row = tableData.find((item) => item.id == currentEditId.value)
-      if (row) {
-        row.group_status = statusText
-        row.hardware_status = form_add_new.hardware_status
+      if (row) row.group_status = statusText
+
+      // 2. 关键：等待真实的硬件扫描完成
+      // 确保硬件已经读取到了最新的物理状态
+      await updateSwitchDetails()
+
+      // 3. 从更新后的配置中同步最新的硬件状态到 UI
+      const targetSwitch = config_blob.value?.switch?.details?.find(
+        (s) => Number(s.self_address) === Number(form_add_new.self_address)
+      )
+
+      if (targetSwitch) {
+        const realStatus = targetSwitch.hardware_status === 1 ? '导通' : '断开'
+        form_add_new.hardware_status = realStatus
+        if (row) row.hardware_status = realStatus
       }
 
       audioStore.play(audioUrl)

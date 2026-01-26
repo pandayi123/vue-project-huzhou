@@ -28,13 +28,8 @@
       <div class="main-body">
         <!-- 左侧分类切换 -->
         <aside class="log-sidebar">
-          <div
-            v-for="menu in menuOptions"
-            :key="menu.value"
-            class="menu-item"
-            :class="{ active: activeCategory === menu.value }"
-            @click="handleCategoryChange(menu.value)"
-          >
+          <div v-for="menu in menuOptions" :key="menu.value" class="menu-item"
+            :class="{ active: activeCategory === menu.value }" @click="handleCategoryChange(menu.value)">
             <el-icon>
               <component :is="menu.icon" />
             </el-icon>
@@ -48,17 +43,9 @@
           <!-- 1. 修改后的搜索控制栏 -->
           <div class="filter-panel">
             <!-- 日期依然保留在外，因为它是最常用的 -->
-            <el-date-picker
-              v-model="filterDate"
-              type="daterange"
-              range-separator="至"
-              start-placeholder="开始日期"
-              end-placeholder="结束日期"
-              value-format="YYYY-MM-DD"
-              class="cyber-date-picker"
-              @change="handleDateChange"
-              popper-class="cyber-date-picker-popper"
-            />
+            <el-date-picker v-model="filterDate" type="daterange" range-separator="至" start-placeholder="开始日期"
+              end-placeholder="结束日期" value-format="YYYY-MM-DD" class="cyber-date-picker" @change="handleDateChange"
+              popper-class="cyber-date-picker-popper" />
 
             <!-- 高级筛选触发按钮 -->
             <!--
@@ -73,35 +60,23 @@
             <div style="width: 550px"></div>
             <!--
             <el-button class="cyber-search-btn" @click="fetchLogs">执行查询</el-button>
-          --></div>
+          -->
+          </div>
 
           <!-- 数据表格 -->
           <div class="table-container">
-            <el-table
-              :data="tableData"
-              highlight-current-row
-              v-loading="loading"
-              class="cyber-table"
-              height="100%"
-            >
+            <el-table :data="tableData" highlight-current-row v-loading="loading" class="cyber-table" height="100%">
               <!-- ================= 分支 A：操作轨迹 / 报警日志 (Logs表) ================= -->
               <template v-if="activeCategory === 'OP_LOG' || activeCategory === 'ALARM'">
                 <el-table-column prop="displayTime" label="时间" width="190" />
-                <el-table-column
-                  v-if="activeCategory === 'OP_LOG'"
-                  prop="username"
-                  label="操作人"
-                  width="150"
-                />
+                <el-table-column v-if="activeCategory === 'OP_LOG'" prop="username" label="操作人" width="150" />
                 <el-table-column prop="action" label="动作" width="120">
                   <template #default="scope">
                     <!-- 将 scope.row.log_level === '报警' 改为 scope.row.action === '报警事件' -->
-                    <span
-                      :class="[
-                        'tag-status',
-                        scope.row.action === '报警事件' ? 'tag-alarm' : 'tag-normal',
-                      ]"
-                    >
+                    <span :class="[
+                      'tag-status',
+                      scope.row.action === '报警事件' ? 'tag-alarm' : 'tag-normal',
+                    ]">
                       {{ scope.row.action }}
                     </span>
                   </template>
@@ -113,9 +88,53 @@
                 </el-table-column>
                 <el-table-column v-if="activeCategory === 'OP_LOG'" label="详情" width="100">
                   <template #default="scope">
-                    <el-button link type="primary" @click="showTraceDetail(scope.row)"
-                      >查看轨迹</el-button
-                    >
+                    <el-button link type="primary" @click="showTraceDetail(scope.row)">查看轨迹</el-button>
+                  </template>
+                </el-table-column>
+              </template>
+
+              <!-- ================= 分支 C：入库日志 / 出库日志 ================= -->
+              <template v-else-if="activeCategory === 'STOCK_IN' || activeCategory === 'STOCK_OUT'">
+                <!-- 1. 装备实照 -->
+                <el-table-column label="装备实照" width="130">
+                  <template #default="scope">
+                    <el-image class="equip-column-image" :src="scope.row.group_image"
+                      :preview-src-list="[scope.row.group_image]" preview-teleported fit="cover">
+                      <template #placeholder>
+                        <div class="image-slot-loading"><el-icon class="is-loading">
+                            <Loading />
+                          </el-icon></div>
+                      </template>
+                      <template #error>
+                        <div class="image-error-slot"><el-icon>
+                            <Picture />
+                          </el-icon></div>
+                      </template>
+                    </el-image>
+                  </template>
+                </el-table-column>
+
+                <!-- 2. 装备名称与编号 -->
+                <el-table-column prop="group_name" label="装备名称" width="150" />
+                <el-table-column prop="group_code" label="装备编号" width="150" />
+
+                <!-- 3. 时间 -->
+                <el-table-column prop="displayTime" label="时间" width="190" />
+
+                <!-- 4. 动作 -->
+                <el-table-column prop="action" label="动作" width="120">
+                  <template #default="scope">
+                    <span class="tag-status tag-normal">{{ scope.row.action }}</span>
+                  </template>
+                </el-table-column>
+
+                <!-- 5. 操作人员 -->
+                <el-table-column prop="username" label="操作人员" width="150" />
+
+                <!-- 6. 详情 -->
+                <el-table-column prop="description" label="详情描述" show-overflow-tooltip>
+                  <template #default="scope">
+                    <span class="desc-text">{{ scope.row.description }}</span>
                   </template>
                 </el-table-column>
               </template>
@@ -125,13 +144,8 @@
                 <!-- 新增：装备实照字段 -->
                 <el-table-column label="装备实照" width="130">
                   <template #default="scope">
-                    <el-image
-                      class="equip-column-image"
-                      :src="scope.row.group_image"
-                      :preview-src-list="[scope.row.group_image]"
-                      preview-teleported
-                      fit="cover"
-                    >
+                    <el-image class="equip-column-image" :src="scope.row.group_image"
+                      :preview-src-list="[scope.row.group_image]" preview-teleported fit="cover">
                       <!-- [新增] 加载占位，防止闪白 -->
                       <template #placeholder>
                         <div class="image-slot-loading">
@@ -156,10 +170,7 @@
                 <el-table-column prop="group_code" label="装备编号" width="150" />
 
                 <!-- 2. 时间详情 (领用显示单行，归还显示起止) -->
-                <el-table-column
-                  :label="activeCategory === 'RETURN' ? '归还/领用时间' : '领用时间'"
-                  width="220"
-                >
+                <el-table-column :label="activeCategory === 'RETURN' ? '归还/领用时间' : '领用时间'" width="220">
                   <template #default="scope">
                     <div v-if="activeCategory === 'RETURN'" class="time-chain">
                       <div class="time-node end">还：{{ scope.row.return_time }}</div>
@@ -206,28 +217,15 @@
 
           <!-- 分页 -->
           <div class="pagination-box">
-            <el-pagination
-              background
-              layout="total, prev, pager, next"
-              :total="total"
-              :page-size="20"
-              v-model:current-page="currentPage"
-              @current-change="fetchLogs"
-            />
+            <el-pagination background layout="total, prev, pager, next" :total="total" :page-size="20"
+              v-model:current-page="currentPage" @current-change="fetchLogs" />
           </div>
         </section>
       </div>
 
       <!-- 修改后的轨迹详情弹窗 -->
-      <el-dialog
-        v-model="detailVisible"
-        title="操作轨迹详情"
-        center
-        width="650px"
-        class="cyber-dialog"
-        align-center
-        destroy-on-close
-      >
+      <el-dialog v-model="detailVisible" title="操作轨迹详情" center width="650px" class="cyber-dialog" align-center
+        destroy-on-close>
         <div class="trace-detail-container">
           <!-- 优化1：解决粘连问题，增加布局控制 -->
           <div class="user-info-mini">
@@ -259,49 +257,23 @@
       </el-dialog>
     </div>
     <!-- 2. 新增：高级筛选弹窗 -->
-    <el-dialog
-      v-model="filterVisible"
-      title="条件筛选"
-      width="450px"
-      class="cyber-dialog filter-dialog"
-      align-center
-    >
+    <el-dialog v-model="filterVisible" title="条件筛选" width="450px" class="cyber-dialog filter-dialog" align-center>
       <div class="filter-form">
         <div class="filter-row">
           <label>操作人员</label>
-          <el-input
-            v-model="searchForm.username"
-            placeholder="请输入人员姓名"
-            class="cyber-input"
-            clearable
-          />
+          <el-input v-model="searchForm.username" placeholder="请输入人员姓名" class="cyber-input" clearable />
         </div>
         <div class="filter-row">
           <label>装备名称</label>
-          <el-input
-            v-model="searchForm.group_name"
-            placeholder="请输入装备名称"
-            class="cyber-input"
-            clearable
-          />
+          <el-input v-model="searchForm.group_name" placeholder="请输入装备名称" class="cyber-input" clearable />
         </div>
         <div class="filter-row">
           <label>装备编号</label>
-          <el-input
-            v-model="searchForm.group_code"
-            placeholder="请输入装备编号"
-            class="cyber-input"
-            clearable
-          />
+          <el-input v-model="searchForm.group_code" placeholder="请输入装备编号" class="cyber-input" clearable />
         </div>
         <div class="filter-row" v-if="activeCategory === 'OP_LOG'">
           <label>具体动作</label>
-          <el-input
-            v-model="searchForm.action"
-            placeholder="如：扫码、领用"
-            class="cyber-input"
-            clearable
-          />
+          <el-input v-model="searchForm.action" placeholder="如：扫码、领用" class="cyber-input" clearable />
         </div>
       </div>
       <template #footer>
@@ -461,7 +433,7 @@ const fetchLogs = async () => {
     }
 
     let response
-    if (activeCategory.value === 'OP_LOG' || activeCategory.value === 'ALARM') {
+    if (['OP_LOG', 'ALARM', 'STOCK_IN', 'STOCK_OUT'].includes(activeCategory.value)) {
       response = await window.electronAPI.el_post({
         action: 'queryPagination',
         payload: { ...payload, tableName: 'logs' },
@@ -530,6 +502,11 @@ const buildCondition = () => {
     cond.push("action = '报警事件'")
   } else if (activeCategory.value === 'RETURN') {
     cond.push('status = 1') // 归还分类只看已还
+  }// === 新增：入库和出库的过滤条件 ===
+  else if (activeCategory.value === 'STOCK_IN') {
+    cond.push("action = '装备入库'") // 根据你数据库存的具体字符匹配
+  } else if (activeCategory.value === 'STOCK_OUT') {
+    cond.push("(action = '装备出库' OR action = '删除装备')")
   }
   // BORROW 不加条件，看全部领用
 
