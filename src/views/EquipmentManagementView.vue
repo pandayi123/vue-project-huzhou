@@ -560,6 +560,8 @@ import { Delete } from '@element-plus/icons-vue'
 import { useConfigStore } from '@/stores/configStore'
 import { ElLoading, ElMessageBox } from 'element-plus'
 const configStore = useConfigStore()
+import { useAuthStore } from '@/stores/authStore'
+const authStore = useAuthStore()
 // import plugins from '../assets/js/plugin'
 // ==========================================
 // [修正版] 检测所有柜门状态 (基于锁控板 Device 201)
@@ -1321,6 +1323,7 @@ const submitForm = async (operationType) => {
 
     // 5. 处理结果
     if (response.success) {
+
       // 根据不同操作播放不同音频
       if (operationType === 'update') {
         audioStore.play('/audio/修改成功.mp3')
