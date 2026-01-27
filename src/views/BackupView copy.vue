@@ -1,5 +1,6 @@
 <template>
-  <div class="sys-config-container sys-config-theme-dark">
+  <!-- 必须绑定在最外层容器上 -->
+  <div class="sys-config-container sys-config-theme-dark" :class="{ 'keyboard-active': showKeyboard }">
     <!-- ================= 顶部导航栏 (已对标配置页) ================= -->
     <header class="sys-config-header">
       <div class="sys-config-header-left">
@@ -33,7 +34,7 @@
             <el-icon>
               <EditPen />
             </el-icon>
-            <span>提交意见反馈</span>
+            <span>提交建议反馈</span>
             <div class="sys-config-section-line"></div>
           </div>
 
@@ -56,8 +57,8 @@
                   </el-radio-group>
                 </el-form-item>
 
-                <el-form-item label="详细说明（请描述具体问题或改进想法）" id="field-content">
-                  <el-input v-model="feedbackForm.content" type="textarea" :rows="8" placeholder="请输入反馈内容..."
+                <el-form-item label="反馈内容（请描述具体问题或改进建议）" id="field-content">
+                  <el-input v-model="feedbackForm.content" type="textarea" :rows="12" placeholder="请在此输入反馈内容..."
                     class="sys-config-input-textarea" @focus="openKeyboard('default', 'content', $event)" />
                 </el-form-item>
               </el-form>
@@ -123,10 +124,12 @@
     </div>
 
     <!-- 虚拟键盘 (对标配置页样式) -->
-    <div v-if="showKeyboard" class="keyboard-container" @mousedown.prevent>
-      <SimpleKeyboard v-model="currentInputValue" @onKeyPress="handleKeyPress" @onClose="showKeyboard = false"
-        keyboardClass="show-keyboard" />
-    </div>
+    <transition name="slide-up">
+      <div v-if="showKeyboard" class="keyboard-container" @mousedown.prevent>
+        <SimpleKeyboard v-model="currentInputValue" @onKeyPress="handleKeyPress" @onClose="showKeyboard = false"
+          keyboardClass="show-keyboard" />
+      </div>
+    </transition>
   </div>
 </template>
 
@@ -331,19 +334,26 @@ onMounted(async () => {
 }
 
 /* ================= 主体布局优化 ================= */
+/* ================= 主体布局：完全还原旧页面的平滑逻辑 ================= */
 .main-body {
-  flex: 1;
   display: flex;
+  flex: 1;
   padding: 20px;
   gap: 20px;
   overflow: hidden;
+
+  /* 核心： transition 必须为 all，且曲线必须是 cubic-bezier */
   transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+
+  /* 设定一个明确的基准高度 */
+  height: calc(100vh - 70px);
 }
 
-.keyboard-active {
-  height: 45vh !important;
-  /* 键盘弹出时缩短主体 */
-  flex: none;
+/* 键盘激活时的布局：强制锁定 flex 属性防止闪烁 */
+.keyboard-active .main-body {
+  /* 0 0 表示：不放大、不缩小、基础高度固定为 420px */
+  flex: 0 0 420px !important;
+  height: 420px !important;
 }
 
 .form-section-wrapper {
@@ -392,7 +402,10 @@ onMounted(async () => {
 }
 
 .sys-config-section-body {
-  padding: 20px;
+  padding: 30px 25px; /* 增加上下内边距，原为 20px */
+  display: flex;
+  flex-direction: column;
+  min-height: 100%; /* 确保高度撑满 */
 }
 
 .form-scroll-area {
@@ -400,9 +413,16 @@ onMounted(async () => {
 }
 
 /* ================= 输入控件覆盖 (对标配置页) ================= */
+
+/* 找到 215 行左右，修改或添加以下代码 */
+:deep(.el-form-item) {
+  margin-bottom: 20px !important; /* 增加表单项之间的垂直间距，原为默认 */
+}
+
 :deep(.el-form-item__label) {
   color: var(--sys-text-sec) !important;
-  margin-bottom: 8px !important;
+  margin-bottom: 12px !important; /* 标签和输入框之间也拉开一点 */
+  font-size: 15px !important;     /* 稍微调大字号 */
 }
 
 :deep(.sys-config-input .el-input__wrapper),
@@ -510,7 +530,8 @@ onMounted(async () => {
 
 .log-card {
   position: relative;
-  background: rgba(255, 255, 255, 0.03); /* 稍微加深背景 */
+  background: rgba(255, 255, 255, 0.03);
+  /* 稍微加深背景 */
   border: 1px solid var(--sys-border);
   border-radius: 8px;
   padding: 20px;
@@ -527,20 +548,28 @@ onMounted(async () => {
   top: 0;
   right: 20px;
   padding: 4px 12px;
-  font-size: 11px;
+  font-size: 13px;
   font-weight: bold;
   border-radius: 0 0 4px 4px;
 }
 
-.tag-new { background: #00ff9d; color: #000; }
-.tag-fix { background: #0099a1; color: #fff; }
+.tag-new {
+  background: #00ff9d;
+  color: #000;
+}
+
+.tag-fix {
+  background: #0099a1;
+  color: #fff;
+}
 
 .problem-title {
   font-size: 16px;
   font-weight: bold;
   color: var(--sys-primary);
   margin-bottom: 8px;
-  padding-right: 60px; /* 避开右上角标签 */
+  padding-right: 60px;
+  /* 避开右上角标签 */
 }
 
 .resolve-time {
@@ -554,7 +583,8 @@ onMounted(async () => {
 .log-detail {
   margin-top: 15px;
   border-top: 1px solid rgba(255, 255, 255, 0.08);
-  padding-top: 15px; /* 修复之前的 pt 错误 */
+  padding-top: 15px;
+  /* 修复之前的 pt 错误 */
 }
 
 /* 关键对齐布局：恢复之前的 flex 结构 */
@@ -567,8 +597,10 @@ onMounted(async () => {
 
 .detail-row .label {
   color: var(--sys-text-sec);
-  width: 75px;      /* 恢复固定宽度 */
-  flex-shrink: 0;   /* 防止被挤压 */
+  width: 75px;
+  /* 恢复固定宽度 */
+  flex-shrink: 0;
+  /* 防止被挤压 */
 }
 
 .detail-row .value {
@@ -581,7 +613,8 @@ onMounted(async () => {
   padding: 10px;
   border-radius: 4px;
   border-left: 2px solid var(--sys-primary-dark);
-  flex: 1;          /* 占据剩余空间并支持自动换行 */
+  flex: 1;
+  /* 占据剩余空间并支持自动换行 */
 }
 
 /* 装饰边角 */
@@ -603,7 +636,10 @@ onMounted(async () => {
   z-index: 9999 !important;
   background-color: #141b2d !important;
   border-top: 1px solid var(--sys-primary);
-  padding: 5px 0 20px 0 !important;
+  /* 修改这里：最后一位改为 0，让内容紧贴底边 */
+  padding: 5px 0 0 0 !important;
+  /* 增加阴影，让它和主体的衔接更自然 */
+  box-shadow: 0 -10px 40px rgba(0, 0, 0, 0.8);
 }
 
 /* ================= 滚动条始终显示样式定制 ================= */
@@ -611,13 +647,16 @@ onMounted(async () => {
 /* 1. 强制滚动条轨道透明度为 1 (不再自动隐藏) */
 :deep(.log-section .el-scrollbar__bar) {
   opacity: 1 !important;
-  width: 6px; /* 稍微调窄一点更精致 */
+  width: 6px;
+  /* 稍微调窄一点更精致 */
 }
 
 /* 2. 定制滚动条滑块（Thumb）的颜色和形状 */
 :deep(.log-section .el-scrollbar__thumb) {
-  background-color: var(--sys-primary-dark) !important; /* 使用主题青色 */
-  opacity: 0.5; /* 默认半透明 */
+  background-color: var(--sys-primary-dark) !important;
+  /* 使用主题青色 */
+  opacity: 0.5;
+  /* 默认半透明 */
   transition: opacity 0.3s;
 }
 
@@ -631,6 +670,26 @@ onMounted(async () => {
 :deep(.log-section .el-scrollbar__bar.is-vertical) {
   background: rgba(0, 0, 0, 0.2);
   border-radius: 10px;
-  right: 2px; /* 距离边缘一点距离 */
+  right: 2px;
+  /* 距离边缘一点距离 */
+}
+
+/* ================= 虚拟键盘滑入滑出动画 (严格对应 slide-up) ================= */
+.slide-up-enter-active,
+.slide-up-leave-active {
+  /* 增加高度动画同步，让主体合拢和键盘下滑更协调 */
+  transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1), opacity 0.2s ease;
+}
+
+.slide-up-enter-from,
+.slide-up-leave-to {
+  transform: translateY(100%); /* 确保完全滑到屏幕外 */
+  opacity: 0;
+}
+
+.slide-up-enter-to,
+.slide-up-leave-from {
+  transform: translateY(0);
+  opacity: 1;
 }
 </style>

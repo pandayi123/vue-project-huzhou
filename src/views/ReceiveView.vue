@@ -1792,7 +1792,7 @@ const forceExitProcess = async () => {
       '结算确认',
       {
         dangerouslyUseHTMLString: true,
-        confirmButtonText: '强制标记为已取并保存', // 对应 confirm (处理坏传感器-拿不出来)
+        confirmButtonText: '强制标记全取', // 对应 confirm (处理坏传感器-拿不出来)
         cancelButtonText: '放弃 / 仅结算已取项', // 对应 cancel (进入二级判断)
         distinguishCancelAndClose: true,
         customClass: 'cyber-message-box warning-mode',

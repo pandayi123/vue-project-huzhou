@@ -40,7 +40,7 @@
 
           <el-scrollbar class="form-scroll-area" always>
             <div class="sys-config-section-body">
-              <el-form :model="feedbackForm" label-position="top">
+              <el-form ref="feedbackFormRef" :model="feedbackForm" :rules="rules" label-position="top">
                 <el-form-item label="反馈单位 (系统自动识别)">
                   <el-input v-model="systemUnitName" disabled class="sys-config-input sys-disabled-input">
                     <template #prefix><el-icon>
@@ -57,9 +57,11 @@
                   </el-radio-group>
                 </el-form-item>
 
-                <el-form-item label="反馈内容（请描述具体问题或改进建议）" id="field-content">
-                  <el-input v-model="feedbackForm.content" type="textarea" :rows="12" placeholder="请在此输入反馈内容..."
-                    class="sys-config-input-textarea" @focus="openKeyboard('default', 'content', $event)" />
+                <el-form-item label="反馈内容（请描述具体问题或改进建议）" id="field-content" prop="content">
+                  <el-input v-model="feedbackForm.content" type="textarea" :rows="9" inputmode="none"
+                    placeholder="请在此输入反馈内容..." class="sys-config-input-textarea"
+                    @focus="openKeyboard('default', 'content', $event)" @click="updateCursorPos"
+                    @keyup="updateCursorPos" />
                 </el-form-item>
               </el-form>
 
@@ -71,7 +73,7 @@
                       <Promotion />
                     </el-icon>
                     <div class="sys-text-group">
-                      <span class="sys-btn-main-text">立即提交反馈</span>
+                      <span class="sys-btn-main-text">提交反馈</span>
                     </div>
                   </div>
                   <div class="sys-scan-line"></div>
@@ -88,7 +90,7 @@
           <el-icon>
             <Calendar />
           </el-icon>
-          <span>更新与修复日志 ({{ logList.length }})</span>
+          <span>更新与修复日志（共{{ logList.length }}条）</span>
           <div class="sys-config-section-line"></div>
         </div>
 
@@ -103,7 +105,8 @@
                 <div class="resolve-time">
                   <el-icon>
                     <Calendar />
-                  </el-icon> {{ log.resolve_time }}
+                  </el-icon>
+                  {{ log.resolve_time }}
                 </div>
               </div>
               <div class="log-detail">
@@ -134,77 +137,187 @@
 </template>
 
 <script setup>
-import { ref, reactive, onMounted, defineAsyncComponent, watch, nextTick } from 'vue'
+import { ref, reactive, onMounted, defineAsyncComponent, watch, nextTick, onBeforeUnmount } from 'vue'
 import { useRouter } from 'vue-router'
 import {
-  ChatDotSquare, SwitchButton, EditPen, OfficeBuilding,
-  Promotion, Calendar,
+  ChatDotSquare,
+  SwitchButton,
+  EditPen,
+  OfficeBuilding,
+  Promotion,
+  Calendar,
 } from '@element-plus/icons-vue'
 import { ElMessage, ElLoading } from 'element-plus'
 import { useAudioStore } from '@/stores/audioStore'
+// --- 修改：在 import 中增加 useConfigStore ---
+import { useConfigStore } from '@/stores/configStore'
+const configStore = useConfigStore()
+const terminal_id = ref('') // 存储终端ID
 
 const SimpleKeyboard = defineAsyncComponent(() => import('@/components/SimpleKeyboard_black.vue'))
 const router = useRouter()
 const audioStore = useAudioStore()
 
+const feedbackFormRef = ref(null) // 表单引用
+
+// 定义校验规则
+const rules = {
+  content: [
+    // 将 trigger 设置为 ['blur', 'change']
+    { required: true, message: '反馈内容不能为空', trigger: ['blur', 'change'] },
+    { min: 8, message: '为了更好地解决问题，请至少输入8个字符', trigger: ['blur', 'change'] }
+  ]
+}
+
 // --- 基础数据 ---
 const systemUnitName = ref('加载中...')
 const logList = ref([
   {
-    problem: '人员信息同步异常，部分头像无法正常显示',
-    proposing_unit: '勤务中队',
-    resolve_time: '2023-10-24 14:20',
-    solution: '优化了Blob数据流解析算法，增强了复杂网络环境下断点续传的稳定性。',
-    type: 'fix'
+    problem: '领用用途选项固定，无法覆盖所有实际使用场景，缺乏灵活性',
+    proposing_unit: '修理营',
+    resolve_time: '2026-01-27',
+    solution: '已上线‘预设+自定义’双模式。在保留作战演训、公差外带、检修保养等标准项的同时，新增手动录入功能，提升了用途填报的灵活性与详细程度，确保领用记录有据可查、记录详实，以满足高标准的任务追溯要求。',
+    type: 'feature',
   },
   {
-    problem: '新增装备领用生物识别二次验证功能',
-    proposing_unit: '系统规划部',
-    resolve_time: '2023-10-20 09:00',
-    solution: '在领用流程中嵌入指纹与人脸双重验证模块，提升库室安全性等级。',
-    type: 'feature'
+    problem: '库室电子开锁保持时间太短，导致配合机械钥匙开门不方便',
+    proposing_unit: '运输营',
+    resolve_time: '2026-01-22',
+    solution: '已延长库门开锁状态的保持时间，确保有足够的时间用机械钥匙开门。',
+    type: 'fix',
   },
   {
-    problem: '系统查询页面在高并发下的响应延迟',
-    proposing_unit: '物资管理科',
-    resolve_time: '2023-10-15 16:45',
-    solution: '对底层数据库TB_Equipment表增加了复合索引，查询效率提升约70%。',
-    type: 'fix'
-  }
+    problem: '图片上传功能单一（仅限芯片图），无法满足装备实物图的多样化展示需求',
+    proposing_unit: '修理营',
+    resolve_time: '2026-01-15',
+    solution: '已扩展图片上传接口，在数据库及前端界面新增“装备图片”字段及对应的上传组件。实现多维度图片管理，提升数据的可读性。',
+    type: 'feature',
+  },
+  {
+    problem: '领用和归还界面的装备信息展示不够直观，建议增加装备缩略图显示',
+    proposing_unit: '修理营',
+    resolve_time: '2026-01-10',
+    solution: '已在领用、归还界面增加装备缩略图展示，方便快速核对装备实物，提高操作效率。',
+    type: 'feature',
+  },
+  {
+    problem: '领取或归还时需要手动在列表里翻找勾选，无法根据装备的实际挪动自动匹配和统计信息',
+    proposing_unit: '机动营',
+    resolve_time: '2025-12-26',
+    solution: '已新增“快捷领用/归还”按钮。‘快捷模式’下，系统能自动锁定位置变动的装备，操作员只需一键确认即可完成流程，无需手动检索，确保存取操作精准、高效。目前系统支持“快捷领用/归还”和“精确领用/归还”两种模式。',
+    type: 'feature',
+  },
 ])
 
 // --- 反馈表单 ---
 const feedbackForm = reactive({
   type: 'suggestion',
-  content: ''
+  content: '',
 })
 
 // --- 键盘逻辑 ---
 const showKeyboard = ref(false)
 const activeField = ref('')
 const currentInputValue = ref('')
+const cursorIndex = ref(0) // 记录光标位置
+const activeInputDom = ref(null) // 记录当前输入框 DOM
+
+const updateCursorPos = (event) => {
+  const inputEl = event.target.tagName === 'TEXTAREA' || event.target.tagName === 'INPUT'
+    ? event.target
+    : event.target.querySelector('textarea, input');
+  if (inputEl) {
+    cursorIndex.value = inputEl.selectionStart;
+    activeInputDom.value = inputEl;
+    console.log('当前光标位置:', cursorIndex.value);
+  }
+};
 
 const openKeyboard = (layout, fieldName, event) => {
-  activeField.value = fieldName
-  currentInputValue.value = feedbackForm[fieldName]
-  showKeyboard.value = true
+  activeField.value = fieldName;
+  currentInputValue.value = feedbackForm[fieldName] || '';
+  showKeyboard.value = true;
 
-  // 修改这里：从 nextTick 改为 setTimeout
-  setTimeout(() => {
-    const el = document.getElementById(`field-${fieldName}`);
-    if (el) {
-      el.scrollIntoView({ behavior: 'smooth', block: 'center' });
-    }
-  }, 200); // 延迟400ms，等待页面收缩动画完成
-}
+  if (event && event.target) {
+    // 1. 确保获取到的是原生的 input 或 textarea 元素
+    const inputEl = event.target.tagName === 'TEXTAREA' || event.target.tagName === 'INPUT'
+      ? event.target
+      : event.target.querySelector('textarea, input');
 
-watch(currentInputValue, (newVal) => {
-  if (activeField.value) feedbackForm[activeField.value] = newVal
-})
+    activeInputDom.value = inputEl;
+    cursorIndex.value = inputEl.selectionStart || currentInputValue.value.length;
+
+    // 2. 延迟执行，等待主体高度压缩动画 (.main-body 的 transition) 完成
+    // 建议延迟比 CSS 的 0.3s 稍微长一点（比如 350ms），确保计算位置时容器高度已固定
+    setTimeout(() => {
+      if (activeInputDom.value) {
+        // 将 'center' 改为 'start'，这会让元素顶部对齐滚动区域的顶部
+        activeInputDom.value.scrollIntoView({
+          behavior: 'smooth',
+          block: 'start' // 关键修改：直接置顶
+        });
+
+        activeInputDom.value.focus();
+        activeInputDom.value.setSelectionRange(cursorIndex.value, cursorIndex.value);
+      }
+    }, 350);
+  }
+};
+
+watch(currentInputValue, (newValue, oldValue) => {
+  if (showKeyboard.value && activeField.value) {
+    // 1. 更新表单数据
+    feedbackForm[activeField.value] = newValue;
+
+    // 2. 计算光标偏移量
+    const oldLength = (oldValue || '').length;
+    const newLength = (newValue || '').length;
+    const diff = newLength - oldLength;
+
+    // 3. 更新索引
+    cursorIndex.value += diff;
+    if (cursorIndex.value < 0) cursorIndex.value = 0;
+
+    // 4. 强制 DOM 保持光标位置
+    nextTick(() => {
+      if (activeInputDom.value) {
+        activeInputDom.value.focus();
+        activeInputDom.value.setSelectionRange(cursorIndex.value, cursorIndex.value);
+      }
+    });
+  }
+});
 
 const handleKeyPress = (button) => {
-  if (button === '{close}' || button === '{submit}') showKeyboard.value = false
-}
+  // 每次按键后尝试夺回焦点
+  nextTick(() => {
+    if (activeInputDom.value) activeInputDom.value.focus();
+  });
+
+  if (button === '{close}' || button === '{submit}') {
+    setTimeout(() => {
+      showKeyboard.value = false;
+      if (activeInputDom.value) activeInputDom.value.blur();
+    }, 200);
+  }
+};
+
+const handleGlobalClick = (event) => {
+  if (!showKeyboard.value) return;
+
+  // 检查是否点在键盘上
+  const isClickOnKeyboard = event.target.closest('.keyboard-container');
+  // 检查是否点在输入框或表单项上
+  const isClickOnInput = event.target.tagName === 'TEXTAREA' ||
+    event.target.tagName === 'INPUT' ||
+    event.target.closest('.el-input') ||
+    event.target.closest('.el-form-item');
+
+  if (!isClickOnKeyboard && !isClickOnInput) {
+    showKeyboard.value = false;
+    if (activeInputDom.value) activeInputDom.value.blur();
+  }
+};
 
 // --- 核心操作 ---
 const handleExit = () => {
@@ -213,40 +326,76 @@ const handleExit = () => {
 }
 
 const submitFeedback = async () => {
-  if (!feedbackForm.content) {
+  // 1. 调用 Element Plus 的表单校验
+  try {
+    await feedbackFormRef.value.validate()
+  } catch (error) {
+    // 校验失败
+    console.log('校验失败:', error)
     audioStore.play('/audio/校验失败请参考红色文字提示.mp3')
-    return ElMessage.warning('请输入反馈内容')
+    return // 拦截提交
   }
 
+  // 2. 校验通过后，显示 Loading
   const loading = ElLoading.service({
     lock: true,
-    text: '正在加密并上传反馈数据...',
+    text: '正在保存反馈数据...',
     background: 'rgba(0, 0, 0, 0.8)',
   })
+  await new Promise(resolve => setTimeout(resolve, 1000))
 
   try {
-    // 模拟API调用
-    await new Promise(resolve => setTimeout(resolve, 1500))
-    audioStore.play('/audio/保存成功.mp3')
-    ElMessage.success('反馈提交成功，感谢您的意见！')
-    feedbackForm.content = ''
-    showKeyboard.value = false
+    // 3. 构造数据包并发送 (保持你之前的逻辑)
+    const payloadData = {
+      terminal_id: terminal_id.value || configStore.terminal.terminal_id,
+      unit_name: systemUnitName.value,
+      feedback_type: feedbackForm.type,
+      content: feedbackForm.content,
+      status: 'pending',
+      is_synced: 0
+    }
+
+    const response = await window.electronAPI.el_post({
+      action: 'insert',
+      payload: { tableName: 'system_feedback', setValues: payloadData }
+    })
+
+    if (response.success) {
+      audioStore.play('/audio/保存成功.mp3')
+      // ElMessage.success('反馈提交成功，感谢您的意见！')
+      feedbackForm.content = ''
+      showKeyboard.value = false
+    }
   } catch (error) {
-    console.log(error)
-    ElMessage.error('提交失败，请检查网络连接')
+    ElMessage.error('提交失败：' + (error.message || '网络异常'))
   } finally {
     loading.close()
   }
 }
 
 onMounted(async () => {
-  // 模拟获取终端配置
-  const response = await window.electronAPI?.el_post({
-    action: 'queryMultipleTables',
-    payload: { arr: [{ tablename: 'terminal_settings', condition: '' }] }
-  })
-  systemUnitName.value = response?.data?.terminal_settings?.unit_name || '演示终端'
-})
+  document.addEventListener('mousedown', handleGlobalClick);
+
+  try {
+    const response = await window.electronAPI?.el_post({
+      action: 'queryMultipleTables',
+      payload: { arr: [{ tablename: 'terminal_settings', condition: 'id = 1' }] }
+    })
+
+    if (response?.success && response.data?.terminal_settings) {
+      const settings = response.data.terminal_settings;
+      systemUnitName.value = settings.unit_name || '未知单位';
+      terminal_id.value = settings.terminal_id || 'unknown_terminal';
+    }
+  } catch (error) {
+    console.error('获取终端信息失败:', error);
+    systemUnitName.value = '获取失败';
+  }
+});
+onBeforeUnmount(() => {
+  // 销毁监听，防止内存泄漏
+  document.removeEventListener('mousedown', handleGlobalClick);
+});
 </script>
 
 <style scoped>
@@ -402,10 +551,12 @@ onMounted(async () => {
 }
 
 .sys-config-section-body {
-  padding: 30px 25px; /* 增加上下内边距，原为 20px */
+  padding: 30px 25px;
+  /* 增加上下内边距，原为 20px */
   display: flex;
   flex-direction: column;
-  min-height: 100%; /* 确保高度撑满 */
+  min-height: 100%;
+  /* 确保高度撑满 */
 }
 
 .form-scroll-area {
@@ -416,13 +567,16 @@ onMounted(async () => {
 
 /* 找到 215 行左右，修改或添加以下代码 */
 :deep(.el-form-item) {
-  margin-bottom: 20px !important; /* 增加表单项之间的垂直间距，原为默认 */
+  margin-bottom: 20px !important;
+  /* 增加表单项之间的垂直间距，原为默认 */
 }
 
 :deep(.el-form-item__label) {
   color: var(--sys-text-sec) !important;
-  margin-bottom: 12px !important; /* 标签和输入框之间也拉开一点 */
-  font-size: 15px !important;     /* 稍微调大字号 */
+  margin-bottom: 12px !important;
+  /* 标签和输入框之间也拉开一点 */
+  font-size: 15px !important;
+  /* 稍微调大字号 */
 }
 
 :deep(.sys-config-input .el-input__wrapper),
@@ -573,7 +727,7 @@ onMounted(async () => {
 }
 
 .resolve-time {
-  font-size: 12px;
+  font-size: 13px;
   color: var(--sys-text-sec);
   display: flex;
   align-items: center;
@@ -591,7 +745,7 @@ onMounted(async () => {
 .detail-row {
   display: flex;
   margin-bottom: 10px;
-  font-size: 13px;
+  font-size: 14px;
   line-height: 1.6;
 }
 
@@ -651,39 +805,19 @@ onMounted(async () => {
   /* 稍微调窄一点更精致 */
 }
 
-/* 2. 定制滚动条滑块（Thumb）的颜色和形状 */
-:deep(.log-section .el-scrollbar__thumb) {
-  background-color: var(--sys-primary-dark) !important;
-  /* 使用主题青色 */
-  opacity: 0.5;
-  /* 默认半透明 */
-  transition: opacity 0.3s;
-}
-
-/* 3. 鼠标悬停滑块时加亮 */
-:deep(.log-section .el-scrollbar__thumb:hover) {
-  opacity: 1;
-  background-color: var(--sys-primary) !important;
-}
-
-/* 4. (可选) 给滚动条轨道增加一个深色背景，使其视觉上更像一个“槽” */
-:deep(.log-section .el-scrollbar__bar.is-vertical) {
-  background: rgba(0, 0, 0, 0.2);
-  border-radius: 10px;
-  right: 2px;
-  /* 距离边缘一点距离 */
-}
-
 /* ================= 虚拟键盘滑入滑出动画 (严格对应 slide-up) ================= */
 .slide-up-enter-active,
 .slide-up-leave-active {
   /* 增加高度动画同步，让主体合拢和键盘下滑更协调 */
-  transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1), opacity 0.2s ease;
+  transition:
+    transform 0.3s cubic-bezier(0.4, 0, 0.2, 1),
+    opacity 0.2s ease;
 }
 
 .slide-up-enter-from,
 .slide-up-leave-to {
-  transform: translateY(100%); /* 确保完全滑到屏幕外 */
+  transform: translateY(100%);
+  /* 确保完全滑到屏幕外 */
   opacity: 0;
 }
 
@@ -691,5 +825,62 @@ onMounted(async () => {
 .slide-up-leave-from {
   transform: translateY(0);
   opacity: 1;
+}
+
+/* ---------------- 键盘内部按键样式覆盖 (修复黑色主题) ---------------- */
+
+/* 1. 整体背景透明（由父容器 .keyboard-container 提供深色背景） */
+:deep(.show-keyboard) {
+  background-color: transparent !important;
+  color: #fff !important;
+}
+
+/* 2. 普通按键样式 */
+:deep(.show-keyboard .hg-button) {
+  background: #2a3546 !important;
+  color: #fff !important;
+  border-bottom: 2px solid #151a23 !important;
+  transition: all 0.1s;
+}
+
+/* 3. 按键点击状态 */
+:deep(.show-keyboard .hg-button:active) {
+  background: var(--sys-primary) !important;
+  color: #000 !important;
+  transform: translateY(2px);
+}
+
+/* 4. 功能键（如 Shift, Backspace, Enter）样式 */
+:deep(.show-keyboard .hg-functionBtn) {
+  background: #1c2538 !important;
+}
+
+/* 5. 底部容器背景补充 */
+.keyboard-container {
+  background-color: #141b2d !important;
+  /* 确保这个颜色和设置页一致 */
+}
+
+
+/* 控制红色校验文字的样式 */
+:deep(.el-form-item__error) {
+  /* 1. 设置字体大小 (根据需要修改，比如 14px 或 0.23rem) */
+  font-size: 14px !important;
+
+  /* 2. 确保颜色使用你定义的错误色 */
+  color: var(--sys-error) !important;
+
+  /* 3. 调整文字与输入框的间距 */
+  margin-top: 0px;
+
+  /* 4. 如果需要加粗或调整行高 */
+  font-weight: 500;
+  line-height: 1;
+}
+
+/* 额外优化：当校验失败时，让 textarea 的边框亮度提高，提醒用户 */
+:deep(.el-form-item.is-error .el-textarea__inner) {
+  box-shadow: 0 0 0 1px var(--sys-error) inset !important;
+  background-color: rgba(255, 77, 79, 0.05) !important; /* 淡淡的红色背景 */
 }
 </style>
