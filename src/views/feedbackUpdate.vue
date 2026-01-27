@@ -147,7 +147,7 @@ import {
   Promotion,
   Calendar,
 } from '@element-plus/icons-vue'
-import { ElMessage, ElLoading } from 'element-plus'
+import { ElMessage, ElLoading, ElMessageBox } from 'element-plus'
 import { useAudioStore } from '@/stores/audioStore'
 // --- 修改：在 import 中增加 useConfigStore ---
 import { useConfigStore } from '@/stores/configStore'
@@ -360,11 +360,31 @@ const submitFeedback = async () => {
       payload: { tableName: 'system_feedback', setValues: payloadData }
     })
 
+    // ... 之前的代码
     if (response.success) {
       audioStore.play('/audio/保存成功.mp3')
-      // ElMessage.success('反馈提交成功，感谢您的意见！')
       feedbackForm.content = ''
       showKeyboard.value = false
+
+      ElMessageBox.confirm(
+        '反馈内容已成功送达系统后台，请选择下一步操作。',
+        '提交成功',
+        {
+          confirmButtonText: '继续反馈',
+          cancelButtonText: '返回主页',
+          // type: 'success', // 注意：如果要完全自定义样式，可以不设 type 或在 CSS 中覆盖图标颜色
+          dangerouslyUseHTMLString: true,
+          distinguishCancelAndClose: true,
+          customClass: 'sys-config-message-box success-mode', // 【核心】添加 success-mode
+          center: true,
+          showClose: false,
+        }
+      ).then(() => {
+        audioStore.play('/audio/按钮点击声.mp3')
+      }).catch(() => {
+        audioStore.play('/audio/按钮点击声.mp3')
+        router.push('/')
+      })
     }
   } catch (error) {
     ElMessage.error('提交失败：' + (error.message || '网络异常'))
@@ -881,6 +901,118 @@ onBeforeUnmount(() => {
 /* 额外优化：当校验失败时，让 textarea 的边框亮度提高，提醒用户 */
 :deep(.el-form-item.is-error .el-textarea__inner) {
   box-shadow: 0 0 0 1px var(--sys-error) inset !important;
-  background-color: rgba(255, 77, 79, 0.05) !important; /* 淡淡的红色背景 */
+  background-color: rgba(255, 77, 79, 0.05) !important;
+  /* 淡淡的红色背景 */
+}
+</style>
+<style>
+/* ================= 升级版全局弹窗样式 (完全对标参数页) ================= */
+.sys-config-message-box.success-mode {
+  width: 480px !important;
+  /* 1. 强化背景：使用更纯粹的深黑，并增加微弱的内发光 */
+  background-color: #0a0e17 !important;
+  background-image:
+    linear-gradient(rgba(0, 242, 255, 0.03) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(0, 242, 255, 0.03) 1px, transparent 1px) !important;
+  background-size: 30px 30px !important;
+
+  /* 2. 强化边框：改为实色青色，并增加外发光阴影，消除“透明感” */
+  border: 1px solid #00f2ff !important;
+  border-radius: 0 !important;
+  box-shadow:
+    0 0 30px rgba(0, 0, 0, 0.9),
+    inset 0 0 20px rgba(0, 242, 255, 0.1) !important;
+  position: relative;
+  overflow: hidden;
+}
+
+/* 顶部装饰条：模拟配置页头部风格 */
+.sys-config-message-box.success-mode::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 4px;
+  background: linear-gradient(90deg, #0099a1, #00f2ff, #0099a1);
+  z-index: 11;
+}
+
+/* 四角装饰点：强化科技感 */
+.sys-config-message-box.success-mode::after {
+  content: 'SUCCESS';
+  position: absolute;
+  top: 10px;
+  right: 15px;
+  font-family: 'Arial';
+  font-size: 10px;
+  color: rgba(0, 242, 255, 0.3);
+  letter-spacing: 2px;
+}
+
+/* 标题样式 */
+.sys-config-message-box.success-mode .el-message-box__header {
+  padding: 30px 25px 10px 25px !important;
+  background: rgba(255, 255, 255, 0.02);
+}
+
+.sys-config-message-box.success-mode .el-message-box__title {
+  color: #00f2ff !important;
+  font-size: 22px !important;
+  font-weight: bold !important;
+  letter-spacing: 1px;
+}
+
+/* 内容文字：增加字间距和清晰度 */
+.sys-config-message-box.success-mode .el-message-box__message {
+  color: #c0c9d0 !important;
+  font-size: 16px !important;
+  padding: 20px 0 !important;
+}
+
+/* 按钮区域：底部背景微亮 */
+.sys-config-message-box.success-mode .el-message-box__btns {
+  padding: 20px 25px 25px 25px !important;
+  background: rgba(0, 0, 0, 0.2);
+}
+
+/* ================= 核心：按钮样式重塑 (对标配置页保存按钮) ================= */
+.sys-config-message-box.success-mode .el-button {
+  height: 44px !important;
+  padding: 0 30px !important;
+  border-radius: 2px !important;
+  font-weight: bold !important;
+  text-transform: uppercase;
+}
+
+/* “返回主页”按钮：幽灵风格，灰色文本 */
+.sys-config-message-box.success-mode .el-button:not(.el-button--primary) {
+  background: transparent !important;
+  border: 1px solid #2a3546 !important;
+  color: #8899a6 !important;
+}
+.sys-config-message-box.success-mode .el-button:not(.el-button--primary):hover {
+  border-color: #555 !important;
+  color: #fff !important;
+  background: rgba(255, 255, 255, 0.05) !important;
+}
+
+/* “继续反馈”按钮：完全复刻配置页“保存”按钮的渐变色 */
+.sys-config-message-box.success-mode .el-button--primary {
+  background: linear-gradient(90deg, #0099a1 0%, #005f66 100%) !important;
+  border: 1px solid #00f2ff !important;
+  color: #ffffff !important;
+  box-shadow: 0 0 10px rgba(0, 242, 255, 0.2) !important;
+  position: relative;
+}
+
+.sys-config-message-box.success-mode .el-button--primary:hover {
+  box-shadow: 0 0 20px rgba(0, 242, 255, 0.4) !important;
+  transform: translateY(-1px);
+}
+
+/* 隐藏自带的 Success 图标（由自定义配色替代感官） */
+.sys-config-message-box.success-mode .el-message-box__status {
+  display: none !important;
 }
 </style>
