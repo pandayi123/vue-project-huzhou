@@ -1,331 +1,661 @@
 <template>
-  <!-- 必须绑定在最外层容器上 -->
-  <div class="sys-config-container sys-config-theme-dark" :class="{ 'keyboard-active': showKeyboard }">
-    <!-- ================= 顶部导航栏 (已对标配置页) ================= -->
-    <header class="sys-config-header">
-      <div class="sys-config-header-left">
-        <div class="sys-config-icon-box">
-          <el-icon :size="24" class="sys-config-primary-icon">
-            <ChatDotSquare />
+  <div class="page-container theme-dark">
+    <!-- ================= 顶部导航栏 ================= -->
+    <header class="header-bar">
+      <div class="header-left">
+        <div class="icon-box-glow">
+          <el-icon :size="24" class="primary-icon">
+            <Files />
           </el-icon>
         </div>
-        <div class="sys-config-title-text">
-          <h1>反馈更新</h1>
-          <span class="sys-config-sub-title">问题反馈 · 系统迭代 · 优化留痕</span>
+        <div class="title-text">
+          <h1>装备盘点</h1>
+          <span class="sub-title">实时校对 · 账物相符 · 自动预警</span>
         </div>
       </div>
 
-      <div class="sys-config-header-right">
-        <button class="sys-config-btn-exit" @click="handleExit">
+      <div class="header-right">
+        <div class="inventory-timer" v-if="isScanning">
+          <el-icon class="is-loading">
+            <Loading />
+          </el-icon>
+          正在同步柜内实时状态...
+        </div>
+        <button class="btn-open-door" @click="startInventoryScan" :disabled="isScanning">
+          <el-icon>
+            <Refresh />
+          </el-icon>
+          重新扫描
+        </button>
+        <button class="btn-exit" @click="$router.push('/')">
           <el-icon>
             <SwitchButton />
           </el-icon>
-          返回主页
+          退出返回
         </button>
       </div>
     </header>
 
     <!-- ================= 主体内容区 ================= -->
-    <div class="main-body" :class="{ 'keyboard-active': showKeyboard }">
-      <!-- 左侧：提交反馈 (对标配置页板块样式) -->
-      <div class="form-section-wrapper">
-        <div class="sys-config-section">
-          <div class="sys-config-section-header">
-            <el-icon>
-              <EditPen />
-            </el-icon>
-            <span>提交建议反馈</span>
-            <div class="sys-config-section-line"></div>
+    <div class="main-body">
+      <!-- 左侧：盘点明细列表 -->
+      <div class="list-section">
+        <div class="section-title">
+          <div class="title-left">
+            <span class="text-glow">盘点明细 ({{ filteredList.length }})</span>
+            <div class="status-legend">
+              <span class="dot normal"></span> 账实相符
+              <span class="dot warning"></span> 账实不符
+            </div>
           </div>
 
-          <el-scrollbar class="form-scroll-area" always>
-            <div class="sys-config-section-body">
-              <el-form :model="feedbackForm" label-position="top">
-                <el-form-item label="反馈单位 (系统自动识别)">
-                  <el-input v-model="systemUnitName" disabled class="sys-config-input sys-disabled-input">
-                    <template #prefix><el-icon>
-                        <OfficeBuilding />
-                      </el-icon></template>
-                  </el-input>
-                </el-form-item>
-
-                <el-form-item label="反馈类别">
-                  <el-radio-group v-model="feedbackForm.type" class="sys-config-radio-group">
-                    <el-radio-button label="bug">功能异常</el-radio-button>
-                    <el-radio-button label="suggestion">优化建议</el-radio-button>
-                    <el-radio-button label="other">其他</el-radio-button>
-                  </el-radio-group>
-                </el-form-item>
-
-                <el-form-item label="反馈内容（请描述具体问题或改进建议）" id="field-content">
-                  <el-input v-model="feedbackForm.content" type="textarea" :rows="12" placeholder="请在此输入反馈内容..."
-                    class="sys-config-input-textarea" @focus="openKeyboard('default', 'content', $event)" />
-                </el-form-item>
-              </el-form>
-
-              <!-- 按钮容器 -->
-              <div class="form-footer-action">
-                <button class="sys-config-save-btn full-width" @click="submitFeedback">
-                  <div class="sys-btn-content">
-                    <el-icon :size="20">
-                      <Promotion />
-                    </el-icon>
-                    <div class="sys-text-group">
-                      <span class="sys-btn-main-text">立即提交反馈</span>
-                    </div>
-                  </div>
-                  <div class="sys-scan-line"></div>
-                </button>
-              </div>
-            </div>
-          </el-scrollbar>
-        </div>
-      </div>
-
-      <!-- 右侧：更新日志 (保持原有逻辑，优化边框) -->
-      <div class="log-section">
-        <div class="sys-config-section-header">
-          <el-icon>
-            <Calendar />
-          </el-icon>
-          <span>更新与修复日志 ({{ logList.length }})</span>
-          <div class="sys-config-section-line"></div>
+          <div class="filter-tabs">
+            <span v-for="tab in filterOptions" :key="tab.value" class="tab"
+              :class="{ active: currentFilter === tab.value }" @click="currentFilter = tab.value">
+              {{ tab.label }}
+            </span>
+          </div>
         </div>
 
         <el-scrollbar class="scroll-area">
-          <div class="timeline-container">
-            <div v-for="(log, index) in logList" :key="index" class="log-card">
-              <div class="log-tag" :class="log.type === 'feature' ? 'tag-new' : 'tag-fix'">
-                {{ log.type === 'feature' ? '更新' : '修复' }}
+          <div class="card-grid">
+            <div v-for="item in filteredList" :key="item.id" class="equip-card"
+              :class="{ 'abnormal-card': item.actual_status !== item.db_status }">
+              <!-- 异常角标 -->
+              <div class="error-ribbon" v-if="item.actual_status !== item.db_status">
+                <el-icon>
+                  <Warning />
+                </el-icon>
               </div>
-              <div class="log-header">
-                <div class="problem-title">{{ log.problem }}</div>
-                <div class="resolve-time">
-                  <el-icon>
-                    <Calendar />
-                  </el-icon> {{ log.resolve_time }}
+
+              <!-- 装备图片 -->
+              <div class="equip-image-preview">
+                <el-image :src="item.group_image" fit="cover">
+                  <template #error>
+                    <div class="image-error-slot"><el-icon :size="24">
+                        <Box />
+                      </el-icon></div>
+                  </template>
+                </el-image>
+              </div>
+
+              <div class="card-info">
+                <div class="equip-name">{{ item.group_name }}</div>
+                <div class="equip-code">编号：{{ item.group_code }}</div>
+
+                <!-- 状态对比区 -->
+                <div class="status-compare">
+                  <div class="compare-row">
+                    <span class="label">账面:</span>
+                    <span :class="item.db_status === '在位' ? 'text-in' : 'text-out'">{{ item.db_status }}</span>
+                  </div>
+                  <div class="compare-row">
+                    <span class="label">感应:</span>
+                    <span :class="item.actual_status === '在位' ? 'text-in' : 'text-out'">{{ item.actual_status }}</span>
+                  </div>
                 </div>
               </div>
-              <div class="log-detail">
-                <div class="detail-row">
-                  <span class="label">反馈单位:</span>
-                  <span class="value">{{ log.proposing_unit }}</span>
-                </div>
-                <div class="detail-row">
-                  <span class="label">解决方法:</span>
-                  <div class="solution-text">{{ log.solution }}</div>
-                </div>
-              </div>
-              <div class="corner-decoration"></div>
+
+              <div class="active-bar" :class="item.actual_status === item.db_status ? 'bg-success' : 'bg-error'"></div>
             </div>
           </div>
         </el-scrollbar>
       </div>
-    </div>
 
-    <!-- 虚拟键盘 (对标配置页样式) -->
-    <transition name="slide-up">
-      <div v-if="showKeyboard" class="keyboard-container" @mousedown.prevent>
-        <SimpleKeyboard v-model="currentInputValue" @onKeyPress="handleKeyPress" @onClose="showKeyboard = false"
-          keyboardClass="show-keyboard" />
+      <!-- 右侧：盘点结论报告 -->
+      <div class="operation-section">
+        <div class="inventory-report">
+          <div class="report-header">
+            <div class="report-title">盘点数据摘要</div>
+            <div class="report-date">{{ currentTime }}</div>
+          </div>
+
+          <!-- 统计大数字 -->
+          <div class="stats-grid">
+            <div class="stats-box">
+              <div class="s-val">{{ equipmentList.length }}</div>
+              <div class="s-lab">总数</div>
+            </div>
+            <div class="stats-box success">
+              <div class="s-val">{{ stats.match }}</div>
+              <div class="s-lab">账实相符</div>
+            </div>
+            <div class="stats-box danger">
+              <div class="s-val">{{ stats.mismatch }}</div>
+              <div class="s-lab">异常项</div>
+            </div>
+          </div>
+
+          <div class="detail-analysis">
+            <div class="analysis-item">
+              <span class="dot success"></span>
+              <span class="lab">正常在位</span>
+              <span class="val">{{ stats.inPlace }}</span>
+            </div>
+            <div class="analysis-item">
+              <span class="dot out"></span>
+              <span class="lab">正常出库</span>
+              <span class="val">{{ stats.outPlace }}</span>
+            </div>
+            <div class="analysis-item danger-text">
+              <span class="dot danger"></span>
+              <span class="lab">非法移位 (缺失)</span>
+              <span class="val">{{ stats.missing }}</span>
+            </div>
+          </div>
+
+          <div class="remark-area">
+            <div class="area-title">盘点备注说明</div>
+            <textarea class="remark-input custom-scroll" placeholder="请输入本次盘点的异常说明或处理意见..."
+              v-model="inventoryRemark"></textarea>
+          </div>
+
+          <div class="action-footer">
+            <button class="cyber-btn" @click="handleSubmitReport" :disabled="isScanning">
+              <div class="btn-content">
+                <el-icon :size="22">
+                  <Checked />
+                </el-icon>
+                <div class="text-group">
+                  <span class="btn-main-text">提交盘点报告</span>
+                  <span class="btn-sub-text">同步至管理系统 · 记录存档</span>
+                </div>
+              </div>
+              <div class="scan-line"></div>
+            </button>
+          </div>
+        </div>
       </div>
-    </transition>
+    </div>
   </div>
 </template>
 
 <script setup>
-import { ref, reactive, onMounted, defineAsyncComponent, watch, nextTick } from 'vue'
-import { useRouter } from 'vue-router'
+import { ref, computed, onMounted } from 'vue'
 import {
-  ChatDotSquare, SwitchButton, EditPen, OfficeBuilding,
-  Promotion, Calendar,
+  Box, Files, SwitchButton, Refresh, Loading,
+  Warning, Box as BoxIcon, Checked
 } from '@element-plus/icons-vue'
-import { ElMessage, ElLoading } from 'element-plus'
-import { useAudioStore } from '@/stores/audioStore'
+import { ElMessage, ElMessageBox } from 'element-plus'
 
-const SimpleKeyboard = defineAsyncComponent(() => import('@/components/SimpleKeyboard_black.vue'))
-const router = useRouter()
-const audioStore = useAudioStore()
+// --- 模拟数据 ---
+const isScanning = ref(false)
+const inventoryRemark = ref('')
+const currentFilter = ref('ALL')
+const filterOptions = [
+  { label: '全部', value: 'ALL' },
+  { label: '正常', value: 'NORMAL' },
+  { label: '异常', value: 'ERROR' }
+]
 
-// --- 基础数据 ---
-const systemUnitName = ref('加载中...')
-const logList = ref([
-  {
-    problem: '人员信息同步异常，部分头像无法正常显示',
-    proposing_unit: '勤务中队',
-    resolve_time: '2023-10-24 14:20',
-    solution: '优化了Blob数据流解析算法，增强了复杂网络环境下断点续传的稳定性。',
-    type: 'fix'
-  },
-  {
-    problem: '新增装备领用生物识别二次验证功能',
-    proposing_unit: '系统规划部',
-    resolve_time: '2023-10-20 09:00',
-    solution: '在领用流程中嵌入指纹与人脸双重验证模块，提升库室安全性等级。',
-    type: 'feature'
-  },
-  {
-    problem: '系统查询页面在高并发下的响应延迟',
-    proposing_unit: '物资管理科',
-    resolve_time: '2023-10-15 16:45',
-    solution: '对底层数据库TB_Equipment表增加了复合索引，查询效率提升约70%。',
-    type: 'fix'
-  }
+const equipmentList = ref([
+  { id: 1, group_name: '95式自动步枪', group_code: 'AR-95-001', db_status: '在位', actual_status: '在位', group_image: '' },
+  { id: 2, group_name: '95式自动步枪', group_code: 'AR-95-002', db_status: '在位', actual_status: '不在位', group_image: '' },
+  { id: 3, group_name: '03式自动步枪', group_code: 'AR-03-054', db_status: '已取出', actual_status: '已取出', group_image: '' },
+  { id: 4, group_name: '03式自动步枪', group_code: 'AR-03-055', db_status: '在位', actual_status: '在位', group_image: '' },
+  { id: 5, group_name: '战术头盔', group_code: 'TH-2023-09', db_status: '已取出', actual_status: '在位', group_image: '' },
+  { id: 6, group_name: '防弹背心', group_code: 'BV-SD-102', db_status: '在位', actual_status: '在位', group_image: '' },
+  { id: 7, group_name: '手持电台', group_code: 'RT-G5-991', db_status: '在位', actual_status: '不在位', group_image: '' },
+  { id: 8, group_name: '夜视仪', group_code: 'NVG-X2-008', db_status: '在位', actual_status: '在位', group_image: '' },
 ])
 
-// --- 反馈表单 ---
-const feedbackForm = reactive({
-  type: 'suggestion',
-  content: ''
+// --- 计算属性 ---
+const filteredList = computed(() => {
+  if (currentFilter.value === 'NORMAL') {
+    return equipmentList.value.filter(i => i.db_status === i.actual_status)
+  }
+  if (currentFilter.value === 'ERROR') {
+    return equipmentList.value.filter(i => i.db_status !== i.actual_status)
+  }
+  return equipmentList.value
 })
 
-// --- 键盘逻辑 ---
-const showKeyboard = ref(false)
-const activeField = ref('')
-const currentInputValue = ref('')
+const stats = computed(() => {
+  const match = equipmentList.value.filter(i => i.db_status === i.actual_status).length
+  const inPlace = equipmentList.value.filter(i => i.db_status === '在位' && i.actual_status === '在位').length
+  const outPlace = equipmentList.value.filter(i => i.db_status === '已取出' && i.actual_status === '已取出').length
+  const missing = equipmentList.value.filter(i => i.db_status === '在位' && i.actual_status === '不在位').length
 
-const openKeyboard = (layout, fieldName, event) => {
-  activeField.value = fieldName
-  currentInputValue.value = feedbackForm[fieldName]
-  showKeyboard.value = true
+  return {
+    match,
+    mismatch: equipmentList.value.length - match,
+    inPlace,
+    outPlace,
+    missing
+  }
+})
 
-  // 修改这里：从 nextTick 改为 setTimeout
+const currentTime = ref(new Date().toLocaleString())
+
+// --- 方法 ---
+const startInventoryScan = () => {
+  isScanning.value = true
+  ElMessage.info('硬件指令已发送，正在轮询柜位传感器...')
+
+  // 模拟扫描过程
   setTimeout(() => {
-    const el = document.getElementById(`field-${fieldName}`);
-    if (el) {
-      el.scrollIntoView({ behavior: 'smooth', block: 'center' });
-    }
-  }, 200); // 延迟400ms，等待页面收缩动画完成
+    isScanning.value = false
+    ElMessage.success('盘点扫描完成，发现 ' + stats.value.mismatch + ' 项异常')
+  }, 2000)
 }
 
-watch(currentInputValue, (newVal) => {
-  if (activeField.value) feedbackForm[activeField.value] = newVal
-})
-
-const handleKeyPress = (button) => {
-  if (button === '{close}' || button === '{submit}') showKeyboard.value = false
-}
-
-// --- 核心操作 ---
-const handleExit = () => {
-  audioStore.play('/audio/按钮点击声.mp3')
-  router.push('/')
-}
-
-const submitFeedback = async () => {
-  if (!feedbackForm.content) {
-    audioStore.play('/audio/校验失败请参考红色文字提示.mp3')
-    return ElMessage.warning('请输入反馈内容')
-  }
-
-  const loading = ElLoading.service({
-    lock: true,
-    text: '正在加密并上传反馈数据...',
-    background: 'rgba(0, 0, 0, 0.8)',
+const handleSubmitReport = () => {
+  ElMessageBox.confirm('确定提交本次盘点报告吗？异常项将自动生成警报记录。', '提交确认', {
+    confirmButtonText: '确定提交',
+    cancelButtonText: '取消',
+    type: 'warning',
+    customClass: 'cyber-message-box'
+  }).then(() => {
+    ElMessage.success('报告提交成功，已存档')
   })
-
-  try {
-    // 模拟API调用
-    await new Promise(resolve => setTimeout(resolve, 1500))
-    audioStore.play('/audio/保存成功.mp3')
-    ElMessage.success('反馈提交成功，感谢您的意见！')
-    feedbackForm.content = ''
-    showKeyboard.value = false
-  } catch (error) {
-    console.log(error)
-    ElMessage.error('提交失败，请检查网络连接')
-  } finally {
-    loading.close()
-  }
 }
 
-onMounted(async () => {
-  // 模拟获取终端配置
-  const response = await window.electronAPI?.el_post({
-    action: 'queryMultipleTables',
-    payload: { arr: [{ tablename: 'terminal_settings', condition: '' }] }
-  })
-  systemUnitName.value = response?.data?.terminal_settings?.unit_name || '演示终端'
+onMounted(() => {
+  // 页面加载自动开始一次扫描
+  startInventoryScan()
 })
 </script>
 
 <style scoped>
-/* ================= 引入配置页的主题变量 ================= */
-.sys-config-theme-dark {
-  --sys-primary: #00f2ff;
-  --sys-primary-dark: #0099a1;
-  --sys-error: #ff4d4f;
-  --sys-bg-dark: #0a0e17;
-  --sys-card-bg: #141b2d;
-  --sys-border: #2a3546;
-  --sys-active-bg: #1c2538;
-  --sys-text-main: #ffffff;
-  --sys-text-sec: #8899a6;
+/* 继承领用页面的核心布局变量 */
+.theme-dark {
+  --primary: #00f2ff;
+  --primary-dark: #0099a1;
+  --success: #00ff9d;
+  --error: #ff4d4f;
+  --warning: #e6a23c;
+  --bg-dark: #0a0e17;
+  --card-bg: #141b2d;
+  --border: #2a3546;
+  --text-main: #ffffff;
+  --text-sec: #8899a6;
 }
 
-/* 容器基础 */
-.sys-config-container {
+/* 盘点特有样式 */
+.inventory-timer {
+  color: var(--primary);
+  font-size: 13px;
+  margin-right: 20px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.status-legend {
+  margin-left: 20px;
+  font-size: 12px;
+  color: var(--text-sec);
+  display: flex;
+  align-items: center;
+  gap: 15px;
+}
+
+.dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  display: inline-block;
+}
+
+.dot.normal {
+  background: var(--success);
+  box-shadow: 0 0 5px var(--success);
+}
+
+.dot.warning {
+  background: var(--error);
+  box-shadow: 0 0 5px var(--error);
+}
+
+.dot.out {
+  background: #555;
+}
+
+/* 异常卡片样式 */
+.abnormal-card {
+  border-color: var(--error) !important;
+  background: rgba(255, 77, 79, 0.05) !important;
+}
+
+.error-ribbon {
+  position: absolute;
+  top: 0;
+  right: 0;
+  width: 0;
+  height: 0;
+  border-top: 30px solid var(--error);
+  border-left: 30px solid transparent;
+  z-index: 5;
+}
+
+.error-ribbon .el-icon {
+  position: absolute;
+  top: -28px;
+  left: -16px;
+  color: #fff;
+  font-size: 14px;
+}
+
+.status-compare {
+  margin-top: 8px;
+  padding-top: 8px;
+  border-top: 1px dashed #333;
+}
+
+.compare-row {
+  display: flex;
+  justify-content: space-between;
+  font-size: 11px;
+  margin-bottom: 2px;
+}
+
+.compare-row .label {
+  color: #666;
+}
+
+.text-in {
+  color: var(--success);
+  font-weight: bold;
+}
+
+.text-out {
+  color: var(--text-sec);
+}
+
+/* 右侧报告区域 */
+.inventory-report {
+  padding: 20px;
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+}
+
+.report-header {
+  margin-bottom: 20px;
+}
+
+.report-title {
+  font-size: 18px;
+  color: var(--primary);
+  font-weight: bold;
+}
+
+.report-date {
+  font-size: 12px;
+  color: #555;
+  margin-top: 5px;
+}
+
+.stats-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 10px;
+  margin-bottom: 25px;
+}
+
+.stats-box {
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid var(--border);
+  padding: 15px 5px;
+  text-align: center;
+  border-radius: 4px;
+}
+
+.stats-box .s-val {
+  font-size: 22px;
+  font-weight: bold;
+  font-family: 'Consolas';
+}
+
+.stats-box .s-lab {
+  font-size: 11px;
+  color: var(--text-sec);
+  margin-top: 5px;
+}
+
+.stats-box.success .s-val {
+  color: var(--success);
+}
+
+.stats-box.danger .s-val {
+  color: var(--error);
+}
+
+.detail-analysis {
+  background: rgba(0, 0, 0, 0.2);
+  border-radius: 6px;
+  padding: 15px;
+  margin-bottom: 20px;
+}
+
+.analysis-item {
+  display: flex;
+  align-items: center;
+  margin-bottom: 12px;
+  font-size: 13px;
+}
+
+.analysis-item .lab {
+  flex: 1;
+  margin-left: 10px;
+  color: #ccc;
+}
+
+.analysis-item .val {
+  font-family: monospace;
+  font-weight: bold;
+}
+
+.danger-text {
+  color: var(--error);
+}
+
+.remark-input {
+  width: 100%;
+  flex: 1;
+  background: #0d121c;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 10px;
+  color: #fff;
+  font-size: 13px;
+  resize: none;
+  outline: none;
+  margin-top: 10px;
+}
+
+.remark-input:focus {
+  border-color: var(--primary);
+}
+
+.bg-success {
+  background: var(--success);
+  box-shadow: 0 -2px 10px var(--success);
+}
+
+.bg-error {
+  background: var(--error);
+  box-shadow: 0 -2px 10px var(--error);
+}
+
+/* 基础复用样式 (保持与原页面一致) */
+.page-container {
   width: 100%;
   height: 100vh;
-  background-color: var(--sys-bg-dark);
-  color: var(--sys-text-main);
+  background-color: var(--bg-dark);
+  color: #fff;
   display: flex;
   flex-direction: column;
   overflow: hidden;
 }
 
-/* 顶部导航 (直接复用配置页) */
-.sys-config-header {
+.header-bar {
   height: 70px;
   background: #11151f;
-  border-bottom: 1px solid var(--sys-border);
+  border-bottom: 1px solid var(--border);
   display: flex;
   justify-content: space-between;
   align-items: center;
   padding: 0 25px;
-  flex-shrink: 0;
 }
 
-.sys-config-header-left {
+.header-left {
   display: flex;
   align-items: center;
   gap: 12px;
 }
 
-.sys-config-icon-box {
+.icon-box-glow {
   width: 42px;
   height: 42px;
-  border: 1px solid var(--sys-border);
+  border: 1px solid var(--border);
   border-radius: 8px;
   display: flex;
   align-items: center;
   justify-content: center;
-  background: var(--sys-active-bg);
-  box-shadow: 0 0 15px rgba(0, 242, 255, 0.1);
+  background: #1c2538;
 }
 
-.sys-config-primary-icon {
-  color: var(--sys-primary);
+.primary-icon {
+  color: var(--primary);
 }
 
-.sys-config-title-text h1 {
-  margin: 0;
-  font-size: 22px;
-  font-weight: 600;
+.main-body {
+  flex: 1;
+  display: flex;
+  padding: 15px;
+  gap: 15px;
+  overflow: hidden;
 }
 
-.sys-config-sub-title {
-  color: var(--sys-primary-dark);
-  font-size: 11px;
+.list-section {
+  flex: 1;
+  background: var(--card-bg);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  display: flex;
+  flex-direction: column;
+}
+
+.operation-section {
+  flex: 0 0 360px;
+  background: var(--card-bg);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+
+.section-title {
+  padding: 12px 20px;
+  border-bottom: 1px solid var(--border);
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  background: rgba(0, 0, 0, 0.2);
+}
+
+.filter-tabs {
+  display: flex;
+  background: #0d121c;
+  padding: 3px;
+  border-radius: 4px;
+  border: 1px solid var(--border);
+}
+
+.tab {
+  padding: 5px 12px;
+  font-size: 12px;
+  color: var(--text-sec);
+  cursor: pointer;
+  transition: all 0.3s;
+}
+
+.tab.active {
+  color: var(--primary);
+  background: #1c2538;
+}
+
+.card-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+  gap: 12px;
+  padding: 15px;
+}
+
+.equip-card {
+  position: relative;
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  height: 230px;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  transition: all 0.3s;
+}
+
+.equip-image-preview {
+  height: 100px;
+  background: #000;
+}
+
+.card-info {
+  padding: 10px;
+  flex: 1;
+}
+
+.equip-name {
+  font-size: 14px;
+  font-weight: bold;
+  margin-bottom: 4px;
+}
+
+.equip-code {
+  font-size: 12px;
+  color: var(--text-sec);
+  font-family: monospace;
+}
+
+.active-bar {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  width: 100%;
+  height: 2px;
+}
+
+.cyber-btn {
+  width: 100%;
+  height: 55px;
+  background: linear-gradient(90deg, var(--primary-dark) 0%, #005f66 100%);
+  border: 1px solid var(--primary);
+  color: #fff;
+  cursor: pointer;
+  position: relative;
+  overflow: hidden;
+}
+
+.btn-content {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+}
+
+.btn-main-text {
+  font-size: 16px;
   font-weight: bold;
 }
 
-.sys-config-btn-exit {
+.btn-sub-text {
+  font-size: 11px;
+  opacity: 0.7;
+}
+
+.btn-exit {
   background: transparent;
-  border: 1px solid var(--sys-error);
-  color: var(--sys-error);
+  border: 1px solid var(--error);
+  color: var(--error);
   padding: 6px 16px;
-  font-size: 13px;
   border-radius: 4px;
   cursor: pointer;
   display: flex;
@@ -333,363 +663,15 @@ onMounted(async () => {
   gap: 6px;
 }
 
-/* ================= 主体布局优化 ================= */
-/* ================= 主体布局：完全还原旧页面的平滑逻辑 ================= */
-.main-body {
-  display: flex;
-  flex: 1;
-  padding: 20px;
-  gap: 20px;
-  overflow: hidden;
-
-  /* 核心： transition 必须为 all，且曲线必须是 cubic-bezier */
-  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-
-  /* 设定一个明确的基准高度 */
-  height: calc(100vh - 70px);
-}
-
-/* 键盘激活时的布局：强制锁定 flex 属性防止闪烁 */
-.keyboard-active .main-body {
-  /* 0 0 表示：不放大、不缩小、基础高度固定为 420px */
-  flex: 0 0 420px !important;
-  height: 420px !important;
-}
-
-.form-section-wrapper {
-  flex: 0 0 450px;
-  display: flex;
-}
-
-.log-section {
-  flex: 1;
-  background: var(--sys-card-bg);
-  border: 1px solid var(--sys-border);
-  border-radius: 8px;
-  display: flex;
-  flex-direction: column;
-  overflow: hidden;
-}
-
-/* ================= 配置页风格板块 ================= */
-.sys-config-section {
-  flex: 1;
-  background: rgba(20, 27, 45, 0.6);
-  border: 1px solid var(--sys-border);
-  border-radius: 8px;
-  display: flex;
-  flex-direction: column;
-  overflow: hidden;
-}
-
-.sys-config-section-header {
-  padding: 12px 15px;
-  background: rgba(255, 255, 255, 0.03);
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  color: var(--sys-primary);
-  font-weight: bold;
-  font-size: 14px;
-}
-
-.sys-config-section-line {
-  flex: 1;
-  height: 1px;
-  background: linear-gradient(90deg, var(--sys-primary-dark), transparent);
-  margin-left: 10px;
-  opacity: 0.5;
-}
-
-.sys-config-section-body {
-  padding: 30px 25px; /* 增加上下内边距，原为 20px */
-  display: flex;
-  flex-direction: column;
-  min-height: 100%; /* 确保高度撑满 */
-}
-
-.form-scroll-area {
-  flex: 1;
-}
-
-/* ================= 输入控件覆盖 (对标配置页) ================= */
-
-/* 找到 215 行左右，修改或添加以下代码 */
-:deep(.el-form-item) {
-  margin-bottom: 20px !important; /* 增加表单项之间的垂直间距，原为默认 */
-}
-
-:deep(.el-form-item__label) {
-  color: var(--sys-text-sec) !important;
-  margin-bottom: 12px !important; /* 标签和输入框之间也拉开一点 */
-  font-size: 15px !important;     /* 稍微调大字号 */
-}
-
-:deep(.sys-config-input .el-input__wrapper),
-:deep(.sys-config-input-textarea .el-textarea__inner) {
-  background-color: rgba(20, 27, 45, 0.8) !important;
-  box-shadow: 0 0 0 1px #4a5c76 inset !important;
-  border: none !important;
-  color: #fff !important;
-}
-
-:deep(.sys-config-input .el-input__wrapper.is-focus),
-:deep(.sys-config-input-textarea .el-textarea__inner:focus) {
-  box-shadow: 0 0 0 1px var(--sys-primary) inset !important;
-}
-
-:deep(.sys-disabled-input .el-input__wrapper) {
-  background-color: #0f131a !important;
-  box-shadow: none !important;
-  border: 1px dashed #333 !important;
-}
-
-/* 单选框组定制 */
-:deep(.sys-config-radio-group) {
-  display: flex;
-  width: 100%;
-}
-
-:deep(.sys-config-radio-group .el-radio-button) {
-  flex: 1;
-}
-
-:deep(.sys-config-radio-group .el-radio-button__inner) {
-  width: 100%;
-  background: #1c2538;
-  border-color: #2a3546;
-  color: #8899a6;
-}
-
-:deep(.sys-config-radio-group .el-radio-button__original-radio:checked + .el-radio-button__inner) {
-  background-color: var(--sys-primary-dark);
-  border-color: var(--sys-primary);
-  color: #fff;
-  box-shadow: -1px 0 0 0 var(--sys-primary);
-}
-
-/* ================= 按钮样式 (完全对标配置页保存按钮) ================= */
-.sys-config-save-btn {
-  width: 100%;
-  height: 50px;
-  background: linear-gradient(90deg, var(--sys-primary-dark) 0%, #005f66 100%);
-  border: 1px solid var(--sys-primary);
-  color: #fff;
-  cursor: pointer;
-  position: relative;
-  overflow: hidden;
-  margin-top: 10px;
-}
-
-.sys-btn-content {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 10px;
-  position: relative;
-  z-index: 2;
-}
-
-.sys-btn-main-text {
-  font-size: 16px;
-  font-weight: bold;
-}
-
-.sys-scan-line {
-  position: absolute;
-  top: 0;
-  left: -100%;
-  width: 50%;
-  height: 100%;
-  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.3), transparent);
-  transform: skewX(-20deg);
-  animation: sysBtnScan 3s infinite;
-}
-
-@keyframes sysBtnScan {
-  from {
-    left: -100%;
-  }
-
-  to {
-    left: 150%;
-  }
-}
-
-/* ================= 日志卡片样式 (还原之前的对齐布局) ================= */
-.scroll-area {
-  flex: 1;
-  padding: 15px;
-}
-
-.timeline-container {
-  display: flex;
-  flex-direction: column;
-  gap: 15px;
-}
-
-.log-card {
-  position: relative;
-  background: rgba(255, 255, 255, 0.03);
-  /* 稍微加深背景 */
-  border: 1px solid var(--sys-border);
-  border-radius: 8px;
-  padding: 20px;
-  transition: all 0.3s;
-}
-
-.log-card:hover {
-  border-color: var(--sys-primary);
-  background: rgba(0, 242, 255, 0.05);
-}
-
-.log-tag {
-  position: absolute;
-  top: 0;
-  right: 20px;
-  padding: 4px 12px;
-  font-size: 13px;
-  font-weight: bold;
-  border-radius: 0 0 4px 4px;
-}
-
-.tag-new {
-  background: #00ff9d;
-  color: #000;
-}
-
-.tag-fix {
-  background: #0099a1;
-  color: #fff;
-}
-
-.problem-title {
-  font-size: 16px;
-  font-weight: bold;
-  color: var(--sys-primary);
-  margin-bottom: 8px;
-  padding-right: 60px;
-  /* 避开右上角标签 */
-}
-
-.resolve-time {
-  font-size: 12px;
-  color: var(--sys-text-sec);
-  display: flex;
-  align-items: center;
-  gap: 5px;
-}
-
-.log-detail {
-  margin-top: 15px;
-  border-top: 1px solid rgba(255, 255, 255, 0.08);
-  padding-top: 15px;
-  /* 修复之前的 pt 错误 */
-}
-
-/* 关键对齐布局：恢复之前的 flex 结构 */
-.detail-row {
-  display: flex;
-  margin-bottom: 10px;
-  font-size: 13px;
-  line-height: 1.6;
-}
-
-.detail-row .label {
-  color: var(--sys-text-sec);
-  width: 75px;
-  /* 恢复固定宽度 */
-  flex-shrink: 0;
-  /* 防止被挤压 */
-}
-
-.detail-row .value {
-  color: #fff;
-}
-
-.solution-text {
-  color: #ccdbe8;
-  background: rgba(0, 0, 0, 0.2);
-  padding: 10px;
+.btn-open-door {
+  background: transparent;
+  border: 1px solid var(--primary);
+  color: var(--primary);
+  padding: 6px 16px;
   border-radius: 4px;
-  border-left: 2px solid var(--sys-primary-dark);
-  flex: 1;
-  /* 占据剩余空间并支持自动换行 */
-}
-
-/* 装饰边角 */
-.corner-decoration {
-  position: absolute;
-  bottom: 0;
-  right: 0;
-  width: 20px;
-  height: 20px;
-  background: linear-gradient(135deg, transparent 50%, rgba(0, 242, 255, 0.1) 50%);
-}
-
-/* 键盘容器对标配置页 */
-.keyboard-container {
-  position: fixed !important;
-  bottom: 0 !important;
-  left: 0 !important;
-  width: 100% !important;
-  z-index: 9999 !important;
-  background-color: #141b2d !important;
-  border-top: 1px solid var(--sys-primary);
-  /* 修改这里：最后一位改为 0，让内容紧贴底边 */
-  padding: 5px 0 0 0 !important;
-  /* 增加阴影，让它和主体的衔接更自然 */
-  box-shadow: 0 -10px 40px rgba(0, 0, 0, 0.8);
-}
-
-/* ================= 滚动条始终显示样式定制 ================= */
-
-/* 1. 强制滚动条轨道透明度为 1 (不再自动隐藏) */
-:deep(.log-section .el-scrollbar__bar) {
-  opacity: 1 !important;
-  width: 6px;
-  /* 稍微调窄一点更精致 */
-}
-
-/* 2. 定制滚动条滑块（Thumb）的颜色和形状 */
-:deep(.log-section .el-scrollbar__thumb) {
-  background-color: var(--sys-primary-dark) !important;
-  /* 使用主题青色 */
-  opacity: 0.5;
-  /* 默认半透明 */
-  transition: opacity 0.3s;
-}
-
-/* 3. 鼠标悬停滑块时加亮 */
-:deep(.log-section .el-scrollbar__thumb:hover) {
-  opacity: 1;
-  background-color: var(--sys-primary) !important;
-}
-
-/* 4. (可选) 给滚动条轨道增加一个深色背景，使其视觉上更像一个“槽” */
-:deep(.log-section .el-scrollbar__bar.is-vertical) {
-  background: rgba(0, 0, 0, 0.2);
-  border-radius: 10px;
-  right: 2px;
-  /* 距离边缘一点距离 */
-}
-
-/* ================= 虚拟键盘滑入滑出动画 (严格对应 slide-up) ================= */
-.slide-up-enter-active,
-.slide-up-leave-active {
-  /* 增加高度动画同步，让主体合拢和键盘下滑更协调 */
-  transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1), opacity 0.2s ease;
-}
-
-.slide-up-enter-from,
-.slide-up-leave-to {
-  transform: translateY(100%); /* 确保完全滑到屏幕外 */
-  opacity: 0;
-}
-
-.slide-up-enter-to,
-.slide-up-leave-from {
-  transform: translateY(0);
-  opacity: 1;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 6px;
 }
 </style>

@@ -56,6 +56,9 @@ const handleFunctionClick = async (functionName) => {
       case '归还':
         goToVerification('/return', '归还')
         break;
+      case '盘点':
+        goToVerification('/inventory', '归还')
+        break;
       case '日志审计':
         goToVerification('/logs', '日志审计')
         break;
