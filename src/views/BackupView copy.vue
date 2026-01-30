@@ -10,23 +10,11 @@
         </div>
         <div class="title-text">
           <h1>装备盘点</h1>
-          <span class="sub-title">实时校对 · 账物相符 · 自动预警</span>
+          <span class="sub-title">实时感知 · 账实校对 · 异常追踪</span>
         </div>
       </div>
 
       <div class="header-right">
-        <div class="inventory-timer" v-if="isScanning">
-          <el-icon class="is-loading">
-            <Loading />
-          </el-icon>
-          正在同步柜内实时状态...
-        </div>
-        <button class="btn-open-door" @click="startInventoryScan" :disabled="isScanning">
-          <el-icon>
-            <Refresh />
-          </el-icon>
-          重新扫描
-        </button>
         <button class="btn-exit" @click="$router.push('/')">
           <el-icon>
             <SwitchButton />
@@ -42,124 +30,178 @@
       <div class="list-section">
         <div class="section-title">
           <div class="title-left">
-            <span class="text-glow">盘点明细 ({{ filteredList.length }})</span>
-            <div class="status-legend">
-              <span class="dot normal"></span> 账实相符
-              <span class="dot warning"></span> 账实不符
+            <span class="text-glow">实测明细 ({{ filteredList.length }})</span>
+            <div class="inventory-indicator">
+              <span class="ind-item"><i class="dot success"></i> 正常</span>
+              <span class="ind-item"><i class="dot danger"></i> 异常</span>
             </div>
           </div>
 
+          <!-- 过滤器标签 -->
           <div class="filter-tabs">
             <span v-for="tab in filterOptions" :key="tab.value" class="tab"
-              :class="{ active: currentFilter === tab.value }" @click="currentFilter = tab.value">
+              :class="{ active: currentFilter === tab.value }" @click="setFilter(tab.value)">
               {{ tab.label }}
+              <span class="tab-count" v-if="tab.value === 'ERROR' && stats.mismatch > 0">
+                {{ stats.mismatch }}
+              </span>
             </span>
           </div>
         </div>
 
         <el-scrollbar class="scroll-area">
           <div class="card-grid">
+            <!-- 定位到 <div class="card-grid"> 内部 -->
             <div v-for="item in filteredList" :key="item.id" class="equip-card"
-              :class="{ 'abnormal-card': item.actual_status !== item.db_status }">
-              <!-- 异常角标 -->
-              <div class="error-ribbon" v-if="item.actual_status !== item.db_status">
+              :class="isItemAbnormal(item) ? 'is-abnormal' : 'is-normal'">
+              <!-- 状态角标：异常时显示 -->
+              <div class="error-ribbon" v-if="isItemAbnormal(item)">
                 <el-icon>
                   <Warning />
                 </el-icon>
               </div>
 
-              <!-- 装备图片 -->
+              <!-- 状态角标：正常时显示 (新增) -->
+              <div class="success-ribbon" v-else>
+                <el-icon>
+                  <Check />
+                </el-icon>
+              </div>
+
+              <!-- 顶部：装备图片 -->
               <div class="equip-image-preview">
-                <el-image :src="item.group_image" fit="cover">
+                <el-image :src="item.group_image" fit="cover" style="width: 100%; height: 100%">
+                  <template #placeholder>
+                    <div class="image-placeholder"></div>
+                  </template>
                   <template #error>
-                    <div class="image-error-slot"><el-icon :size="24">
+                    <div class="image-error-slot">
+                      <el-icon :size="24">
                         <Box />
-                      </el-icon></div>
+                      </el-icon>
+                    </div>
                   </template>
                 </el-image>
               </div>
 
+              <!-- 中部：核心信息区 -->
               <div class="card-info">
-                <div class="equip-name">{{ item.group_name }}</div>
-                <div class="equip-code">编号：{{ item.group_code }}</div>
+                <div class="equip-name" :title="item.group_name">{{ item.group_name }}</div>
+                <div class="equip-code">{{ item.group_code }}</div>
 
-                <!-- 状态对比区 -->
-                <div class="status-compare">
-                  <div class="compare-row">
-                    <span class="label">账面:</span>
-                    <span :class="item.db_status === '在位' ? 'text-in' : 'text-out'">{{ item.db_status }}</span>
+                <!-- 账实对比区：左右分布布局 -->
+                <!-- 定位到 status-compare-group 内部 -->
+                <div class="status-compare-group">
+                  <div class="compare-item">
+                    <span class="c-label">系统账面</span>
+                    <span class="c-tag" :class="item.group_status === '在位' ? 'st-in' : 'st-out'">
+                      {{ item.group_status }}
+                    </span>
                   </div>
-                  <div class="compare-row">
-                    <span class="label">感应:</span>
-                    <span :class="item.actual_status === '在位' ? 'text-in' : 'text-out'">{{ item.actual_status }}</span>
+                  <div class="compare-item">
+                    <span class="c-label">柜内感知</span>
+                    <!-- 修改 class 和显示逻辑 -->
+                    <span class="c-tag" :class="{
+                      'st-in': getActualStatus(item) === '在位',
+                      'st-out': getActualStatus(item) === '不在位',
+                      'st-loading': getActualStatus(item) === '检测中'
+                    }">
+                      {{ getActualStatus(item) }}
+                    </span>
                   </div>
                 </div>
               </div>
 
-              <div class="active-bar" :class="item.actual_status === item.db_status ? 'bg-success' : 'bg-error'"></div>
+              <!-- 底部：柜位信息（新增） -->
+              <div class="card-footer-pos">
+                <el-icon>
+                  <Location />
+                </el-icon>
+                <span class="pos-text">{{ item.self_address }} 号柜位</span>
+              </div>
+
+              <!-- 底边装饰条 -->
+              <div class="active-bar" :class="!isItemAbnormal(item) ? 'bg-ok' : 'bg-err'"></div>
+            </div>
+            <!-- 无数据提示 -->
+            <div v-if="filteredList.length === 0" class="no-data-placeholder">
+              {{ currentFilter === 'ERROR' ? '当前暂无账实不符项' : '暂无装备数据' }}
             </div>
           </div>
         </el-scrollbar>
       </div>
 
-      <!-- 右侧：盘点结论报告 -->
+      <!-- 右侧：盘点数据报告面板 -->
       <div class="operation-section">
-        <div class="inventory-report">
+        <div class="report-panel">
           <div class="report-header">
-            <div class="report-title">盘点数据摘要</div>
-            <div class="report-date">{{ currentTime }}</div>
+            <div class="report-main-title">实时统计信息</div>
+            <div class="report-time">上次开关检测时间：{{ currentTime }}</div>
           </div>
 
-          <!-- 统计大数字 -->
-          <div class="stats-grid">
-            <div class="stats-box">
-              <div class="s-val">{{ equipmentList.length }}</div>
-              <div class="s-lab">总数</div>
+          <!-- 右侧卡片联动联动左侧过滤器 -->
+          <!-- 右侧卡片联动联动左侧过滤器 -->
+          <div class="stats-summary-grid">
+            <!-- 全部 -->
+            <div class="stat-card clickable" :class="{ active: currentFilter === 'ALL' }" @click="setFilter('ALL')">
+              <div class="s-num">{{ equipmentList.length }}</div>
+              <div class="s-text">装备总数</div>
             </div>
-            <div class="stats-box success">
-              <div class="s-val">{{ stats.match }}</div>
-              <div class="s-lab">账实相符</div>
-            </div>
-            <div class="stats-box danger">
-              <div class="s-val">{{ stats.mismatch }}</div>
-              <div class="s-lab">异常项</div>
-            </div>
-          </div>
 
-          <div class="detail-analysis">
-            <div class="analysis-item">
-              <span class="dot success"></span>
-              <span class="lab">正常在位</span>
-              <span class="val">{{ stats.inPlace }}</span>
+            <!-- 正常 -->
+            <div class="stat-card is-success clickable" :class="{ active: currentFilter === 'NORMAL' }"
+              @click="setFilter('NORMAL')">
+              <div class="s-num">{{ stats.match }}</div>
+              <div class="s-text">账实相符</div>
             </div>
-            <div class="analysis-item">
-              <span class="dot out"></span>
-              <span class="lab">正常出库</span>
-              <span class="val">{{ stats.outPlace }}</span>
-            </div>
-            <div class="analysis-item danger-text">
-              <span class="dot danger"></span>
-              <span class="lab">非法移位 (缺失)</span>
-              <span class="val">{{ stats.missing }}</span>
+
+            <!-- 异常 -->
+            <div class="stat-card is-danger clickable"
+              :class="{ active: currentFilter === 'ERROR', 'has-err': stats.mismatch > 0 }" @click="setFilter('ERROR')">
+              <div class="s-num">{{ stats.mismatch }}</div>
+              <div class="s-text">异常数量</div>
             </div>
           </div>
 
-          <div class="remark-area">
-            <div class="area-title">盘点备注说明</div>
-            <textarea class="remark-input custom-scroll" placeholder="请输入本次盘点的异常说明或处理意见..."
-              v-model="inventoryRemark"></textarea>
+          <!-- 账实相符率进度条已按方案二彻底删除 -->
+
+          <div class="analysis-section">
+            <div class="analysis-title">装备盘点明细</div>
+            <div class="analysis-row success-text">
+              <span class="a-label"><i class="dot success"></i> 正常在位</span>
+              <span class="a-value">{{ stats.inPlace }} 件</span>
+            </div>
+            <div class="analysis-row">
+              <span class="a-label"><i class="dot"></i> 正常借出</span>
+              <span class="a-value">{{ stats.outPlace }} 件</span>
+            </div>
+            <div class="analysis-row danger-text" v-if="stats.missing > 0">
+              <span class="a-label"><i class="dot danger"></i> 异常缺失 (账在实不在)</span>
+              <span class="a-value">{{ stats.missing }} 件</span>
+            </div>
+            <div class="analysis-row danger-text" v-if="stats.unregistered > 0">
+              <span class="a-label"><i class="dot danger"></i> 异常占用 (实在账不在)</span>
+              <span class="a-value">{{ stats.unregistered }} 件</span>
+            </div>
+          </div>
+
+          <div class="flex-spacer">
+            <el-icon :size="60" class="spacer-icon">
+              <Monitor />
+            </el-icon>
+            <div class="spacer-text">装备状态实时自动更新</div>
           </div>
 
           <div class="action-footer">
-            <button class="cyber-btn" @click="handleSubmitReport" :disabled="isScanning">
+            <button class="cyber-btn" @click="handleOpenSummary">
               <div class="btn-content">
-                <el-icon :size="22">
-                  <Checked />
+                <el-icon :size="24">
+                  <CircleCheck />
                 </el-icon>
-                <div class="text-group">
-                  <span class="btn-main-text">提交盘点报告</span>
-                  <span class="btn-sub-text">同步至管理系统 · 记录存档</span>
-                </div>
+                <!-- 删掉了 text-group 和 sub-text，直接放文字 -->
+                <span class="btn-main-text" style="margin-left: 8px">
+                  {{ stats.mismatch > 0 ? '核对并处理异常' : '确认结果并同步' }}
+                </span>
               </div>
               <div class="scan-line"></div>
             </button>
@@ -167,97 +209,339 @@
         </div>
       </div>
     </div>
+
+    <!-- 异常核对弹窗 (已对齐键盘避让逻辑) -->
+    <el-dialog v-model="summaryVisible" title="异常项明细核对" width="850px" class="cyber-dialog cyber-dialog-reason"
+      :class="{ 'is-keyboard-open': showKeyboard }" :append-to-body="true" :close-on-click-modal="false">
+      <div class="summary-dialog-content">
+        <div v-if="abnormalItems.length === 0" class="all-ok-tip">
+          <el-icon :size="50" color="#00ff9d">
+            <CircleCheck />
+          </el-icon>
+          <p>账实百分百吻合，无异常项需备注</p>
+        </div>
+        <div v-else class="abnormal-table-container custom-scroll">
+          <table class="cyber-table">
+            <thead>
+              <tr>
+                <th width="220">装备名称 / 编号</th>
+                <th width="140">异常原因</th>
+                <th>核实备注 (点击输入)</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr v-for="item in abnormalItems" :key="item.id">
+                <td>
+                  <div class="t-name">{{ item.group_name }}</div>
+                  <div class="t-code">{{ item.group_code }}</div>
+                </td>
+                <td>
+                  <span class="mini-tag" :class="getAbnormalType(item).class">
+                    {{ getAbnormalType(item).text }}
+                  </span>
+                </td>
+                <td>
+                  <el-input v-model="item.inventory_remark" placeholder="输入核实原因（如：传感器误报、紧急借出）" class="table-input"
+                    @focus="handleInputFocus" @blur="showKeyboard = false" />
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+      <template #footer>
+        <div class="dialog-footer">
+          <button class="footer-btn cancel" @click="summaryVisible = false">继续核对</button>
+          <button class="footer-btn confirm" @click="finalSubmit">
+            <el-icon>
+              <Promotion />
+            </el-icon>
+            确认上报并结束
+          </button>
+        </div>
+      </template>
+    </el-dialog>
   </div>
 </template>
 
 <script setup>
-import { ref, computed, onMounted } from 'vue'
+import { ref, computed, onMounted, onUnmounted, reactive } from 'vue'
+import { useRouter } from 'vue-router'
 import {
-  Box, Files, SwitchButton, Refresh, Loading,
-  Warning, Box as BoxIcon, Checked
+  Files,
+  Box,
+  SwitchButton,
+  Monitor,
+  Warning,
+  CircleCheck,
+  Promotion,
+  Location,
+  Check,
 } from '@element-plus/icons-vue'
-import { ElMessage, ElMessageBox } from 'element-plus'
+import { ElMessage, ElLoading } from 'element-plus'
+import { useAudioStore } from '@/stores/audioStore'
+import { useTimerStore } from '@/stores/timerStore'
+const timerStore = useTimerStore()
 
-// --- 模拟数据 ---
-const isScanning = ref(false)
-const inventoryRemark = ref('')
-const currentFilter = ref('ALL')
+import plugins from '../assets/js/plugin'
+
+const router = useRouter()
+const audioStore = useAudioStore()
+
+// --- 过滤器配置 ---
 const filterOptions = [
-  { label: '全部', value: 'ALL' },
-  { label: '正常', value: 'NORMAL' },
-  { label: '异常', value: 'ERROR' }
+  { label: '全部装备', value: 'ALL' },
+  { label: '异常项', value: 'ERROR' },
+  { label: '正常项', value: 'NORMAL' },
 ]
 
-const equipmentList = ref([
-  { id: 1, group_name: '95式自动步枪', group_code: 'AR-95-001', db_status: '在位', actual_status: '在位', group_image: '' },
-  { id: 2, group_name: '95式自动步枪', group_code: 'AR-95-002', db_status: '在位', actual_status: '不在位', group_image: '' },
-  { id: 3, group_name: '03式自动步枪', group_code: 'AR-03-054', db_status: '已取出', actual_status: '已取出', group_image: '' },
-  { id: 4, group_name: '03式自动步枪', group_code: 'AR-03-055', db_status: '在位', actual_status: '在位', group_image: '' },
-  { id: 5, group_name: '战术头盔', group_code: 'TH-2023-09', db_status: '已取出', actual_status: '在位', group_image: '' },
-  { id: 6, group_name: '防弹背心', group_code: 'BV-SD-102', db_status: '在位', actual_status: '在位', group_image: '' },
-  { id: 7, group_name: '手持电台', group_code: 'RT-G5-991', db_status: '在位', actual_status: '不在位', group_image: '' },
-  { id: 8, group_name: '夜视仪', group_code: 'NVG-X2-008', db_status: '在位', actual_status: '在位', group_image: '' },
-])
+// --- 核心状态变量 ---
+const equipmentList = ref([]) // 真实装备列表
+const config_blob = ref(null) // 硬件配置信息
+const realtimeSwitchMap = reactive({}) // 硬件感知映射表 { self_address: status }
+const isPolling = ref(false) // 轮询开关
+const summaryVisible = ref(false)
+const showKeyboard = ref(false)
+const currentFilter = ref('ALL')
 
-// --- 计算属性 ---
+// --- 时间格式化 ---
+const formatTime = () => {
+  const now = new Date()
+  return `${now.getFullYear()}/${String(now.getMonth() + 1).padStart(2, '0')}/${String(now.getDate()).padStart(2, '0')} ${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}:${String(now.getSeconds()).padStart(2, '0')}`
+}
+const currentTime = ref(formatTime())
+
+// --- 1. 初始化配置与数据 ---
+const fetchConfigData = async () => {
+  try {
+    const response = await window.electronAPI.el_post({
+      action: 'queryMultipleTables',
+      payload: { arr: [{ tablename: 'terminal_settings', condition: '' }] },
+    })
+    if (response.success && response.data?.terminal_settings) {
+      config_blob.value = JSON.parse(response.data.terminal_settings.config_blob)
+    }
+  } catch (error) {
+    console.error('配置加载失败:', error)
+  }
+}
+
+const getRealData = async () => {
+  let allData = []
+  let currentPage = 1
+  let hasMore = true
+  const pageSize = 10
+  try {
+    while (hasMore) {
+      const res = await window.electronAPI.el_post({
+        action: 'queryPagination',
+        payload: { tableName: 'equipment', page: currentPage, pageSize: pageSize },
+      })
+      if (res.data?.data?.length > 0) {
+        allData = [...allData, ...res.data.data]
+        currentPage++
+      } else {
+        hasMore = false
+      }
+    }
+
+    // ================= [新增/同步的代码段] =================
+    allData.forEach((row) => {
+      // 1. 格式化日期（防止弹窗查看详情时日期太长）
+      if (row.group_distribution_time) {
+        const date = new Date(row.group_distribution_time)
+        if (!isNaN(date.getTime())) {
+          row.group_distribution_time = date.toISOString().split('T')[0]
+        }
+      }
+      // 2. 补全锁位置（虽然盘点不用开门，但保证数据结构完整性）
+      if (!row.lock_self_address && config_blob.value?.lock?.details?.length > 0) {
+        row.lock_self_address = config_blob.value.lock.details[0].self_address
+      }
+    })
+
+    // 3. 核心：按物理柜位排序！让盘点顺序与柜子摆放顺序一致
+    allData.sort((a, b) => {
+      return (Number(a.self_address) || 0) - (Number(b.self_address) || 0)
+    })
+    // =====================================================
+
+    // 最后再赋值给响应式变量，并增加盘点专用的备注字段
+    equipmentList.value = allData.map((item) => ({ ...item, inventory_remark: '' }))
+
+  } catch (error) {
+    console.error('数据获取失败:', error)
+  }
+}
+
+// --- 2. 硬件感知轮询 ---
+const updateAllHardwareStatus = async () => {
+  if (!config_blob.value?.switch?.expansion_board_addresses) return
+  for (const address of config_blob.value.switch.expansion_board_addresses) {
+    try {
+      const result = await window.electronAPI.el_post({
+        action: 'read_all_inputs',
+        payload: { deviceAddress: address, startAddress: 0x0001, registerCount: 10 },
+      })
+      if (result?.success && result.data) {
+        console.log('硬件状态数据:', result.data)
+        result.data.forEach((state, index) => {
+          const detail = config_blob.value.switch.details.find(
+            (d) => d.expansion_board_address === address && d.channel_address === index + 1,
+          )
+          if (detail) {
+            realtimeSwitchMap[detail.self_address] = state
+          }
+        })
+      }
+    } catch (e) {
+      console.error('读取硬件失败:', e)
+    }
+  }
+}
+const lastMismatchCount = ref(-1) // 记录上一次的异常数量，初始为-1用于识别初次加载
+const startMonitorLoop = async () => {
+  isPolling.value = true
+  while (isPolling.value) {
+    await updateAllHardwareStatus()
+    currentTime.value = formatTime()
+
+    // --- [新增：实时语音提示逻辑] ---
+    const currentMismatch = stats.value.mismatch // 获取当前最新的异常总数
+
+    // 只有当不是初次扫描（lastMismatchCount !== -1）且数量发生变化时才触发
+    if (lastMismatchCount.value !== -1) {
+      if (currentMismatch > lastMismatchCount.value) {
+        // 场景：异常增加了（比如有人私自拿走了装备）
+        audioStore.play('/audio/拿错提示音.mp3') // 建议使用急促、警示性的音效
+        ElMessage.warning('检测到新的账务不符项！')
+      } else if (currentMismatch < lastMismatchCount.value) {
+        // 场景：异常减少了（比如错拿的放回去了，或者缺失的补回来了）
+        audioStore.play('/audio/拿对提示音.mp3') // 建议使用清脆、正向的音效
+        ElMessage.success('异常项已消除，状态恢复正常')
+      }
+    }
+
+    // 更新旧值，供下一次循环比对
+    lastMismatchCount.value = currentMismatch
+    // ----------------------------
+
+    await new Promise((r) => setTimeout(r, 1000)) // 建议盘点时设为 800ms，感知更灵敏
+  }
+}
+
+// 修改后
+const getActualStatus = (item) => {
+  const status = realtimeSwitchMap[item.self_address]
+
+  // 如果 status 是 undefined，说明硬件还没完成首次扫描
+  if (status === undefined) {
+    return '检测中'
+  }
+
+  // 1 表示压下（在位），0 表示弹起（离位）
+  return status === 1 ? '在位' : '不在位'
+}
+
+// --- 修改后 ---
+const isItemAbnormal = (item) => {
+  const actual = getActualStatus(item)
+
+  // 如果还在检测中，先认为它是正常的，避免页面闪烁大量红色
+  if (actual === '检测中') {
+    return false
+  }
+
+  // 核心逻辑对齐：账面 group_status vs 传感器 actual_status
+  return item.group_status !== (actual === '在位' ? '在位' : '已取出')
+}
+
+// 统计逻辑修正
+const stats = computed(() => {
+  const list = equipmentList.value
+  const abnormalList = list.filter(isItemAbnormal)
+  return {
+    match: list.length - abnormalList.length,
+    mismatch: abnormalList.length,
+    inPlace: list.filter((i) => i.group_status === '在位' && getActualStatus(i) === '在位').length,
+    outPlace: list.filter((i) => i.group_status === '已取出' && getActualStatus(i) === '不在位')
+      .length,
+    missing: abnormalList.filter((i) => i.group_status === '在位').length,
+    unregistered: abnormalList.filter((i) => i.group_status === '已取出').length,
+  }
+})
+
 const filteredList = computed(() => {
-  if (currentFilter.value === 'NORMAL') {
-    return equipmentList.value.filter(i => i.db_status === i.actual_status)
-  }
-  if (currentFilter.value === 'ERROR') {
-    return equipmentList.value.filter(i => i.db_status !== i.actual_status)
-  }
+  if (currentFilter.value === 'NORMAL') return equipmentList.value.filter((i) => !isItemAbnormal(i))
+  if (currentFilter.value === 'ERROR') return equipmentList.value.filter(isItemAbnormal)
   return equipmentList.value
 })
 
-const stats = computed(() => {
-  const match = equipmentList.value.filter(i => i.db_status === i.actual_status).length
-  const inPlace = equipmentList.value.filter(i => i.db_status === '在位' && i.actual_status === '在位').length
-  const outPlace = equipmentList.value.filter(i => i.db_status === '已取出' && i.actual_status === '已取出').length
-  const missing = equipmentList.value.filter(i => i.db_status === '在位' && i.actual_status === '不在位').length
+const abnormalItems = computed(() => equipmentList.value.filter(isItemAbnormal))
 
-  return {
-    match,
-    mismatch: equipmentList.value.length - match,
-    inPlace,
-    outPlace,
-    missing
+const getAbnormalType = (item) => {
+  const actual = getActualStatus(item)
+  if (item.group_status === '在位' && actual === '不在位')
+    return { text: '异常离位', class: 'st-out-warn' }
+  if (item.group_status === '已取出' && actual === '在位')
+    return { text: '异常占用', class: 'st-unreg' }
+  return { text: '未知异常', class: 'st-other' }
+}
+
+// --- 4. 交互与提交 ---
+const handleInputFocus = () => {
+  showKeyboard.value = true
+}
+
+const setFilter = (type) => {
+  audioStore.play('/audio/按钮点击声.mp3')
+  currentFilter.value = type
+}
+
+const handleOpenSummary = () => {
+  audioStore.play('/audio/按钮点击声.mp3')
+  summaryVisible.value = true
+}
+
+const finalSubmit = async () => {
+  const loading = ElLoading.service({ text: '正在同步盘点数据...' })
+  try {
+    const summary = `盘点完成：总数${equipmentList.value.length}, 异常${stats.value.mismatch}。`
+    plugins.logUserAction('装备盘点', summary, {
+      details: abnormalItems.value.map((i) => ({ code: i.group_code, remark: i.inventory_remark })),
+    })
+
+    ElMessage.success('盘点数据已同步至管理系统')
+    summaryVisible.value = false
+    setTimeout(() => {
+      router.push('/')
+    }, 1000)
+  } catch {
+    ElMessage.error('同步失败')
+  } finally {
+    loading.close()
   }
+}
+
+onMounted(async () => {
+  if (timerStore.isTimerActive) timerStore.stopInterval()
+  await fetchConfigData()
+  await getRealData()
+  startMonitorLoop()
+  // plugins.logUserAction('页面访问', '进入装备盘点页面')
 })
 
-const currentTime = ref(new Date().toLocaleString())
-
-// --- 方法 ---
-const startInventoryScan = () => {
-  isScanning.value = true
-  ElMessage.info('硬件指令已发送，正在轮询柜位传感器...')
-
-  // 模拟扫描过程
-  setTimeout(() => {
-    isScanning.value = false
-    ElMessage.success('盘点扫描完成，发现 ' + stats.value.mismatch + ' 项异常')
-  }, 2000)
-}
-
-const handleSubmitReport = () => {
-  ElMessageBox.confirm('确定提交本次盘点报告吗？异常项将自动生成警报记录。', '提交确认', {
-    confirmButtonText: '确定提交',
-    cancelButtonText: '取消',
-    type: 'warning',
-    customClass: 'cyber-message-box'
-  }).then(() => {
-    ElMessage.success('报告提交成功，已存档')
-  })
-}
-
-onMounted(() => {
-  // 页面加载自动开始一次扫描
-  startInventoryScan()
+onUnmounted(() => {
+  isPolling.value = false
+  // 4. 恢复全局定时器（如果有）
+  if (!timerStore.isTimerActive) timerStore.startInterval()
 })
 </script>
 
 <style scoped>
-/* 继承领用页面的核心布局变量 */
+/* ==========================================================
+   CSS 变量及全局布局
+   ========================================================== */
 .theme-dark {
   --primary: #00f2ff;
   --primary-dark: #0099a1;
@@ -271,214 +555,6 @@ onMounted(() => {
   --text-sec: #8899a6;
 }
 
-/* 盘点特有样式 */
-.inventory-timer {
-  color: var(--primary);
-  font-size: 13px;
-  margin-right: 20px;
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-
-.status-legend {
-  margin-left: 20px;
-  font-size: 12px;
-  color: var(--text-sec);
-  display: flex;
-  align-items: center;
-  gap: 15px;
-}
-
-.dot {
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
-  display: inline-block;
-}
-
-.dot.normal {
-  background: var(--success);
-  box-shadow: 0 0 5px var(--success);
-}
-
-.dot.warning {
-  background: var(--error);
-  box-shadow: 0 0 5px var(--error);
-}
-
-.dot.out {
-  background: #555;
-}
-
-/* 异常卡片样式 */
-.abnormal-card {
-  border-color: var(--error) !important;
-  background: rgba(255, 77, 79, 0.05) !important;
-}
-
-.error-ribbon {
-  position: absolute;
-  top: 0;
-  right: 0;
-  width: 0;
-  height: 0;
-  border-top: 30px solid var(--error);
-  border-left: 30px solid transparent;
-  z-index: 5;
-}
-
-.error-ribbon .el-icon {
-  position: absolute;
-  top: -28px;
-  left: -16px;
-  color: #fff;
-  font-size: 14px;
-}
-
-.status-compare {
-  margin-top: 8px;
-  padding-top: 8px;
-  border-top: 1px dashed #333;
-}
-
-.compare-row {
-  display: flex;
-  justify-content: space-between;
-  font-size: 11px;
-  margin-bottom: 2px;
-}
-
-.compare-row .label {
-  color: #666;
-}
-
-.text-in {
-  color: var(--success);
-  font-weight: bold;
-}
-
-.text-out {
-  color: var(--text-sec);
-}
-
-/* 右侧报告区域 */
-.inventory-report {
-  padding: 20px;
-  display: flex;
-  flex-direction: column;
-  height: 100%;
-}
-
-.report-header {
-  margin-bottom: 20px;
-}
-
-.report-title {
-  font-size: 18px;
-  color: var(--primary);
-  font-weight: bold;
-}
-
-.report-date {
-  font-size: 12px;
-  color: #555;
-  margin-top: 5px;
-}
-
-.stats-grid {
-  display: grid;
-  grid-template-columns: repeat(3, 1fr);
-  gap: 10px;
-  margin-bottom: 25px;
-}
-
-.stats-box {
-  background: rgba(255, 255, 255, 0.03);
-  border: 1px solid var(--border);
-  padding: 15px 5px;
-  text-align: center;
-  border-radius: 4px;
-}
-
-.stats-box .s-val {
-  font-size: 22px;
-  font-weight: bold;
-  font-family: 'Consolas';
-}
-
-.stats-box .s-lab {
-  font-size: 11px;
-  color: var(--text-sec);
-  margin-top: 5px;
-}
-
-.stats-box.success .s-val {
-  color: var(--success);
-}
-
-.stats-box.danger .s-val {
-  color: var(--error);
-}
-
-.detail-analysis {
-  background: rgba(0, 0, 0, 0.2);
-  border-radius: 6px;
-  padding: 15px;
-  margin-bottom: 20px;
-}
-
-.analysis-item {
-  display: flex;
-  align-items: center;
-  margin-bottom: 12px;
-  font-size: 13px;
-}
-
-.analysis-item .lab {
-  flex: 1;
-  margin-left: 10px;
-  color: #ccc;
-}
-
-.analysis-item .val {
-  font-family: monospace;
-  font-weight: bold;
-}
-
-.danger-text {
-  color: var(--error);
-}
-
-.remark-input {
-  width: 100%;
-  flex: 1;
-  background: #0d121c;
-  border: 1px solid var(--border);
-  border-radius: 4px;
-  padding: 10px;
-  color: #fff;
-  font-size: 13px;
-  resize: none;
-  outline: none;
-  margin-top: 10px;
-}
-
-.remark-input:focus {
-  border-color: var(--primary);
-}
-
-.bg-success {
-  background: var(--success);
-  box-shadow: 0 -2px 10px var(--success);
-}
-
-.bg-error {
-  background: var(--error);
-  box-shadow: 0 -2px 10px var(--error);
-}
-
-/* 基础复用样式 (保持与原页面一致) */
 .page-container {
   width: 100%;
   height: 100vh;
@@ -489,6 +565,7 @@ onMounted(() => {
   overflow: hidden;
 }
 
+/* Header */
 .header-bar {
   height: 70px;
   background: #11151f;
@@ -497,6 +574,7 @@ onMounted(() => {
   justify-content: space-between;
   align-items: center;
   padding: 0 25px;
+  flex-shrink: 0;
 }
 
 .header-left {
@@ -514,10 +592,23 @@ onMounted(() => {
   align-items: center;
   justify-content: center;
   background: #1c2538;
+  box-shadow: 0 0 15px rgba(0, 242, 255, 0.1);
 }
 
 .primary-icon {
   color: var(--primary);
+}
+
+.title-text h1 {
+  margin: 0;
+  font-size: 22px;
+  font-weight: 600;
+}
+
+.sub-title {
+  color: var(--primary-dark);
+  font-size: 12px;
+  font-weight: bold;
 }
 
 .main-body {
@@ -528,6 +619,7 @@ onMounted(() => {
   overflow: hidden;
 }
 
+/* 列表展示区 */
 .list-section {
   flex: 1;
   background: var(--card-bg);
@@ -535,13 +627,7 @@ onMounted(() => {
   border-radius: 8px;
   display: flex;
   flex-direction: column;
-}
-
-.operation-section {
-  flex: 0 0 360px;
-  background: var(--card-bg);
-  border: 1px solid var(--border);
-  border-radius: 8px;
+  overflow: hidden;
 }
 
 .section-title {
@@ -553,6 +639,44 @@ onMounted(() => {
   background: rgba(0, 0, 0, 0.2);
 }
 
+.inventory-indicator {
+  display: flex;
+  gap: 15px;
+  margin-left: 20px;
+  font-size: 12px;
+  color: var(--text-sec);
+}
+
+.ind-item {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  display: inline-block;
+  background: #555;
+}
+
+.dot.success {
+  background: var(--success);
+  box-shadow: 0 0 5px var(--success);
+}
+
+.dot.danger {
+  background: var(--error);
+  box-shadow: 0 0 5px var(--error);
+}
+
+/* 添加 warning 状态圆点的颜色 */
+.dot.warning {
+  background: var(--warning);
+  box-shadow: 0 0 5px var(--warning);
+}
+
 .filter-tabs {
   display: flex;
   background: #0d121c;
@@ -562,59 +686,238 @@ onMounted(() => {
 }
 
 .tab {
-  padding: 5px 12px;
-  font-size: 12px;
+  padding: 6px 15px;
+  font-size: 13px;
   color: var(--text-sec);
   cursor: pointer;
-  transition: all 0.3s;
+  transition: 0.3s;
+  position: relative;
 }
 
 .tab.active {
   color: var(--primary);
   background: #1c2538;
+  border-radius: 2px;
+}
+
+.tab-count {
+  position: absolute;
+  top: -5px;
+  right: -5px;
+  background: var(--error);
+  color: white;
+  border-radius: 10px;
+  padding: 0 5px;
+  font-size: 10px;
+}
+
+.scroll-area {
+  flex: 1;
+  padding: 15px;
 }
 
 .card-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
-  gap: 12px;
-  padding: 15px;
+  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+  gap: 15px;
 }
 
+/* 卡片样式 */
+/* --- 列表网格：固定5列 --- */
+.card-grid {
+  display: grid;
+  grid-template-columns: repeat(5, 1fr);
+  /* 强制5列 */
+  gap: 12px;
+}
+
+/* --- 卡片基础样式 --- */
 .equip-card {
   position: relative;
   background: rgba(255, 255, 255, 0.03);
   border: 1px solid var(--border);
   border-radius: 6px;
-  height: 230px;
+  height: auto;
+  /* 增加高度以容纳更多信息 */
   display: flex;
   flex-direction: column;
   overflow: hidden;
-  transition: all 0.3s;
+  transition: all 0.3s ease;
 }
 
+.equip-card:hover {
+  background: rgba(255, 255, 255, 0.06);
+  border-color: #4a5c76;
+}
+
+/* 异常状态下的卡片 */
+.equip-card.is-abnormal {
+  border-color: var(--error);
+  background: rgba(255, 77, 79, 0.04);
+  box-shadow: inset 0 0 15px rgba(255, 77, 79, 0.05);
+}
+
+/* 正常状态下的卡片：绿色边框和微光背景 */
+.equip-card.is-normal {
+  border-color: rgba(0, 255, 157, 0.4);
+  /* 绿色边框，带透明度不刺眼 */
+  background: rgba(0, 255, 157, 0.05);
+}
+
+/* 异常角标（红色小三角） */
+.error-ribbon {
+  position: absolute;
+  top: 0;
+  right: 0;
+  width: 0;
+  height: 0;
+  border-top: 30px solid var(--error);
+  border-left: 30px solid transparent;
+  z-index: 5;
+}
+
+/* 正常角标（绿色小三角） */
+.success-ribbon {
+  position: absolute;
+  top: 0;
+  right: 0;
+  width: 0;
+  height: 0;
+  border-top: 30px solid #139865;
+  border-left: 30px solid transparent;
+  z-index: 5;
+}
+
+/* 统一图标在三角形内的位置 */
+.error-ribbon .el-icon,
+.success-ribbon .el-icon {
+  position: absolute;
+  top: -28px;
+  /* 向上移动到边框区域 */
+  left: -16px;
+  /* 向左微调实现对角线居中 */
+  color: #fff;
+  font-size: 14px;
+  font-weight: bold;
+  /* 让勾选稍微粗一点点，更有力量感 */
+}
+
+/* --- 装备图片展示 --- */
 .equip-image-preview {
+  width: 100%;
   height: 100px;
+  /* 缩减图片高度，留给文字 */
   background: #000;
+  border-bottom: 1px solid var(--border);
 }
 
+.image-placeholder {
+  background: #0d121c;
+  width: 100%;
+  height: 100%;
+}
+
+.image-error-slot {
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #334155;
+  background: #0d121c;
+}
+
+/* --- 信息内容区 --- */
 .card-info {
-  padding: 10px;
+  padding: 10px 12px;
   flex: 1;
+  display: flex;
+  flex-direction: column;
 }
 
 .equip-name {
   font-size: 14px;
   font-weight: bold;
-  margin-bottom: 4px;
+  color: #fff;
+  margin-bottom: 2px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .equip-code {
   font-size: 12px;
   color: var(--text-sec);
-  font-family: monospace;
+  font-family: 'Consolas', monospace;
+  margin-bottom: 8px;
+  word-break: break-all;
+  white-space: pre-wrap;
 }
 
+/* --- 账实对比组（左右紧凑型） --- */
+.status-compare-group {
+  background: rgba(0, 0, 0, 0.25);
+  border-radius: 4px;
+  padding: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.compare-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.c-label {
+  font-size: 12px;
+  color: #66788a;
+}
+
+.c-tag {
+  font-size: 11px;
+  padding: 1px 6px;
+  border-radius: 2px;
+  font-weight: bold;
+}
+
+/* 状态标签配色优化 */
+.st-in {
+  background: rgba(0, 255, 157, 0.15);
+  color: var(--success);
+  border: 1px solid rgba(0, 255, 157, 0.2);
+}
+
+.st-out {
+  background: rgba(255, 255, 255, 0.05);
+  color: #8899a6;
+  /* 使用更有质感的灰蓝色 */
+  border: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+/* st-out-warn 仅保留给弹窗内的 mini-tag 使用 */
+.st-out-warn {
+  background: rgba(255, 77, 79, 0.15);
+  color: var(--error);
+  border: 1px solid rgba(255, 77, 79, 0.2);
+}
+
+/* --- 底部柜位信息 --- */
+.card-footer-pos {
+  padding: 8px 12px;
+  border-top: 1px solid rgba(255, 255, 255, 0.03);
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  color: var(--primary);
+  font-size: 12px;
+}
+
+.pos-text {
+  font-weight: 500;
+}
+
+/* --- 底部进度条装饰 --- */
 .active-bar {
   position: absolute;
   bottom: 0;
@@ -623,9 +926,247 @@ onMounted(() => {
   height: 2px;
 }
 
+.bg-ok {
+  background: rgba(0, 255, 157, 0.4);
+  box-shadow: 0 -1px 6px var(--success);
+}
+
+.bg-err {
+  background: var(--error);
+  box-shadow: 0 -1px 6px var(--error);
+}
+
+/* 右侧报告面板 */
+.operation-section {
+  flex: 0 0 360px;
+  background: var(--card-bg);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.report-panel {
+  padding: 20px;
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+}
+
+/* [修复] 右侧头部样式 */
+.report-header {
+  margin-bottom: 20px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+  padding-bottom: 15px;
+}
+
+.report-main-title {
+  font-size: 19px;
+  font-weight: bold;
+  color: var(--primary);
+  letter-spacing: 1px;
+}
+
+.report-time {
+  font-size: 14px;
+  color: #6d8096;
+  margin-top: 5px;
+  font-family: monospace;
+}
+
+.stats-summary-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 10px;
+  margin-bottom: 20px;
+}
+
+/* 联动卡片样式 */
+.stat-card {
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid var(--border);
+  padding: 15px 5px;
+  text-align: center;
+  border-radius: 4px;
+  transition: 0.3s;
+}
+
+.stat-card.clickable {
+  cursor: pointer;
+}
+
+.stat-card.clickable:hover {
+  border-color: var(--primary);
+  background: rgba(0, 242, 255, 0.05);
+}
+
+.stat-card.active {
+  border-color: var(--primary);
+  box-shadow: inset 0 0 10px rgba(0, 242, 255, 0.1);
+}
+
+.stat-card .s-num {
+  font-size: 24px;
+  font-weight: bold;
+  font-family: 'Consolas';
+}
+
+.stat-card.is-success .s-num {
+  color: var(--success);
+}
+
+.stat-card.is-danger.has-err .s-num {
+  color: var(--error);
+}
+
+.stat-card .s-text {
+  font-size: 13px;
+  color: var(--text-sec);
+  margin-top: 5px;
+}
+
+.analysis-section {
+  background: rgba(0, 0, 0, 0.1);
+  padding: 15px;
+  border-radius: 6px;
+  border: 1px solid rgba(255, 255, 255, 0.02);
+}
+
+.analysis-title {
+  font-size: 15px;
+  color: var(--primary-dark);
+  font-weight: bold;
+  padding-bottom: 10px;
+  margin-bottom: 12px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+.analysis-row {
+  display: flex;
+  justify-content: space-between;
+  margin-bottom: 15px;
+  font-size: 13px;
+}
+
+.success-text {
+  color: var(--success);
+  font-weight: bold;
+}
+
+.danger-text {
+  color: var(--error);
+  font-weight: bold;
+}
+
+.warning-text {
+  color: var(--warning);
+  font-weight: bold;
+}
+
+.flex-spacer {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  opacity: 0.1;
+}
+
+.spacer-text {
+  font-size: 12px;
+  margin-top: 10px;
+}
+
+/* 弹窗样式 */
+.summary-dialog-content {
+  padding: 0 20px;
+}
+
+.abnormal-table-container {
+  max-height: 400px;
+  overflow-y: auto;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+}
+
+.cyber-table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.cyber-table th {
+  background: #0d121c;
+  padding: 12px;
+  font-size: 13px;
+  color: var(--primary);
+  border-bottom: 1px solid var(--border);
+  text-align: left;
+}
+
+.cyber-table td {
+  padding: 12px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+  text-align: left;
+}
+
+.t-name {
+  font-size: 14px;
+  color: #fff;
+  font-weight: bold;
+}
+
+.t-code {
+  font-size: 12px;
+  color: var(--text-sec);
+  font-family: monospace;
+}
+
+.mini-tag {
+  padding: 2px 6px;
+  border-radius: 2px;
+  font-size: 11px;
+  font-weight: bold;
+}
+
+.st-unreg {
+  background: rgba(230, 162, 60, 0.2);
+  color: var(--warning);
+  border: 1px solid var(--warning);
+}
+
+.table-input :deep(.el-input__wrapper) {
+  background: rgba(0, 0, 0, 0.3) !important;
+  box-shadow: none !important;
+  border: 1px solid #4a5c76;
+}
+
+.dialog-footer {
+  display: flex;
+  gap: 15px;
+  padding: 20px;
+}
+
+.footer-btn {
+  flex: 1;
+  height: 45px;
+  border-radius: 4px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  font-size: 15px;
+  font-weight: bold;
+}
+
+.footer-btn.confirm {
+  background: linear-gradient(90deg, #0099a1 0%, #005f66 100%);
+  border: 1px solid var(--primary);
+  color: #fff;
+}
+
 .cyber-btn {
   width: 100%;
-  height: 55px;
+  height: 45px;
   background: linear-gradient(90deg, var(--primary-dark) 0%, #005f66 100%);
   border: 1px solid var(--primary);
   color: #fff;
@@ -634,44 +1175,97 @@ onMounted(() => {
   overflow: hidden;
 }
 
-.btn-content {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 10px;
+.scan-line {
+  position: absolute;
+  top: 0;
+  left: -100%;
+  width: 50%;
+  height: 100%;
+  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.3), transparent);
+  transform: skewX(-20deg);
+  animation: btnScan 4s infinite;
 }
 
-.btn-main-text {
-  font-size: 16px;
-  font-weight: bold;
-}
+@keyframes btnScan {
+  0% {
+    left: -100%;
+  }
 
-.btn-sub-text {
-  font-size: 11px;
-  opacity: 0.7;
+  25% {
+    left: 200%;
+  }
+
+  100% {
+    left: 200%;
+  }
 }
 
 .btn-exit {
   background: transparent;
   border: 1px solid var(--error);
   color: var(--error);
-  padding: 6px 16px;
+  padding: 8px 18px;
   border-radius: 4px;
   cursor: pointer;
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: 8px;
+}
+.st-loading {
+  background: rgba(255, 255, 255, 0.05);
+  color: #555;
+  border: 1px solid #333;
+}
+</style>
+
+<style>
+/* 弹窗位移全局逻辑 */
+.cyber-dialog-reason.el-dialog {
+  background-color: #141b2d !important;
+  border: 1px solid #0099a1 !important;
+  border-radius: 8px !important;
+  transition: transform 0.3s cubic-bezier(0.25, 0.8, 0.25, 1) !important;
+  top: 50% !important;
+  transform: translateY(-50%) !important;
 }
 
-.btn-open-door {
-  background: transparent;
-  border: 1px solid var(--primary);
-  color: var(--primary);
-  padding: 6px 16px;
-  border-radius: 4px;
-  cursor: pointer;
+.cyber-dialog-reason.is-keyboard-open {
+  transform: translateY(-85%) !important;
+}
+
+/* 让按钮内部内容水平排列 */
+.btn-content {
   display: flex;
   align-items: center;
-  gap: 6px;
+  /* 垂直居中 */
+  justify-content: center;
+  /* 水平居中 */
+  gap: 12px;
+  /* 图标和文字之间的间距 */
+  width: 100%;
+  height: 100%;
+}
+
+/* 让两行文字垂直堆叠，并靠左对齐 */
+.text-group {
+  display: flex;
+  flex-direction: column;
+  /* 文字上下排 */
+  align-items: flex-start;
+  /* 文字左对齐 */
+}
+
+/* 主标题样式 */
+.btn-main-text {
+  font-size: 16px;
+  font-weight: bold;
+  line-height: 1.2;
+}
+
+/* 副标题样式 */
+.btn-sub-text {
+  font-size: 12px;
+  opacity: 0.8;
+  margin-top: 2px;
 }
 </style>

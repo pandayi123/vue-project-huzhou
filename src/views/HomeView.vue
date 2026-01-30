@@ -131,6 +131,7 @@ const change_screen_sleep_time = async () => {
   }
 }
 const screen_sleep_time_options = [
+  /*
   {
     value: 0.1,
     label: '6秒',
@@ -139,6 +140,7 @@ const screen_sleep_time_options = [
     value: 0.15,
     label: '8秒',
   },
+  */
   {
     value: 1,
     label: '1分钟',

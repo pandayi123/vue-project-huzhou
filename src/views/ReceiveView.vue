@@ -1061,9 +1061,11 @@ const getData = async () => {
     }
 
     allData.forEach((row) => {
+      // 1. 日期格式化处理
       if (row.group_distribution_time) {
         const date = new Date(row.group_distribution_time)
         if (!isNaN(date.getTime())) {
+           // 将 "2023-10-25T14:30:00.000Z" 这种长格式转换为 "2023-10-25"
           row.group_distribution_time = date.toISOString().split('T')[0]
         }
       }
