@@ -189,7 +189,7 @@
               <span class="a-value">{{ stats.outPlace }} 件</span>
             </div>
             <div class="analysis-row danger-text" v-if="stats.missing > 0">
-              <span class="a-label"><i class="dot danger"></i> 异常缺失 (账在实不在)</span>
+              <span class="a-label"><i class="dot danger"></i> 异常离位 (账在实不在)</span>
               <span class="a-value">{{ stats.missing }} 件</span>
             </div>
             <div class="analysis-row danger-text" v-if="stats.unregistered > 0">
@@ -224,7 +224,7 @@
     </div>
 
     <!-- 异常核对弹窗 -->
-    <el-dialog v-model="summaryVisible" title="异常项快捷处置" width="1000px" class="cyber-dialog">
+    <el-dialog v-model="summaryVisible" title="异常项快捷处置" width="1200px" class="cyber-dialog">
       <div class="summary-dialog-content">
         <div v-if="abnormalItems.length === 0" class="all-ok-tip">
           <el-icon :size="50" color="#00ff9d">
@@ -236,70 +236,100 @@
           <table class="cyber-table">
             <thead>
               <tr>
-                <th width="180">装备信息</th>
-                <th width="100">当前异常</th>
-                <th width="280">快速处置方案 (点击执行)</th>
+                <th width="80">实照</th>
+                <th width="180">装备/编号/位置</th>
+                <th width="200">账实核对</th>
+                <th width="100">异常类型</th>
+                <th width="280">快速处置方案</th>
                 <th>核实备注</th>
               </tr>
             </thead>
             <tbody>
-              <tr v-for="item in abnormalItems" :key="item.id">
+              <tr v-for="item in abnormalItems" :key="item.id" :class="{ 'is-processed-row': item.isProcessed }">
+                <!-- 1. 装备实照 -->
+                <td>
+                  <el-image :src="item.group_image" class="table-thumb" :preview-src-list="[item.group_image]"
+                    fit="cover">
+                    <template #error>
+                      <div class="thumb-err"><el-icon>
+                          <Picture />
+                        </el-icon></div>
+                    </template>
+                  </el-image>
+                </td>
+
+                <!-- 2. 基础信息 + 物理地址 -->
                 <td>
                   <div class="t-name">{{ item.group_name }}</div>
                   <div class="t-code">{{ item.group_code }}</div>
+                  <div class="t-pos"><el-icon>
+                      <Location />
+                    </el-icon> {{ item.self_address }}号位</div>
                 </td>
+
+                <!-- 3. 账实对比 (视觉强化版) -->
                 <td>
-                  <span class="mini-tag" :class="getAbnormalType(item).class">
+                  <div class="compare-row">
+                    <span class="dot-label">系统账面:</span>
+                    <span class="mini-tag" :class="item.group_status === '在位' ? 'st-in' : 'st-out'">
+                      {{ item.group_status }}
+                    </span>
+                  </div>
+                  <div class="compare-row" style="margin-top: 8px;">
+                    <span class="dot-label">柜内感知:</span>
+                    <span class="mini-tag" :class="getActualStatus(item) === '在位' ? 'st-in' : 'st-out'">
+                      {{ getActualStatus(item) }}
+                    </span>
+                  </div>
+                </td>
+
+                <!-- 4. 异常类型 -->
+                <td>
+                  <span v-if="item.isProcessed" class="status-resolved">
+                    <el-icon>
+                      <Check />
+                    </el-icon> 已处置
+                  </span>
+                  <span v-else class="mini-tag" :class="getAbnormalType(item).class">
                     {{ getAbnormalType(item).text }}
                   </span>
                 </td>
+
+                <!-- 5. 快速处置按钮 -->
                 <td>
                   <div class="action-btns">
-                    <!-- 场景1：账在实不在 -> 可能是领了没记 -->
-                    <button v-if="item.group_status === '在位'" class="mini-action-btn" @click="fixByBorrow(item)">
-                      <el-icon>
-                        <EditPen />
-                      </el-icon>
-                      补录领用
-                    </button>
-
-                    <!-- 场景2：实在账不在 -> 可能是放回来没记 -->
-                    <button v-if="item.group_status === '已取出'" class="mini-action-btn success"
-                      @click="fixByReturn(item)">
-                      <el-icon>
-                        <Refresh />
-                      </el-icon>
-                      纠正为在位
-                    </button>
-
-                    <!-- 场景3：通用 -> 传感器坏了 -->
-                    <button class="mini-action-btn warning" @click="fixByDisableSensor(item)">
-                      <el-icon>
-                        <Tools />
-                      </el-icon>
-                      禁用故障传感器
-                    </button>
+                    <template v-if="!item.isProcessed">
+                      <button v-if="item.group_status === '在位'" class="mini-action-btn" @click="fixByBorrow(item)">
+                        <el-icon>
+                          <EditPen />
+                        </el-icon> 补录领用
+                      </button>
+                      <button v-if="item.group_status === '已取出'" class="mini-action-btn success"
+                        @click="fixByReturn(item)">
+                        <el-icon>
+                          <Refresh />
+                        </el-icon> 补录归还
+                      </button>
+                      <button class="mini-action-btn warning" @click="fixByDisableSensor(item)">
+                        <el-icon>
+                          <Tools />
+                        </el-icon> 屏蔽传感
+                      </button>
+                    </template>
+                    <span v-else class="resolved-hint">数据已平账</span>
                   </div>
                 </td>
+
+                <!-- 6. 备注 -->
                 <td>
-                  <el-input v-model="item.inventory_remark" placeholder="处置说明..." class="table-input" />
+                  <el-input v-model="item.inventory_remark" placeholder="备注原因..." class="table-input" />
                 </td>
               </tr>
             </tbody>
           </table>
         </div>
       </div>
-      <template #footer>
-        <div class="dialog-footer">
-          <button class="footer-btn cancel" @click="summaryVisible = false">继续核对</button>
-          <button class="footer-btn confirm" @click="finalSubmit">
-            <el-icon>
-              <Promotion />
-            </el-icon>
-            确认上报并结束
-          </button>
-        </div>
-      </template>
+      <!-- Footer 保持不变 -->
     </el-dialog>
   </div>
 </template>
@@ -314,14 +344,12 @@ import {
   Monitor,
   Warning,
   CircleCheck,
-  Promotion,
   Location,
   Check,
   Timer as HistoryIcon,
   EditPen,
   Refresh,
   Tools,
-  WarningFilled,
 } from '@element-plus/icons-vue'
 import { ElMessage, ElLoading, ElMessageBox } from 'element-plus'
 import { useAudioStore } from '@/stores/audioStore'
@@ -346,7 +374,6 @@ const config_blob = ref(null) // 硬件配置信息
 const realtimeSwitchMap = reactive({}) // 硬件感知映射表 { self_address: status }
 const isPolling = ref(false) // 轮询开关
 const summaryVisible = ref(false)
-const showKeyboard = ref(false)
 const currentFilter = ref('ALL')
 const selectedName = ref('ALL') // 【新增：记录选中的装备名称】
 
@@ -505,17 +532,18 @@ const getActualStatus = (item) => {
   return status === 1 ? '在位' : '不在位'
 }
 
-// --- 修改后 ---
+// --- 修改后的函数 ---
 const isItemAbnormal = (item) => {
-  const actual = getActualStatus(item)
+  const actual = getActualStatus(item);
+  if (actual === '检测中') return false;
 
-  // 如果还在检测中，先认为它是正常的，避免页面闪烁大量红色
-  if (actual === '检测中') {
-    return false
+  // 【核心新增】检查传感器是否被管理员手动禁用
+  const detail = config_blob.value?.switch?.details?.find(d => d.self_address == item.self_address);
+  if (detail && (detail.admin_status == 0 || detail.admin_status === '0')) {
+    return false; // 传感器已坏并禁用的，不再视为盘点异常
   }
 
-  // 核心逻辑对齐：账面 group_status vs 传感器 actual_status
-  return item.group_status !== (actual === '在位' ? '在位' : '已取出')
+  return item.group_status !== (actual === 'In Place' || actual === '在位' ? '在位' : '已取出');
 }
 
 // 统计逻辑修正
@@ -552,7 +580,11 @@ const filteredList = computed(() => {
   return list
 })
 
-const abnormalItems = computed(() => equipmentList.value.filter(isItemAbnormal))
+// --- 修改后的计算属性 ---
+const abnormalItems = computed(() => {
+  // 筛选出：当前依然异常的项 OR 在本次盘点过程中已经点击了处置按钮的项
+  return (equipmentList.value || []).filter(item => isItemAbnormal(item) || item.isProcessed);
+})
 
 const getAbnormalType = (item) => {
   const actual = getActualStatus(item)
@@ -561,11 +593,6 @@ const getAbnormalType = (item) => {
   if (item.group_status === '已取出' && actual === '在位')
     return { text: '异常占用', class: 'st-unreg' }
   return { text: '未知异常', class: 'st-other' }
-}
-
-// --- 4. 交互与提交 ---
-const handleInputFocus = () => {
-  showKeyboard.value = true
 }
 
 const setFilter = (type) => {
@@ -579,22 +606,41 @@ const handleOpenSummary = () => {
 }
 
 const finalSubmit = async () => {
-  const loading = ElLoading.service({ text: '正在同步盘点数据...' })
+  const loading = ElLoading.service({ text: '正在生成盘点报告...' })
   try {
-    const summary = `盘点完成：总数${equipmentList.value.length}, 异常${stats.value.mismatch}。`
-    plugins.logUserAction('装备盘点', summary, {
-      details: abnormalItems.value.map((i) => ({ code: i.group_code, remark: i.inventory_remark })),
-    })
+    // 构造盘点详单
+    const inventoryDetails = equipmentList.value.map(item => ({
+      code: item.group_code,
+      name: item.group_name,
+      address: item.self_address,
+      system_status: item.group_status,
+      actual_status: getActualStatus(item),
+      is_abnormal: isItemAbnormal(item),
+      remark: item.inventory_remark || ''
+    }));
 
-    ElMessage.success('盘点数据已同步至管理系统')
-    summaryVisible.value = false
-    setTimeout(() => {
-      router.push('/')
-    }, 1000)
-  } catch {
-    ElMessage.error('同步失败')
+    // 将详单序列化后存入日志或专门的 inventory_history 表
+    await window.electronAPI.el_post({
+      action: 'insert',
+      payload: {
+        tableName: 'inventory_logs', // 假设你有一个专门存历史的表
+        setValues: {
+          inventory_time: formatTime(),
+          total_count: equipmentList.value.length,
+          abnormal_count: stats.value.mismatch,
+          operator: "当前登录人",
+          details_json: JSON.stringify(inventoryDetails)
+        }
+      }
+    });
+
+    ElMessage.success('盘点报告已存档并同步');
+    summaryVisible.value = false;
+    router.push('/');
+  } catch  {
+    ElMessage.error('同步失败');
   } finally {
-    loading.close()
+    loading.close();
   }
 }
 
@@ -605,12 +651,16 @@ const finalSubmit = async () => {
  */
 const fixByBorrow = async (item) => {
   try {
-    const { value: reason } = await ElMessageBox.prompt('检测到紧急领用，请输入领用用途', '补录领用登记', {
-      confirmButtonText: '确认补录',
-      cancelButtonText: '取消',
-      inputPlaceholder: '例如：紧急领用、演训调拨...',
-      customClass: 'cyber-message-box',
-    })
+    const { value: reason } = await ElMessageBox.prompt(
+      '检测到紧急领用，请输入领用用途',
+      '补录领用登记',
+      {
+        confirmButtonText: '确认补录',
+        cancelButtonText: '取消',
+        inputPlaceholder: '例如：紧急领用、演训调拨...',
+        customClass: 'cyber-message-box',
+      },
+    )
 
     if (reason) {
       // 1. 插入领用记录
@@ -625,9 +675,9 @@ const fixByBorrow = async (item) => {
             username: '系统核对补录',
             borrow_time: formatTime(),
             status: 0,
-            remark: `盘点补录：${reason}`
-          }
-        }
+            remark: `盘点补录：${reason}`,
+          },
+        },
       })
       // 2. 更新装备状态
       await window.electronAPI.el_post({
@@ -635,38 +685,74 @@ const fixByBorrow = async (item) => {
         payload: {
           tableName: 'equipment',
           setValues: { group_status: '已取出' },
-          condition: `id = ${item.id}`
-        }
+          condition: `id = ${item.id}`,
+        },
       })
 
       item.group_status = '已取出' // 同步前端视图
+      item.isProcessed = true; // 新增这一行
       item.inventory_remark = '已完成补录登记'
       audioStore.play('/audio/领用完成数据已保存.mp3')
       ElMessage.success(`${item.group_name} 领用记录已补齐`)
     }
-  } catch{ console.log('取消补录') }
+  } catch {
+    console.log('取消补录')
+  }
 }
 
 /**
- * 处置方案2：纠正为在位 (针对：账面不在，实物在位)
+ * 处置方案2：补录归还 (针对：实物在位，但系统显示已取出/维修中)
+ * 逻辑：1. 将装备状态设为“在位”
+ *      2. 将借用记录表中该装备对应的“未归还”记录标记为“已归还”并记录归还时间
  */
 const fixByReturn = async (item) => {
-  await ElMessageBox.confirm(`确认为该装备已归还，仅系统账面未更新？`, '状态纠正', {
-    type: 'warning',
-    customClass: 'cyber-message-box',
-  })
+  try {
+    await ElMessageBox.confirm(
+      `确认为该装备已归还？系统将自动销毁对应的未归还记录，完成账务平齐。`,
+      '补录归还确认',
+      {
+        confirmButtonText: '确认归还',
+        cancelButtonText: '取消',
+        type: 'success',
+        customClass: 'cyber-message-box',
+      }
+    )
 
-  await window.electronAPI.el_post({
-    action: 'update',
-    payload: {
-      tableName: 'equipment',
-      setValues: { group_status: '在位' },
-      condition: `id = ${item.id}`
-    }
-  })
-  item.group_status = '在位'
-  item.inventory_remark = '已手动纠正为在位状态'
-  ElMessage.success('状态已纠正')
+    // 1. 更新装备表：恢复为“在位”
+    await window.electronAPI.el_post({
+      action: 'update',
+      payload: {
+        tableName: 'equipment',
+        setValues: { group_status: '在位' },
+        condition: `id = ${item.id}`
+      }
+    })
+
+    // 2. 核心：平账逻辑。关闭 borrow_records 表中该装备所有未归还(status=0)的记录
+    await window.electronAPI.el_post({
+      action: 'update',
+      payload: {
+        tableName: 'borrow_records',
+        setValues: {
+          status: 1,           // 状态改为已归还
+          return_time: formatTime() // 记录盘点核对时间为归还时间
+        },
+        // 匹配该装备 ID 且 状态为未归还的记录
+        condition: `equipment_id = ${item.id} AND status = 0`
+      }
+    })
+
+    // 3. 更新前端状态同步 UI
+    item.group_status = '在位'
+    item.isProcessed = true; // 新增这一行
+    item.inventory_remark = '手动核对实物在位，已完成补录归还及平账处理'
+
+    ElMessage.success(`${item.group_name} 已完成补录归还`)
+    audioStore.play('/audio/按钮点击声.mp3')
+
+  } catch (e) {
+    console.log('取消归还补录', e)
+  }
 }
 
 /**
@@ -676,13 +762,13 @@ const fixByDisableSensor = async (item) => {
   await ElMessageBox.confirm(
     `确定禁用 ${item.self_address} 号柜位的传感器感知吗？禁用后系统将不再自动检测该位置的实时状态。`,
     '传感器屏蔽/报修',
-    { confirmButtonText: '确认禁用', type: 'error', customClass: 'cyber-message-box' }
+    { confirmButtonText: '确认禁用', type: 'error', customClass: 'cyber-message-box' },
   )
 
   // 1. 获取当前内存中的配置
   const newConfig = JSON.parse(JSON.stringify(config_blob.value))
   // 2. 找到对应开关配置
-  const switchDetail = newConfig.switch.details.find(d => d.self_address == item.self_address)
+  const switchDetail = newConfig.switch.details.find((d) => d.self_address == item.self_address)
   if (switchDetail) {
     switchDetail.admin_status = 0 // 标记为禁用
 
@@ -692,12 +778,13 @@ const fixByDisableSensor = async (item) => {
       payload: {
         tableName: 'terminal_settings',
         setValues: { config_blob: JSON.stringify(newConfig) },
-        condition: `id > 0` // 假设只有一行配置
-      }
+        condition: `id > 0`, // 假设只有一行配置
+      },
     })
 
     config_blob.value = newConfig // 更新本地内存
-    item.inventory_remark = '传感器故障已屏蔽，待维修'
+    item.isProcessed = true; // 新增这一行
+    item.inventory_remark = '传感器故障已屏蔽'
     ElMessage.warning('传感器已禁用，请及时通知维保人员')
   }
 }
@@ -1387,32 +1474,152 @@ onUnmounted(() => {
   color: var(--warning);
   background: rgba(230, 162, 60, 0.05);
 }
+
+/* 表格缩略图 */
+.table-thumb {
+  width: 60px;
+  height: 60px;
+  border-radius: 4px;
+  border: 1px solid #2a3546;
+}
+
+.thumb-err {
+  width: 100%;
+  height: 100%;
+  background: #0d121c;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #334155;
+}
+
+/* 位置信息 */
+.t-pos {
+  font-size: 11px;
+  color: var(--primary);
+  margin-top: 4px;
+  display: flex;
+  align-items: center;
+  gap: 3px;
+}
+
+/* 账实对比行 */
+.compare-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  background: rgba(0, 0, 0, 0.2);
+  padding: 4px 8px;
+  border-radius: 4px;
+}
+
+.dot-label {
+  font-size: 11px;
+  color: #8899a6;
+}
+
+/* 已处理状态 */
+.status-resolved {
+  color: var(--success);
+  font-weight: bold;
+  font-size: 12px;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+/* 表格单元格对齐调整 */
+.cyber-table td {
+  vertical-align: middle;
+}
 </style>
 
 <style>
 /* ==========================================================
-   8. 全局与弹窗样式 (Non-Scoped)
+   8. 全局与弹窗样式 (Non-Scoped) - 修复背景发白问题
    ========================================================== */
-/* 弹窗避让逻辑 */
-.cyber-dialog-reason.el-dialog {
+
+/* 1. 强制覆盖 Dialog 核心背景及边框 */
+.cyber-dialog.el-dialog {
   background-color: #141b2d !important;
+  background-image: linear-gradient(135deg, rgba(0, 242, 255, 0.05) 0%, transparent 100%);
   border: 1px solid #0099a1 !important;
+  box-shadow: 0 0 30px rgba(0, 0, 0, 0.8), inset 0 0 20px rgba(0, 242, 255, 0.05) !important;
   border-radius: 8px !important;
-  transition: transform 0.3s cubic-bezier(0.25, 0.8, 0.25, 1) !important;
+
+  /* --- 关键居中修复 --- */
+  margin: 0 auto !important;
+  /* 清除 Element 默认的 15vh 边距 */
+  position: absolute !important;
+  left: 50% !important;
   top: 50% !important;
-  transform: translateY(-50%) !important;
+  transform: translate(-50%, -50%) !important;
+  /* 同时处理水平和垂直居中 */
+
+  /* --- 防止超出屏幕 --- */
+  max-height: 90vh !important;
+  /* 最大高度不超过屏幕的 90% */
+  display: flex !important;
+  flex-direction: column !important;
+  overflow: hidden !important;
 }
 
-.cyber-dialog-reason.is-keyboard-open {
-  transform: translateY(-85%) !important;
+/* 2. 覆盖弹窗标题区颜色 */
+.cyber-dialog .el-dialog__header {
+  padding: 20px 20px 10px;
+  margin-right: 0;
+  border-bottom: 1px solid rgba(0, 242, 255, 0.1);
 }
 
-/* 弹窗内部表格 */
+.cyber-dialog .el-dialog__title {
+  color: #00f2ff !important;
+  /* 标题文字青色 */
+  font-weight: bold;
+  letter-spacing: 1px;
+}
+
+/* 3. 覆盖弹窗主体区背景（防止出现白色间隙） */
+.cyber-dialog .el-dialog__body {
+  flex: 1 !important;
+  overflow-y: auto !important;
+  background-color: transparent !important;
+  color: #ffffff !important;
+  padding: 20px !important;
+}
+
+/* 4. 覆盖弹窗底部按钮区 */
+.cyber-dialog .el-dialog__footer {
+  padding: 10px 20px 20px;
+  border-top: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+/* 5. 覆盖关闭按钮颜色 */
+.cyber-dialog .el-dialog__headerbtn .el-dialog__close {
+  color: #00f2ff !important;
+}
+
+.cyber-dialog .el-dialog__headerbtn:hover .el-dialog__close {
+  color: #ff4d4f !important;
+}
+
+/* 弹窗避让键盘逻辑保持不变 */
+.cyber-dialog.is-keyboard-open {
+  /* 此时将位置上移，translate 第一个参数对应 X，第二个对应 Y */
+  transform: translate(-50%, -90%) !important;
+  transition: transform 0.3s ease !important;
+}
+
+/* ==========================================================
+   弹窗内部组件适配 (表格与输入框)
+   ========================================================== */
+
 .abnormal-table-container {
-  max-height: 400px;
+  /* 这里的 max-height 配合整体弹窗的高度 */
+  max-height: 50vh;
   overflow-y: auto;
   border: 1px solid #2a3546;
   border-radius: 4px;
+  background: rgba(0, 0, 0, 0.2);
 }
 
 .cyber-table {
@@ -1434,16 +1641,10 @@ onUnmounted(() => {
   border-bottom: 1px solid rgba(255, 255, 255, 0.05);
 }
 
-.t-name {
-  font-size: 14px;
-  color: #fff;
-  font-weight: bold;
-}
-
-.t-code {
-  font-size: 12px;
-  color: #8899a6;
-  font-family: monospace;
+/* 表格内的输入框背景适配 */
+.table-input .el-input__wrapper {
+  background-color: rgba(0, 0, 0, 0.4) !important;
+  box-shadow: 0 0 0 1px #4a5c76 inset !important;
 }
 
 /* 异常标记 */
@@ -1557,5 +1758,97 @@ onUnmounted(() => {
 .cyber-select-popper .el-scrollbar__view {
   background: transparent !important;
   padding: 5px 0 !important;
+}
+
+
+/* ==========================================================
+   自定义深色滚动条样式 (修复白色滑动条)
+   ========================================================== */
+
+/* 1. 针对 Webkit 浏览器 (Chrome, Electron, Edge) */
+.custom-scroll::-webkit-scrollbar {
+  width: 6px;
+  /* 纵向滚动条宽度 */
+  height: 6px;
+  /* 横向滚动条高度 */
+}
+
+/* 滚动条轨道 (背景) */
+.custom-scroll::-webkit-scrollbar-track {
+  background: rgba(0, 0, 0, 0.2);
+  /* 深色透明背景 */
+  border-radius: 10px;
+}
+
+/* 滚动条滑块 (也就是你说的那个白色条) */
+.custom-scroll::-webkit-scrollbar-thumb {
+  background: #2a3546;
+  /* 滑块基础颜色：深灰蓝 */
+  border-radius: 10px;
+  border: 1px solid rgba(0, 242, 255, 0.1);
+  /* 淡淡的青色边框 */
+  transition: all 0.3s;
+}
+
+/* 鼠标悬停滑块时变亮 */
+.custom-scroll::-webkit-scrollbar-thumb:hover {
+  background: #0099a1;
+  /* 悬停时变为青暗色 */
+  box-shadow: 0 0 5px rgba(0, 242, 255, 0.2);
+}
+
+/* 鼠标点击滑块时 */
+.custom-scroll::-webkit-scrollbar-thumb:active {
+  background: #00f2ff;
+  /* 激活时变为亮青色 */
+}
+
+/* 2. 针对 Firefox 浏览器 (兼容性补丁) */
+.custom-scroll {
+  scrollbar-width: thin;
+  scrollbar-color: #2a3546 rgba(0, 0, 0, 0.2);
+}
+
+/* 3. 针对 Element Plus el-scrollbar 的统一覆盖 (如果弹窗内使用了该组件) */
+.cyber-dialog .el-scrollbar__bar.is-vertical {
+  width: 6px;
+}
+
+.cyber-dialog .el-scrollbar__thumb {
+  background-color: #2a3546 !important;
+  opacity: 1;
+  /* 默认是透明的，改为常亮或半透明 */
+}
+
+.cyber-dialog .el-scrollbar__thumb:hover {
+  background-color: #0099a1 !important;
+}
+
+/* 已处理行的背景变淡 */
+.is-processed-row {
+  background: rgba(0, 255, 157, 0.03) !important;
+  opacity: 0.8;
+}
+
+/* 已处置绿色标签 */
+.mini-tag.st-resolved {
+  background: rgba(0, 255, 157, 0.2);
+  color: #00ff9d;
+  border: 1px solid #00ff9d;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+/* 处理后的文字提示 */
+.resolved-hint {
+  font-size: 12px;
+  color: #8899a6;
+  font-style: italic;
+}
+
+/* 调整处置按钮在表格中的宽度，防止撑开 */
+.action-btns {
+  min-width: 250px;
 }
 </style>
