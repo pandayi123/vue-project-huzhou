@@ -2211,14 +2211,19 @@ onUnmounted(async () => {
 }
 
 /* 2. 覆盖 el-dialog 默认的白色背景和边框，并【强制垂直居中】 */
+/* 2. 覆盖 el-dialog 默认的白色背景和边框，并【强制垂直居中 + 水平居中】 */
 .cyber-dialog.el-dialog {
   background-color: var(--card-bg) !important;
   border: 1px solid var(--primary-dark) !important;
   box-shadow: 0 0 20px rgba(0, 0, 0, 0.8) !important;
   border-radius: 8px !important;
-  margin-top: 0 !important;
-  top: 50%;
-  transform: translateY(-50%);
+
+  /* --- 修复居中逻辑 --- */
+  margin: 0 auto !important;
+  left: 50% !important;
+  top: 50% !important;
+  transform: translate(-50%, -50%) !important; /* 同时锁定 X 和 Y */
+  position: absolute !important;
 }
 
 /* 3. 弹窗头部样式 */
@@ -3861,23 +3866,21 @@ onUnmounted(async () => {
   border: 1px solid #0099a1 !important;
   box-shadow: 0 0 20px rgba(0, 0, 0, 0.8) !important;
   border-radius: 8px !important;
-  transition:
-    transform 0.3s cubic-bezier(0.25, 0.8, 0.25, 1),
-    top 0.3s !important;
+  transition: transform 0.3s cubic-bezier(0.25, 0.8, 0.25, 1), top 0.3s !important;
+
+  /* --- 修复居中 --- */
+  left: 50% !important;
   top: 0 !important;
-  /* 将起点固定在屏幕最顶端 */
-  /* 初始居中状态 */
   margin-top: 0 !important;
-  transform: translateY(calc(50vh - 50%)) !important;
+  /* 水平居中 X(-50%)，垂直居中 Y */
+  transform: translate(-50%, calc(50vh - 50%)) !important;
 }
 
-/* 3. 键盘打开时上移（关键） */
+/* 3. 键盘打开时上移（同时保持水平居中） */
 .cyber-dialog-reason.is-keyboard-open {
-  /*
-     直接修改偏移量：
-     将其设为一个较小的值（如 20px），弹窗就会平滑地滑向顶部
-  */
-  transform: translateY(3px) !important;
+  /* 保持 X 轴 -50%，只修改 Y 轴 */
+  transform: translate(-50%, 3px) !important;
+  transition: transform 0.3s ease !important;
 }
 
 /* 针对 el-select 内部样式的微调 */
