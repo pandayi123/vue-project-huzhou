@@ -333,6 +333,147 @@
       </div>
       <!-- Footer 保持不变 -->
     </el-dialog>
+
+    <!-- ================= 装备档案详情弹窗 (新增) ================= -->
+    <el-dialog v-model="detailVisible" width="1100px" class="cyber-dialog detail-dialog" :show-close="true">
+      <template #header>
+        <div class="detail-header">
+          <div class="header-title-wrapper">
+            <span class="main-title">{{ selectedDetail?.group_name }}</span>
+            <span class="sub-code">{{ selectedDetail?.group_code }}</span>
+          </div>
+          <div class="header-tags">
+            <span class="detail-tag" :class="getDetailedStatus(selectedDetail).class">
+              {{ getDetailedStatus(selectedDetail).text }}
+            </span>
+          </div>
+        </div>
+      </template>
+
+      <div class="detail-container custom-scroll">
+        <!-- 第一行：基础展示区 -->
+        <div class="detail-row top-row">
+          <!-- 左侧：装备实照与物理状态 -->
+          <div class="detail-left-col">
+            <div class="image-box">
+              <el-image :src="selectedDetail?.group_image" fit="contain"
+                :preview-src-list="[selectedDetail?.group_image]">
+                <!-- 新增：加载中的占位图 -->
+                <template #placeholder>
+                  <div class="img-loading-placeholder">
+                    <el-icon class="is-loading" :size="30">
+                      <Loading />
+                    </el-icon>
+                    <span>加载中...</span>
+                  </div>
+                </template>
+                <template #error>
+                  <div class="img-err"><el-icon :size="40">
+                      <Picture />
+                    </el-icon><span>暂无实照</span></div>
+                </template>
+              </el-image>
+              <div class="image-label">装备主视图</div>
+            </div>
+            <div class="live-monitor-panel">
+              <div class="panel-title"><el-icon>
+                  <Monitor />
+                </el-icon> 实时感知信号</div>
+              <div class="monitor-grid">
+                <div class="m-item">
+                  <span class="m-label">柜位编号</span>
+                  <span class="m-val">{{ selectedDetail?.self_address }}号位</span>
+                </div>
+                <div class="m-item">
+                  <span class="m-label">物理感应</span>
+                  <span class="m-val" :class="getActualStatus(selectedDetail) === '在位' ? 'text-success' : 'text-error'">
+                    {{ getActualStatus(selectedDetail) }}
+                  </span>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- 右侧：核心账面参数 -->
+          <div class="detail-right-col">
+            <div class="info-group">
+              <!-- 标题已修改为 装备详情 -->
+              <div class="group-title">基本信息</div>
+              <div class="info-grid">
+                <!-- 新增：装备名称 -->
+                <div class="grid-cell">
+                  <span class="label">装备名称</span>
+                  <span class="val">{{ selectedDetail?.group_name || '--' }}</span>
+                </div>
+                <!-- 新增：装备编号 -->
+                <div class="grid-cell">
+                  <span class="label">装备编号</span>
+                  <span class="val">{{ selectedDetail?.group_code || '--' }}</span>
+                </div>
+                <!-- 原有：装备类型 -->
+                <div class="grid-cell">
+                  <span class="label">装备类型</span>
+                  <span class="val">{{ selectedDetail?.group_type || '--' }}</span>
+                </div>
+                <!-- 原有：配发时间 -->
+                <div class="grid-cell">
+                  <span class="label">配发时间</span>
+                  <span class="val">{{ selectedDetail?.group_distribution_time || '--' }}</span>
+                </div>
+                <!-- 原有：芯片数量 -->
+                <div class="grid-cell">
+                  <span class="label">芯片数量</span>
+                  <span class="val">{{ selectedDetail?.group_chip_count }} 枚</span>
+                </div>
+                 <!-- 原有：芯片数量 -->
+                <div class="grid-cell">
+                  <span class="label">柜位编号</span>
+                  <span class="val">{{ selectedDetail?.self_address }}号柜位</span>
+                </div>
+
+              </div>
+            </div>
+
+            <div class="info-group remark-group">
+              <div class="group-title">装备参数</div>
+              <div class="remark-content">{{ selectedDetail?.group_remark || '暂无详细描述参数' }}</div>
+            </div>
+          </div>
+        </div>
+
+        <!-- 第二行：芯片清单 (Chip List) -->
+        <div class="detail-row chip-row">
+          <div class="group-title">绑定的芯片详情 ({{ parsedChips.length }} 枚)</div>
+          <div class="chip-cards-container">
+            <div v-for="(chip, index) in parsedChips" :key="index" class="chip-detail-card">
+              <div class="chip-card-header">
+                <span class="chip-idx">#{{ index + 1 }}</span>
+                <span class="chip-code">{{ chip.chip_code }}</span>
+              </div>
+              <div class="chip-card-body">
+                <div class="chip-info-line"><span class="l">名称:</span><span class="v">{{ chip.chip_name || '未命名'
+                }}</span>
+                </div>
+                <div class="chip-info-line"><span class="l">类型:</span><span class="v">{{ chip.chip_type || '--'
+                }}</span>
+                </div>
+                <div class="chip-img-strip">
+                  <el-image v-for="(img, i) in chip.chip_image" :key="i" :src="img" class="mini-chip-img"
+                    :preview-src-list="chip.chip_image" :initial-index="i" />
+                  <div v-if="!chip.chip_image?.length" class="no-img">无芯片照片</div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <template #footer>
+        <div class="detail-footer">
+          <button class="footer-btn confirm" @click="detailVisible = false">关闭详情</button>
+        </div>
+      </template>
+    </el-dialog>
   </div>
 </template>
 
@@ -391,10 +532,11 @@ const uniqueNameOptions = computed(() => {
   return ['ALL', ...uniqueNames]
 })
 
-// --- 2. 定义选中处理函数 ---
+// 3. 修改之前的 handleSelectCard 函数
 const handleSelectCard = (item) => {
   selectedId.value = item.id
-  // 播放一个清脆的点按音效
+  selectedDetail.value = item // 记录当前详情
+  detailVisible.value = true  // 弹出详情
   audioStore.play('/audio/按钮点击声.mp3')
 }
 
@@ -593,6 +735,21 @@ const isItemAbnormal = (item) => {
   const shouldBeStatus = actual === '在位' ? '在位' : '已取出'
   return item.group_status !== shouldBeStatus
 }
+
+// 1. 定义新变量
+const detailVisible = ref(false)
+const selectedDetail = ref(null)
+
+// 2. 解析芯片列表的计算属性
+const parsedChips = computed(() => {
+  if (!selectedDetail.value?.chip_list) return []
+  try {
+    const list = selectedDetail.value.chip_list
+    return typeof list === 'string' ? JSON.parse(list) : list
+  } catch {
+    return []
+  }
+})
 
 // 统计逻辑修正
 const stats = computed(() => {
@@ -1006,7 +1163,7 @@ onUnmounted(() => {
 }
 
 .select-wrapper {
-  width: 200px;
+  width: 160px;
 }
 
 .title-right-actions {
@@ -1397,14 +1554,16 @@ onUnmounted(() => {
   height: 8px;
   border-radius: 50%;
   display: inline-block;
-  background: #4a5c76; /* 默认灰色 */
+  background: #4a5c76;
+  /* 默认灰色 */
   margin-right: 8px;
   vertical-align: middle;
 }
 
 /* 正常借出行的文字颜色 (统一为青蓝色) */
 .info-text {
-  color: #00c2cc; /* 采用比 tag-normal-out 稍微亮一点的颜色，保证文字清晰 */
+  color: #00c2cc;
+  /* 采用比 tag-normal-out 稍微亮一点的颜色，保证文字清晰 */
   font-weight: bold;
 }
 
@@ -1672,11 +1831,357 @@ onUnmounted(() => {
   background: rgba(0, 255, 157, 0.9);
   color: #000;
 }
+
+/* ================= 详情弹窗专项样式 ================= */
+
+/* 头部样式 */
+.detail-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  width: 100%;
+}
+
+.header-title-wrapper {
+  display: flex;
+  flex-direction: column;
+}
+
+.header-title-wrapper .main-title {
+  font-size: 20px;
+  color: var(--primary);
+  font-weight: bold;
+}
+
+.header-title-wrapper .sub-code {
+  font-size: 13px;
+  color: var(--text-sec);
+  font-family: monospace;
+}
+
+/* 内容区域 */
+.detail-container {
+  max-height: 70vh;
+  padding-right: 10px;
+}
+
+.detail-row {
+  margin-bottom: 25px;
+}
+
+.top-row {
+  display: flex;
+  gap: 20px;
+}
+
+/* 左列：影像与监控 */
+.detail-left-col {
+  flex: 0 0 320px;
+}
+
+.image-box {
+  width: 100%;
+  height: 240px;
+  background: #000;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  overflow: hidden;
+  position: relative;
+}
+
+.image-label {
+  position: absolute;
+  bottom: 0;
+  width: 100%;
+  background: rgba(0, 0, 0, 0.6);
+  color: var(--text-sec);
+  text-align: center;
+  font-size: 11px;
+  padding: 4px 0;
+}
+
+.live-monitor-panel {
+  margin-top: 15px;
+  background: rgba(0, 242, 255, 0.05);
+  border: 1px solid var(--primary-dark);
+  border-radius: 6px;
+  padding: 12px;
+}
+
+.panel-title {
+  font-size: 13px;
+  color: var(--primary);
+  font-weight: bold;
+  margin-bottom: 10px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.monitor-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+}
+
+.m-item {
+  display: flex;
+  flex-direction: column;
+}
+
+.m-label {
+  font-size: 11px;
+  color: var(--text-sec);
+}
+
+.m-val {
+  font-size: 15px;
+  font-weight: bold;
+  margin-top: 3px;
+}
+
+/* 右列：参数展示 */
+.detail-right-col {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 15px;
+}
+
+.group-title {
+  font-size: 14px;
+  color: var(--primary);
+  border-left: 3px solid var(--primary);
+  padding-left: 10px;
+  margin-bottom: 12px;
+  font-weight: bold;
+}
+
+.info-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 1px;
+  background: var(--border);
+  border: 1px solid var(--border);
+}
+
+.grid-cell {
+  background: var(--card-bg);
+  padding: 12px;
+  display: flex;
+  justify-content: space-between;
+}
+
+.grid-cell .label {
+  color: var(--text-sec);
+  font-size: 13px;
+}
+
+/* 优化：如果装备名称或编号过长，防止挤压 */
+.grid-cell .val {
+  color: #fff;
+  font-size: 13px;
+  font-weight: bold;
+  margin-left: 10px;
+  text-align: right;
+  word-break: break-all; /* 允许长编号换行 */
+}
+
+.remark-group {
+  flex: 1;
+  background: rgba(0, 0, 0, 0.2);
+  padding: 15px;
+  border-radius: 6px;
+}
+
+.remark-content {
+  font-size: 13px;
+  line-height: 1.6;
+  color: #cdd9e5;
+  white-space: pre-wrap;
+  /* 关键：保留换行 */
+}
+
+/* 芯片清单样式 */
+.chip-cards-container {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 12px;
+}
+
+.chip-detail-card {
+  background: #1c2538;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  overflow: hidden;
+}
+
+.chip-card-header {
+  background: rgba(255, 255, 255, 0.05);
+  padding: 6px 10px;
+  display: flex;
+  justify-content: space-between;
+  border-bottom: 1px solid var(--border);
+}
+
+.chip-idx {
+  color: var(--primary);
+  font-weight: bold;
+  font-size: 12px;
+}
+
+.chip-code {
+  font-size: 11px;
+  color: var(--text-sec);
+  font-family: monospace;
+}
+
+.chip-card-body {
+  padding: 10px;
+}
+
+.chip-info-line {
+  font-size: 12px;
+  margin-bottom: 4px;
+  display: flex;
+  gap: 8px;
+}
+
+.chip-info-line .l {
+  color: var(--text-sec);
+}
+
+.chip-img-strip {
+  display: flex;
+  gap: 6px;
+  margin-top: 10px;
+  overflow-x: auto;
+  padding-bottom: 5px;
+}
+
+.mini-chip-img {
+  width: 50px;
+  height: 50px;
+  border-radius: 4px;
+  border: 1px solid var(--border);
+  flex-shrink: 0;
+}
+
+.no-img {
+  font-size: 10px;
+  color: #444;
+}
+
+.text-success {
+  color: var(--success);
+}
+
+.text-error {
+  color: var(--error);
+}
+
+/* 找到 .img-err 并修改为以下内容 */
+.img-err {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  background: #0d121c;
+  /* 统一使用最深色 */
+  color: #334155;
+  gap: 10px;
+}
+
+/* 确保 el-image 撑满父容器，否则居中参照物不对 */
+.image-box :deep(.el-image) {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+/* 如果你想让文字也带点发光感（可选） */
+.img-err span {
+  font-size: 14px;
+  letter-spacing: 1px;
+}
+
+/* 1. 强制 el-image 及其内部所有容器背景为深色 */
+.image-box :deep(.el-image) {
+  width: 100%;
+  height: 100%;
+  background-color: #0d121c !important;
+  /* 核心：防止白光闪烁 */
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+/* 2. 针对 el-image 内部图片容器的背景也进行覆盖 */
+.image-box :deep(.el-image__wrapper),
+.image-box :deep(.el-image__placeholder),
+.image-box :deep(.el-image__error) {
+  background-color: #0d121c !important;
+}
+
+/* 3. 加载中占位符样式 (仿赛博风格) */
+.img-loading-placeholder {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  background: #0d121c;
+  color: var(--primary);
+  /* 青色文字 */
+  gap: 12px;
+}
+
+/* 让加载图标转起来 */
+.img-loading-placeholder .is-loading {
+  animation: rotating 2s linear infinite;
+  filter: drop-shadow(0 0 5px var(--primary));
+}
+
+.img-loading-placeholder span {
+  font-size: 13px;
+  letter-spacing: 1px;
+  opacity: 0.8;
+}
+
+/* 4. 图片加载后的淡入效果（可选，能让过渡更平滑） */
+.image-box :deep(.el-image__inner) {
+  animation: fadeIn 0.4s ease-in-out;
+}
+
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+  }
+
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes rotating {
+  from {
+    transform: rotate(0deg);
+  }
+
+  to {
+    transform: rotate(360deg);
+  }
+}
 </style>
 
 <style>
 /* ==========================================================
-   8. 全局与弹窗样式 (Non-Scoped) - 修复背景发白问题
+   8. 全局与弹窗样式 (Non-Scoped) - 终极修复滚动条
    ========================================================== */
 
 /* 1. 强制覆盖 Dialog 核心背景及边框 */
@@ -1684,79 +2189,86 @@ onUnmounted(() => {
   background-color: #141b2d !important;
   background-image: linear-gradient(135deg, rgba(0, 242, 255, 0.05) 0%, transparent 100%);
   border: 1px solid #0099a1 !important;
-  box-shadow:
-    0 0 30px rgba(0, 0, 0, 0.8),
-    inset 0 0 20px rgba(0, 242, 255, 0.05) !important;
+  box-shadow: 0 0 30px rgba(0, 0, 0, 0.8), inset 0 0 20px rgba(0, 242, 255, 0.05) !important;
   border-radius: 8px !important;
-
-  /* --- 关键居中修复 --- */
   margin: 0 auto !important;
-  /* 清除 Element 默认的 15vh 边距 */
   position: absolute !important;
   left: 50% !important;
   top: 50% !important;
   transform: translate(-50%, -50%) !important;
-  /* 同时处理水平和垂直居中 */
-
-  /* --- 防止超出屏幕 --- */
   max-height: 90vh !important;
-  /* 最大高度不超过屏幕的 90% */
   display: flex !important;
   flex-direction: column !important;
   overflow: hidden !important;
 }
 
-/* 2. 覆盖弹窗标题区颜色 */
 .cyber-dialog .el-dialog__header {
   padding: 20px 20px 10px;
-  margin-right: 0;
   border-bottom: 1px solid rgba(0, 242, 255, 0.1);
 }
 
 .cyber-dialog .el-dialog__title {
   color: #00f2ff !important;
-  /* 标题文字青色 */
   font-weight: bold;
   letter-spacing: 1px;
 }
 
-/* 3. 覆盖弹窗主体区背景（防止出现白色间隙） */
+/* 2. 弹窗主体区 - 统一滚动条风格 */
 .cyber-dialog .el-dialog__body {
   flex: 1 !important;
   overflow-y: auto !important;
+  /* 这里会产生滚动条 */
   background-color: transparent !important;
   color: #ffffff !important;
   padding: 20px !important;
 }
 
-/* 4. 覆盖弹窗底部按钮区 */
+/* === 核心修复：针对弹窗 Body 和内部 custom-scroll 统一滚动条样式 === */
+.cyber-dialog .el-dialog__body::-webkit-scrollbar,
+.custom-scroll::-webkit-scrollbar {
+  width: 6px !important;
+  height: 6px !important;
+}
+
+.cyber-dialog .el-dialog__body::-webkit-scrollbar-track,
+.custom-scroll::-webkit-scrollbar-track {
+  background: rgba(0, 0, 0, 0.2) !important;
+  border-radius: 10px !important;
+}
+
+.cyber-dialog .el-dialog__body::-webkit-scrollbar-thumb,
+.custom-scroll::-webkit-scrollbar-thumb {
+  background: #2a3546 !important;
+  /* 深灰蓝滑块 */
+  border-radius: 10px !important;
+  border: 1px solid rgba(0, 242, 255, 0.1) !important;
+}
+
+.cyber-dialog .el-dialog__body::-webkit-scrollbar-thumb:hover,
+.custom-scroll::-webkit-scrollbar-thumb:hover {
+  background: #0099a1 !important;
+  /* 悬停变青色 */
+}
+
+/* 适配 Firefox */
+.cyber-dialog .el-dialog__body,
+.custom-scroll {
+  scrollbar-width: thin !important;
+  scrollbar-color: #2a3546 rgba(0, 0, 0, 0.2) !important;
+}
+
+/* 3. 其他弹窗组件适配 */
 .cyber-dialog .el-dialog__footer {
   padding: 10px 20px 20px;
   border-top: 1px solid rgba(255, 255, 255, 0.05);
 }
 
-/* 5. 覆盖关闭按钮颜色 */
 .cyber-dialog .el-dialog__headerbtn .el-dialog__close {
   color: #00f2ff !important;
 }
 
-.cyber-dialog .el-dialog__headerbtn:hover .el-dialog__close {
-  color: #ff4d4f !important;
-}
-
-/* 弹窗避让键盘逻辑保持不变 */
-.cyber-dialog.is-keyboard-open {
-  /* 此时将位置上移，translate 第一个参数对应 X，第二个对应 Y */
-  transform: translate(-50%, -90%) !important;
-  transition: transform 0.3s ease !important;
-}
-
-/* ==========================================================
-   弹窗内部组件适配 (表格与输入框)
-   ========================================================== */
-
+/* 快捷处置表格容器（保持原有改好的部分） */
 .abnormal-table-container {
-  /* 这里的 max-height 配合整体弹窗的高度 */
   max-height: 50vh;
   overflow-y: auto;
   border: 1px solid #2a3546;
