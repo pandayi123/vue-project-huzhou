@@ -184,6 +184,13 @@
               <span class="a-label"><i class="dot warning"></i> 异常占用 (实在账不在)</span>
               <span class="a-value">{{ stats.unregistered }} 件</span>
             </div>
+            <div class="analysis-row warning-text" v-if="stats.unmonitored > 0">
+              <span class="a-label">
+                <i class="dot warning blink"></i>
+                人工授信 (当前不受监控)
+              </span>
+              <span class="a-value">{{ stats.unmonitored }} 件</span>
+            </div>
           </div>
 
           <div class="flex-spacer">
@@ -233,7 +240,9 @@
               </tr>
             </thead>
             <tbody>
-              <tr v-for="item in abnormalItems" :key="item.id" :class="{ 'is-processed-row': item.isProcessed }">
+              <!-- 修改 <tr> 的 class -->
+              <tr v-for="item in abnormalItems" :key="item.id"
+                :class="{ 'is-processed-row': item.manualVerified || (item.isProcessed && !isAdminDisabled(item)) }">
                 <!-- 1. 装备实照 -->
                 <td>
                   <el-image :src="item.group_image" class="table-thumb" :preview-src-list="[item.group_image]"
@@ -282,12 +291,20 @@
 
                 <!-- 4. 异常类型 -->
                 <td>
-                  <span v-if="item.isProcessed" class="status-resolved">
+                  <!-- 只有真正核实了实物（补录或人工核实），才显示绿色已处置 -->
+                  <span v-if="item.manualVerified || (item.isProcessed && !isAdminDisabled(item))"
+                    class="status-resolved">
                     <el-icon>
                       <Check />
-                    </el-icon>
-                    已处置
+                    </el-icon> 已核实
                   </span>
+
+                  <!-- 如果只是屏蔽了传感，还没核实实物，显示橙色状态 -->
+                  <span v-else-if="isAdminDisabled(item)" class="mini-tag st-unreg">
+                    传感屏蔽/待核
+                  </span>
+
+                  <!-- 初始异常状态 -->
                   <span v-else class="mini-tag" :class="getAbnormalType(item).class">
                     {{ getAbnormalType(item).text }}
                   </span>
@@ -296,16 +313,40 @@
                 <!-- 5. 快速处置按钮 -->
                 <td>
                   <div class="action-btns">
-                    <!-- 场景1：如果已处置 -->
-                    <span v-if="item.isProcessed" class="status-resolved">
+                    <!-- 场景1：已经完成了实物核实 (肉眼看过或数据补录平账) -->
+                    <span v-if="item.manualVerified" class="status-resolved">
                       <el-icon>
                         <Check />
                       </el-icon>
-                      {{ isAdminDisabled(item) ? '人工已核' : '数据已平' }}
+                      人工已核
                     </span>
 
-                    <!-- 场景2：未处置 - 正常感应模式 -->
-                    <template v-else-if="!isAdminDisabled(item)">
+                    <!-- 场景2：补录操作完成 (数据已平) -->
+                    <span v-else-if="item.isProcessed && !isAdminDisabled(item)" class="status-resolved">
+                      <el-icon>
+                        <Check />
+                      </el-icon>
+                      数据已平
+                    </span>
+
+                    <!-- 场景3：传感器已屏蔽，但【尚未】肉眼核实实物 -->
+                    <template v-else-if="isAdminDisabled(item)">
+                      <div class="disposal-step-group">
+                        <span class="mini-tag st-disabled">传感已屏蔽</span>
+                        <button class="mini-action-btn success" @click="handleManualVerify(item)">
+                          <el-icon>
+                            <CircleCheck />
+                          </el-icon>
+                          肉眼核实
+                        </button>
+                        <button class="mini-action-btn" @click="handleEnableSensor(item)">
+                          恢复感应
+                        </button>
+                      </div>
+                    </template>
+
+                    <!-- 场景4：初始异常状态 (未做任何处置) -->
+                    <template v-else>
                       <button v-if="item.group_status === '在位'" class="mini-action-btn" @click="fixByBorrow(item)">
                         补录领用
                       </button>
@@ -315,22 +356,6 @@
                       </button>
                       <button class="mini-action-btn warning" @click="fixByDisableSensor(item)">
                         屏蔽传感
-                      </button>
-                    </template>
-
-                    <!-- 场景3：未处置 - 报修/人工模式 -->
-                    <template v-else>
-                      <button class="mini-action-btn success" @click="handleManualVerify(item)">
-                        <el-icon>
-                          <CircleCheck />
-                        </el-icon>
-                        肉眼核实
-                      </button>
-                      <button class="mini-action-btn" @click="handleEnableSensor(item)">
-                        <el-icon>
-                          <Refresh />
-                        </el-icon>
-                        恢复感应
                       </button>
                     </template>
                   </div>
@@ -689,31 +714,55 @@ const getRealData = async () => {
   }
 }
 
-// 新增：获取详细盘点结论
-const getDetailedStatus = (item) => {
+// 修改判定函数：细化状态分类
+const getAssessmentResult = (item) => {
   const actual = getActualStatus(item)
-  const system = item.group_status
+  if (actual === '检测中') return 'LOADING'
+
   const isDisabled = isAdminDisabled(item)
 
-  if (actual === '检测中') return { text: '检测中...', class: 'tag-loading' }
-
-  // 报修逻辑
-  if (isDisabled) {
-    return item.manualVerified
-      ? { text: '报修/人工已核', class: 'tag-maintenance-ok' }
-      : { text: '报修/待人核', class: 'tag-maintenance-pending' }
+  // 场景 A：传感器正常开启
+  if (!isDisabled) {
+    const shouldBeStatus = actual === '在位' ? '在位' : '已取出'
+    return item.group_status === shouldBeStatus ? 'HEALTHY' : 'MISMATCH'
   }
 
-  // 正常/异常逻辑
-  if (!isItemAbnormal(item)) {
-    return system === '在位'
-      ? { text: '正常在位', class: 'tag-normal-in' }
-      : { text: '正常借出', class: 'tag-normal-out' }
+  // 场景 B：传感器已禁用
+  else {
+    // 如果还没人工核实 -> 属于“待办异常”
+    if (!item.manualVerified) return 'SENSOR_FAULT'
+    // 如果已人工核实 -> 属于“人工授信/脱离监管” (这就是安全盲区)
+    return 'UNMONITORED'
   }
+}
 
-  return system === '在位'
-    ? { text: '异常离位', class: 'tag-error-missing' }
-    : { text: '异常占用', class: 'tag-error-occupied' }
+// 修正后的异常判断（用于拦截“确认结果”按钮）
+const isItemAbnormal = (item) => {
+  const result = getAssessmentResult(item)
+  // 1. 账实不符项 (MISMATCH)
+  // 2. 传感器坏了且管理员还没肉眼核实过 (SENSOR_FAULT)
+  // 这两种情况都必须停留在“异常/待处置”列表中
+  return result === 'MISMATCH' || result === 'SENSOR_FAULT'
+}
+
+// 新增：获取详细盘点结论
+const getDetailedStatus = (item) => {
+  const result = getAssessmentResult(item)
+
+  if (result === 'LOADING') return { text: '检测中...', class: 'tag-loading' }
+  if (result === 'MISMATCH') {
+    return item.group_status === '在位'
+      ? { text: '异常离位', class: 'tag-error-missing' }
+      : { text: '异常占用', class: 'tag-error-occupied' }
+  }
+  if (result === 'SENSOR_FAULT') return { text: '传感屏蔽/待核', class: 'tag-maintenance-pending' }
+
+  // 关键修改：人工核实后的视觉表现
+  if (result === 'UNMONITORED') return { text: '人工授信/非受控', class: 'tag-unmonitored' }
+
+  return item.group_status === '在位'
+    ? { text: '正常在位', class: 'tag-normal-in' }
+    : { text: '正常借出', class: 'tag-normal-out' }
 }
 
 // --- 2. 硬件感知轮询 ---
@@ -756,27 +805,25 @@ const handleManualVerify = (item) => {
 /**
  * 处置方案：开启/恢复传感器
  */
-/**
- * 处置方案：开启/恢复传感器
- */
 const handleEnableSensor = async (item) => {
   try {
-    // 【修改点】：添加了第三个参数对象，传入 customClass
     await ElMessageBox.confirm(
-      `确定要恢复 ${item.self_address} 号柜位的传感器感知吗？`,
+      `确定要恢复 ${item.self_address} 号柜位的传感器感知吗？恢复后将以传感器实时监测为准。`,
       '恢复确认',
       {
         confirmButtonText: '确定恢复',
         cancelButtonText: '取消',
         type: 'warning',
-        customClass: 'cyber-message-box' // 必须加上这一行，样式才会生效
-      }
+        customClass: 'cyber-message-box',
+      },
     )
 
     const newConfig = JSON.parse(JSON.stringify(config_blob.value))
     const switchDetail = newConfig.switch.details.find((d) => d.self_address == item.self_address)
+
     if (switchDetail) {
-      switchDetail.admin_status = 1 // 开启
+      switchDetail.admin_status = 1 // 开启硬件感知
+
       await window.electronAPI.el_post({
         action: 'update',
         payload: {
@@ -785,12 +832,22 @@ const handleEnableSensor = async (item) => {
           condition: `id > 0`,
         },
       })
+
+      // --- 关键修复代码 ---
       config_blob.value = newConfig
-      item.manualVerified = false // 恢复后重置人工状态
-      ElMessage.success('传感器感应已恢复')
+
+      // 重置所有处置状态，让系统重新计算该项是否异常
+      item.manualVerified = false; // 清除人工核实标记
+      item.isProcessed = false;    // 清除已处置标记（重要！）
+      item.inventory_remark = '';  // 可选：清除备注
+      // ------------------
+
+      ElMessage.success('传感器感应已恢复，系统将重新实时判定状态')
+
+      // 如果恢复后账实相符，abnormalItems 计算属性会自动将其从弹窗列表中移除
     }
-  } catch {
-    console.log('用户取消了恢复')
+  } catch (e) {
+    console.log('用户取消了恢复', e)
   }
 }
 const lastMismatchCount = ref(-1) // 记录上一次的异常数量，初始为-1用于识别初次加载
@@ -841,23 +898,6 @@ const getActualStatus = (item) => {
   return status === 1 ? '在位' : '不在位'
 }
 
-// 修改后的判定函数：决定该项是否需要出现在“待处置”列表中
-const isItemAbnormal = (item) => {
-  const actual = getActualStatus(item)
-  if (actual === '检测中') return false
-
-  const isDisabled = isAdminDisabled(item) // 封装一下判断逻辑
-
-  if (!isDisabled) {
-    // 【自动模式】：感应必须对上账面
-    const shouldBeStatus = actual === '在位' ? '在位' : '已取出'
-    return item.group_status !== shouldBeStatus
-  } else {
-    // 【人工模式】：如果传感器禁用了，且还没点“人工核实”，它就属于“异常/待办”
-    return !item.manualVerified
-  }
-}
-
 // 新增辅助：判断开关是否被禁用
 const isAdminDisabled = (item) => {
   const detail = config_blob.value?.switch?.details?.find(
@@ -881,24 +921,48 @@ const parsedChips = computed(() => {
   }
 })
 
-// 统计逻辑修正
+// 统计逻辑修正版：彻底区分“账实相符”与“人工授信风险”
 const stats = computed(() => {
-  const list = equipmentList.value
-  // 1. 真正的感应异常（开关开启但账实不符）
-  const sensorErrorList = list.filter((i) => !isAdminDisabled(i) && isItemAbnormal(i))
-  // 2. 待人工核实项（开关禁用且未核实）
-  const pendingManualList = list.filter((i) => isAdminDisabled(i) && !i.manualVerified)
+  const list = equipmentList.value || []
+
+  // 1. 核心状态预筛选
+  // 账实不符项 (系统在实不在，或实在线不在)
+  const mismatchItems = list.filter((i) => getAssessmentResult(i) === 'MISMATCH')
+  // 故障待办项 (传感器坏了，管理员还没去看)
+  const faultPendingItems = list.filter((i) => getAssessmentResult(i) === 'SENSOR_FAULT')
+  // 人工授信项 (传感器坏了，管理员点过核实了 —— 这是安全盲区，风险点)
+  const unmonitoredItems = list.filter((i) => getAssessmentResult(i) === 'UNMONITORED')
+  // 绝对健康项 (传感器开启且账实完全吻合)
+  const healthyItems = list.filter((i) => getAssessmentResult(i) === 'HEALTHY')
 
   return {
-    match: list.length - sensorErrorList.length - pendingManualList.length,
-    mismatch: sensorErrorList.length + pendingManualList.length, // 总待办数
-    realMismatch: sensorErrorList.length, // 真正的账实不符
-    pendingManual: pendingManualList.length, // 传感器故障数
-    inPlace: list.filter((i) => i.group_status === '在位' && getActualStatus(i) === '在位').length,
-    outPlace: list.filter((i) => i.group_status === '已取出' && getActualStatus(i) === '不在位')
-      .length,
-    missing: sensorErrorList.filter((i) => i.group_status === '在位').length,
-    unregistered: sensorErrorList.filter((i) => i.group_status === '已取出').length,
+    // --- 顶部三个大卡片的数据源 ---
+    total: list.length,
+
+    // 账实相符：仅包含传感器监控下的健康项 (如果你希望“人工授信”也算进相符，就把 unmonitoredItems 加上)
+    // 建议：此处只计入 HEALTHY，让管理员看到虽然平账了，但“相符率”并不到 100%
+    match: healthyItems.length,
+
+    // 异常数量：包含“明确的账实不符”和“传感器故障但还没去核实”的项
+    // 这两类会阻塞“确认结果并同步”按钮
+    mismatch: mismatchItems.length + faultPendingItems.length,
+
+    // --- 内部明细行的数据源 ---
+
+    // 正常在位：账面在位 且 物理感应在位 且 监控正常
+    inPlace: healthyItems.filter((i) => i.group_status === '在位').length,
+
+    // 正常借出：账面已取 且 物理感应不在 且 监控正常
+    outPlace: healthyItems.filter((i) => i.group_status === '已取出').length,
+
+    // 异常离位：账面在位，但感应不在 (不含报修项)
+    missing: mismatchItems.filter((i) => i.group_status === '在位').length,
+
+    // 异常占用：账面不在，但感应在位 (不含报修项)
+    unregistered: mismatchItems.filter((i) => i.group_status === '已取出').length,
+
+    // 安全盲区统计：传感器被屏蔽且已通过人工核实的数量
+    unmonitored: unmonitoredItems.length,
   }
 })
 
@@ -953,14 +1017,10 @@ const finalSubmit = async () => {
   const unpassed = equipmentList.value.filter((i) => isItemAbnormal(i))
   if (unpassed.length > 0) {
     audioStore.play('/audio/还有未核实项.mp3')
-    ElMessageBox.alert(
-      `当前还有 ${unpassed.length} 项装备未完成核对...`,
-      '核对未完成',
-      {
-        confirmButtonText: '知道了',
-        customClass: 'cyber-message-box' // 建议这里也补上
-      }
-    )
+    ElMessageBox.alert(`当前还有 ${unpassed.length} 项装备未完成核对...`, '核对未完成', {
+      confirmButtonText: '知道了',
+      customClass: 'cyber-message-box', // 建议这里也补上
+    })
     return
   }
   const loading = ElLoading.service({ text: '正在生成盘点报告...' })
@@ -1121,6 +1181,9 @@ const fixByReturn = async (item) => {
 /**
  * 处置方案3：禁用故障传感器 (针对：硬件微动开关损坏)
  */
+/**
+ * 处置方案3：禁用故障传感器
+ */
 const fixByDisableSensor = async (item) => {
   await ElMessageBox.confirm(
     `确定禁用 ${item.self_address} 号柜位的传感器感知吗？禁用后系统将不再自动检测该位置的实时状态。`,
@@ -1128,27 +1191,25 @@ const fixByDisableSensor = async (item) => {
     { confirmButtonText: '确认禁用', type: 'error', customClass: 'cyber-message-box' },
   )
 
-  // 1. 获取当前内存中的配置
   const newConfig = JSON.parse(JSON.stringify(config_blob.value))
-  // 2. 找到对应开关配置
   const switchDetail = newConfig.switch.details.find((d) => d.self_address == item.self_address)
   if (switchDetail) {
     switchDetail.admin_status = 0 // 标记为禁用
 
-    // 3. 写回数据库
     await window.electronAPI.el_post({
       action: 'update',
       payload: {
         tableName: 'terminal_settings',
         setValues: { config_blob: JSON.stringify(newConfig) },
-        condition: `id > 0`, // 假设只有一行配置
+        condition: `id > 0`,
       },
     })
 
-    config_blob.value = newConfig // 更新本地内存
-    item.isProcessed = true // 新增这一行
-    item.inventory_remark = '传感器故障已屏蔽'
-    ElMessage.warning('传感器已禁用，请及时通知维保人员')
+    config_blob.value = newConfig
+    item.isProcessed = true
+    // 修改备注，明确这只是硬件层面的操作
+    item.inventory_remark = '传感器故障，已执行物理屏蔽'
+    ElMessage.warning('传感器已禁用，请继续执行肉眼核实以完成盘点')
   }
 }
 
@@ -2370,9 +2431,20 @@ onUnmounted(() => {
 
 /* 报修待核实：亮橙色边框 */
 .tag-maintenance-pending {
-  background: rgba(230, 162, 60, 0.2);
-  color: #e6a23c;
-  border: 1px solid #e6a23c;
+  background: #e6a23c;
+  /* 橙色不透明背景 */
+  color: #000;
+  /* 黑色文字，对比度最高 */
+  font-weight: bold;
+  box-shadow: 0 0 10px rgba(230, 162, 60, 0.4);
+  /* 增加一点发光感，提醒待办 */
+}
+/* 同时建议修改详情弹窗里的显示逻辑（约 1139 行附近） */
+.live-monitor-panel .tag-maintenance-pending {
+  background: #e6a23c;
+  color: #000;
+  padding: 2px 8px;
+  border-radius: 4px;
 }
 
 /* 报修已核实：淡青色 */
@@ -2520,6 +2592,66 @@ onUnmounted(() => {
   white-space: pre-wrap;
   /* 保留参数换行 */
 }
+
+/* 人工授信/非受控状态：醒目的警告色 */
+.tag-unmonitored {
+  background: rgba(255, 170, 0, 0.2) !important;
+  color: #ffaa00 !important;
+  border: 1px solid #ffaa00;
+  box-shadow: 0 0 8px rgba(255, 170, 0, 0.3);
+}
+
+/* 在卡片上增加一个“非受控”标志 */
+.equip-card.is-unmonitored {
+  border-color: #ffaa00 !important;
+  background: rgba(255, 170, 0, 0.05) !important;
+}
+
+/* 闪烁动画提示该位置不可靠 */
+.equip-card.is-unmonitored::after {
+  content: 'UNGUARDED';
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%) rotate(-15deg);
+  font-size: 24px;
+  font-weight: 900;
+  color: rgba(255, 170, 0, 0.15);
+  pointer-events: none;
+  border: 4px solid rgba(255, 170, 0, 0.15);
+  padding: 5px 10px;
+}
+
+.disposal-step-group {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+/* 强制让“传感已屏蔽”标签在弹窗表格里显得更小巧一点 */
+.mini-tag.st-disabled {
+  border: 1px solid rgba(255, 77, 79, 0.4);
+  padding: 2px 4px;
+  background: rgba(255, 77, 79, 0.1);
+  font-size: 10px;
+}
+
+/* 针对“屏蔽但未核实”的中间状态 */
+.mini-tag.st-unreg {
+  background: #e6a23c !important; /* 强制使用不透明橙色 */
+  color: #000 !important;         /* 强制使用黑色文字 */
+  border: none !important;        /* 不透明背景下通常不需要边框 */
+  font-weight: bold;
+}
+
+/* 只有真正处理完的行才变淡 */
+.is-processed-row {
+  background: rgba(0, 255, 157, 0.05) !important;
+  opacity: 0.8;
+  border-left: 4px solid var(--success);
+  /* 增加左侧绿色条，表示彻底完成 */
+}
 </style>
 
 <style>
@@ -2658,9 +2790,9 @@ onUnmounted(() => {
 }
 
 .st-out-warn {
-  background: rgba(255, 77, 79, 0.15);
-  color: #ff4d4f;
-  border: 1px solid #ff4d4f;
+  background: #ff4d4f !important;
+  color: #0d121c !important; /* 红色背景配白色字 */
+  border: none !important;
 }
 
 .st-unreg {
