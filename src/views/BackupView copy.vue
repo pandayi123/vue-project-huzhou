@@ -123,7 +123,6 @@
                 </el-icon>
                 <span class="pos-text">{{ item.self_address }} 号柜位</span>
               </div>
-
             </div>
             <!-- 无数据提示 -->
             <div v-if="filteredList.length === 0" class="no-data-placeholder">
@@ -297,28 +296,43 @@
                 <!-- 5. 快速处置按钮 -->
                 <td>
                   <div class="action-btns">
-                    <template v-if="!item.isProcessed">
+                    <!-- 场景1：如果已处置 -->
+                    <span v-if="item.isProcessed" class="status-resolved">
+                      <el-icon>
+                        <Check />
+                      </el-icon>
+                      {{ isAdminDisabled(item) ? '人工已核' : '数据已平' }}
+                    </span>
+
+                    <!-- 场景2：未处置 - 正常感应模式 -->
+                    <template v-else-if="!isAdminDisabled(item)">
                       <button v-if="item.group_status === '在位'" class="mini-action-btn" @click="fixByBorrow(item)">
-                        <el-icon>
-                          <EditPen />
-                        </el-icon>
                         补录领用
                       </button>
                       <button v-if="item.group_status === '已取出'" class="mini-action-btn success"
                         @click="fixByReturn(item)">
-                        <el-icon>
-                          <Refresh />
-                        </el-icon>
                         补录归还
                       </button>
                       <button class="mini-action-btn warning" @click="fixByDisableSensor(item)">
-                        <el-icon>
-                          <Tools />
-                        </el-icon>
                         屏蔽传感
                       </button>
                     </template>
-                    <span v-else class="resolved-hint">数据已平账</span>
+
+                    <!-- 场景3：未处置 - 报修/人工模式 -->
+                    <template v-else>
+                      <button class="mini-action-btn success" @click="handleManualVerify(item)">
+                        <el-icon>
+                          <CircleCheck />
+                        </el-icon>
+                        肉眼核实
+                      </button>
+                      <button class="mini-action-btn" @click="handleEnableSensor(item)">
+                        <el-icon>
+                          <Refresh />
+                        </el-icon>
+                        恢复感应
+                      </button>
+                    </template>
                   </div>
                 </td>
 
@@ -342,11 +356,6 @@
             <span class="main-title">{{ selectedDetail?.group_name }}</span>
             <span class="sub-code">{{ selectedDetail?.group_code }}</span>
           </div>
-          <div class="header-tags">
-            <span class="detail-tag" :class="getDetailedStatus(selectedDetail).class">
-              {{ getDetailedStatus(selectedDetail).text }}
-            </span>
-          </div>
         </div>
       </template>
 
@@ -368,28 +377,49 @@
                   </div>
                 </template>
                 <template #error>
-                  <div class="img-err"><el-icon :size="40">
+                  <div class="img-err">
+                    <el-icon :size="40">
                       <Picture />
-                    </el-icon><span>暂无实照</span></div>
+                    </el-icon><span>暂无实照</span>
+                  </div>
                 </template>
               </el-image>
               <div class="image-label">装备主视图</div>
             </div>
+            <!-- 修改后 -->
+            <!-- 修改后：三段式感知对比面板 -->
             <div class="live-monitor-panel">
-              <div class="panel-title"><el-icon>
+              <div class="panel-title">
+                <el-icon>
                   <Monitor />
-                </el-icon> 实时感知信号</div>
-              <div class="monitor-grid">
-                <div class="m-item">
-                  <span class="m-label">柜位编号</span>
-                  <span class="m-val">{{ selectedDetail?.self_address }}号位</span>
+                </el-icon>
+                实时感知状态对比
+              </div>
+
+              <!-- 第一部分：数据源对比层 -->
+              <div class="monitor-compare-row">
+                <div class="m-compare-box">
+                  <span class="m-label">系统账面</span>
+                  <span class="m-val" :class="selectedDetail?.group_status === '在位' ? 'text-success' : 'text-sec'">
+                    {{ selectedDetail?.group_status }}
+                  </span>
                 </div>
-                <div class="m-item">
+                <div class="m-divider"></div>
+                <!-- 视觉分隔线 -->
+                <div class="m-compare-box">
                   <span class="m-label">物理感应</span>
-                  <span class="m-val" :class="getActualStatus(selectedDetail) === '在位' ? 'text-success' : 'text-error'">
+                  <span class="m-val" :class="getActualStatus(selectedDetail) === '在位' ? 'text-success' : 'text-error'
+                    ">
                     {{ getActualStatus(selectedDetail) }}
                   </span>
                 </div>
+              </div>
+
+              <!-- 第二部分：通栏结论层 -->
+              <div class="conclusion-bar" :class="getDetailedStatus(selectedDetail).class">
+                <span class="c-dot"></span>
+                <span class="c-label">判定结果：</span>
+                <span class="c-text">{{ getDetailedStatus(selectedDetail).text }}</span>
               </div>
             </div>
           </div>
@@ -425,18 +455,29 @@
                   <span class="label">芯片数量</span>
                   <span class="val">{{ selectedDetail?.group_chip_count }} 枚</span>
                 </div>
-                 <!-- 原有：芯片数量 -->
+                <!-- 原有：芯片数量 -->
+                <div class="grid-cell">
+                  <span class="label">质量分级</span>
+                  <span class="val">堪用品</span>
+                </div>
+                <!-- 原有：芯片数量 -->
                 <div class="grid-cell">
                   <span class="label">柜位编号</span>
                   <span class="val">{{ selectedDetail?.self_address }}号柜位</span>
                 </div>
-
+                <!-- 空 -->
+                <div class="grid-cell">
+                  <span class="label"></span>
+                  <span class="val"></span>
+                </div>
               </div>
             </div>
 
             <div class="info-group remark-group">
               <div class="group-title">装备参数</div>
-              <div class="remark-content">{{ selectedDetail?.group_remark || '暂无详细描述参数' }}</div>
+              <div class="remark-content">
+                {{ selectedDetail?.group_remark || '暂无详细描述参数' }}
+              </div>
             </div>
           </div>
         </div>
@@ -451,11 +492,11 @@
                 <span class="chip-code">{{ chip.chip_code }}</span>
               </div>
               <div class="chip-card-body">
-                <div class="chip-info-line"><span class="l">名称:</span><span class="v">{{ chip.chip_name || '未命名'
-                }}</span>
+                <div class="chip-info-line">
+                  <span class="l">名称:</span><span class="v">{{ chip.chip_name || '未命名' }}</span>
                 </div>
-                <div class="chip-info-line"><span class="l">类型:</span><span class="v">{{ chip.chip_type || '--'
-                }}</span>
+                <div class="chip-info-line">
+                  <span class="l">类型:</span><span class="v">{{ chip.chip_type || '--' }}</span>
                 </div>
                 <div class="chip-img-strip">
                   <el-image v-for="(img, i) in chip.chip_image" :key="i" :src="img" class="mini-chip-img"
@@ -468,9 +509,17 @@
         </div>
       </div>
 
+      <!-- 修改后 -->
       <template #footer>
         <div class="detail-footer">
-          <button class="footer-btn confirm" @click="detailVisible = false">关闭详情</button>
+          <!-- 🚩 新增操作历史按钮 -->
+          <button class="footer-btn history-btn" @click="handleCheckHistory(selectedDetail)">
+            <el-icon>
+              <HistoryIcon />
+            </el-icon>
+            装备流转记录
+          </button>
+          <button class="footer-btn confirm" @click="detailVisible = false">关闭弹窗</button>
         </div>
       </template>
     </el-dialog>
@@ -536,7 +585,7 @@ const uniqueNameOptions = computed(() => {
 const handleSelectCard = (item) => {
   selectedId.value = item.id
   selectedDetail.value = item // 记录当前详情
-  detailVisible.value = true  // 弹出详情
+  detailVisible.value = true // 弹出详情
   audioStore.play('/audio/按钮点击声.mp3')
 }
 
@@ -619,27 +668,27 @@ const getRealData = async () => {
 const getDetailedStatus = (item) => {
   const actual = getActualStatus(item)
   const system = item.group_status
+  const isDisabled = isAdminDisabled(item)
 
-  // 1. 判断检测中
   if (actual === '检测中') return { text: '检测中...', class: 'tag-loading' }
 
-  // 2. 核心逻辑：如果账实相符（或者是传感器已禁用导致的“逻辑相符”）
+  // 报修逻辑
+  if (isDisabled) {
+    return item.manualVerified
+      ? { text: '报修/人工已核', class: 'tag-maintenance-ok' }
+      : { text: '报修/待人核', class: 'tag-maintenance-pending' }
+  }
+
+  // 正常/异常逻辑
   if (!isItemAbnormal(item)) {
-    if (system === '在位') {
-      return { text: '正常在位', class: 'tag-normal-in' }
-    } else {
-      return { text: '正常借出', class: 'tag-normal-out' }
-    }
+    return system === '在位'
+      ? { text: '正常在位', class: 'tag-normal-in' }
+      : { text: '正常借出', class: 'tag-normal-out' }
   }
 
-  // 3. 异常逻辑（仅在账实不符且传感器未禁用的情况下进入）
-  if (system === '在位' && actual === '不在位') {
-    return { text: '异常离位', class: 'tag-error-missing' }
-  }
-  if (system === '已取出' && actual === '在位')
-    return { text: '异常占用', class: 'tag-error-occupied' }
-
-  return { text: '未知状态', class: 'tag-unknown' }
+  return system === '在位'
+    ? { text: '异常离位', class: 'tag-error-missing' }
+    : { text: '异常占用', class: 'tag-error-occupied' }
 }
 
 // --- 2. 硬件感知轮询 ---
@@ -665,6 +714,44 @@ const updateAllHardwareStatus = async () => {
     } catch (e) {
       console.error('读取硬件失败:', e)
     }
+  }
+}
+
+/**
+ * 处置方案：人工核实通过
+ */
+const handleManualVerify = (item) => {
+  item.manualVerified = true
+  item.isProcessed = true
+  item.inventory_remark = '传感器故障，肉眼核实实物在位'
+  audioStore.play('/audio/核实成功.mp3')
+  ElMessage.success(`${item.group_name} 已通过人工核实`)
+}
+
+/**
+ * 处置方案：开启/恢复传感器
+ */
+const handleEnableSensor = async (item) => {
+  try {
+    await ElMessageBox.confirm(`确定要恢复 ${item.self_address} 号柜位的传感器感知吗？`, '恢复确认')
+    const newConfig = JSON.parse(JSON.stringify(config_blob.value))
+    const switchDetail = newConfig.switch.details.find((d) => d.self_address == item.self_address)
+    if (switchDetail) {
+      switchDetail.admin_status = 1 // 开启
+      await window.electronAPI.el_post({
+        action: 'update',
+        payload: {
+          tableName: 'terminal_settings',
+          setValues: { config_blob: JSON.stringify(newConfig) },
+          condition: `id > 0`,
+        },
+      })
+      config_blob.value = newConfig
+      item.manualVerified = false // 恢复后重置人工状态
+      ElMessage.success('传感器感应已恢复')
+    }
+  } catch {
+    console.log()
   }
 }
 const lastMismatchCount = ref(-1) // 记录上一次的异常数量，初始为-1用于识别初次加载
@@ -713,27 +800,29 @@ const getActualStatus = (item) => {
   return status === 1 ? '在位' : '不在位'
 }
 
-// --- 修改后的函数 ---
+// 修改后的判定函数：决定该项是否需要出现在“待处置”列表中
 const isItemAbnormal = (item) => {
   const actual = getActualStatus(item)
   if (actual === '检测中') return false
 
-  // 1. 获取该位置的开关配置
+  const isDisabled = isAdminDisabled(item) // 封装一下判断逻辑
+
+  if (!isDisabled) {
+    // 【自动模式】：感应必须对上账面
+    const shouldBeStatus = actual === '在位' ? '在位' : '已取出'
+    return item.group_status !== shouldBeStatus
+  } else {
+    // 【人工模式】：如果传感器禁用了，且还没点“人工核实”，它就属于“异常/待办”
+    return !item.manualVerified
+  }
+}
+
+// 新增辅助：判断开关是否被禁用
+const isAdminDisabled = (item) => {
   const detail = config_blob.value?.switch?.details?.find(
     (d) => String(d.self_address) === String(item.self_address),
   )
-
-  // 2. 检查：如果开关被管理员“手动禁用”（admin_status == 0），则不计入异常
-  // 注意：确保你的 config_blob 里 admin_status 默认是 1（启用）
-  if (detail && Number(detail.admin_status) === 0) {
-    return false
-  }
-
-  // 3. 核心对比逻辑
-  // 传感器 '在位' (1) 对应 账面 '在位'
-  // 传感器 '不在位' (0) 对应 账面 '已取出'
-  const shouldBeStatus = actual === '在位' ? '在位' : '已取出'
-  return item.group_status !== shouldBeStatus
+  return detail && Number(detail.admin_status) === 0
 }
 
 // 1. 定义新变量
@@ -754,15 +843,21 @@ const parsedChips = computed(() => {
 // 统计逻辑修正
 const stats = computed(() => {
   const list = equipmentList.value
-  const abnormalList = list.filter(isItemAbnormal)
+  // 1. 真正的感应异常（开关开启但账实不符）
+  const sensorErrorList = list.filter((i) => !isAdminDisabled(i) && isItemAbnormal(i))
+  // 2. 待人工核实项（开关禁用且未核实）
+  const pendingManualList = list.filter((i) => isAdminDisabled(i) && !i.manualVerified)
+
   return {
-    match: list.length - abnormalList.length,
-    mismatch: abnormalList.length,
+    match: list.length - sensorErrorList.length - pendingManualList.length,
+    mismatch: sensorErrorList.length + pendingManualList.length, // 总待办数
+    realMismatch: sensorErrorList.length, // 真正的账实不符
+    pendingManual: pendingManualList.length, // 传感器故障数
     inPlace: list.filter((i) => i.group_status === '在位' && getActualStatus(i) === '在位').length,
     outPlace: list.filter((i) => i.group_status === '已取出' && getActualStatus(i) === '不在位')
       .length,
-    missing: abnormalList.filter((i) => i.group_status === '在位').length,
-    unregistered: abnormalList.filter((i) => i.group_status === '已取出').length,
+    missing: sensorErrorList.filter((i) => i.group_status === '在位').length,
+    unregistered: sensorErrorList.filter((i) => i.group_status === '已取出').length,
   }
 })
 
@@ -813,6 +908,13 @@ const handleOpenSummary = () => {
 }
 
 const finalSubmit = async () => {
+  // 校验：是否还有未处理的异常 或 未核实的报修
+  const unpassed = equipmentList.value.filter(i => isItemAbnormal(i))
+  if (unpassed.length > 0) {
+    audioStore.play('/audio/还有未核实项.mp3')
+    ElMessageBox.alert(`当前还有 ${unpassed.length} 项装备未完成核对（含待感应修正和待人工核实），请处理后再提交。`, '核对未完成')
+    return
+  }
   const loading = ElLoading.service({ text: '正在生成盘点报告...' })
   try {
     // 构造盘点详单
@@ -905,6 +1007,13 @@ const fixByBorrow = async (item) => {
   } catch {
     console.log('取消补录')
   }
+}
+
+const handleCheckHistory = (item) => {
+  audioStore.play('/audio/按钮点击声.mp3')
+  // 这里可以跳转到历史页面并带上参数，或者弹出另一个记录弹窗
+  // router.push({ path: '/borrow-history', query: { code: item.group_code } })
+  ElMessage.info(`正在查询 ${item.group_name} 的流转记录...`)
 }
 
 /**
@@ -1287,12 +1396,6 @@ onUnmounted(() => {
   white-space: nowrap;
 }
 
-/* 正常在位：绿色 */
-.tag-normal-in {
-  background: rgba(0, 255, 157, 0.85);
-  color: #000;
-}
-
 /* 正常借出：蓝色或淡灰色 */
 .tag-normal-out {
   background: rgba(0, 153, 161, 0.85);
@@ -1402,12 +1505,12 @@ onUnmounted(() => {
 }
 
 .c-label {
-  font-size: 12px;
+  font-size: 13px;
   color: #66788a;
 }
 
 .c-tag {
-  font-size: 11px;
+  font-size: 12px;
   padding: 1px 6px;
   border-radius: 2px;
   font-weight: bold;
@@ -1832,6 +1935,27 @@ onUnmounted(() => {
   color: #000;
 }
 
+/* 4. 修正监测结论在面板里的颜色显示 (防止 getDetailedStatus 的类名背景太突兀) */
+.live-monitor-panel .tag-normal-in {
+  background: rgba(0, 255, 157, 0.2);
+  color: #00ff9d;
+}
+
+.live-monitor-panel .tag-normal-out {
+  background: rgba(0, 153, 161, 0.2);
+  color: #00f2ff;
+}
+
+.live-monitor-panel .tag-error-missing {
+  background: rgba(255, 77, 79, 0.2);
+  color: #ff4d4f;
+}
+
+.live-monitor-panel .tag-error-occupied {
+  background: rgba(230, 162, 60, 0.2);
+  color: #e6a23c;
+}
+
 /* ================= 详情弹窗专项样式 ================= */
 
 /* 头部样式 */
@@ -1896,7 +2020,7 @@ onUnmounted(() => {
   background: rgba(0, 0, 0, 0.6);
   color: var(--text-sec);
   text-align: center;
-  font-size: 11px;
+  font-size: 12px;
   padding: 4px 0;
 }
 
@@ -1918,26 +2042,111 @@ onUnmounted(() => {
   gap: 6px;
 }
 
-.monitor-grid {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 10px;
+/* --- 重新设计的实时感知面板样式 --- */
+.live-monitor-panel {
+  margin-top: 15px;
+  background: rgba(0, 0, 0, 0.25);
+  /* 稍微加深背景 */
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--primary);
+  /* 侧边高亮条 */
+  border-radius: 4px;
+  padding: 12px;
 }
 
-.m-item {
+.monitor-compare-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 12px;
+  background: rgba(255, 255, 255, 0.03);
+  padding: 8px 0;
+  border-radius: 4px;
+}
+
+.m-compare-box {
+  flex: 1;
   display: flex;
   flex-direction: column;
+  align-items: center;
+}
+
+.m-divider {
+  width: 1px;
+  height: 25px;
+  background: rgba(255, 255, 255, 0.1);
 }
 
 .m-label {
-  font-size: 11px;
-  color: var(--text-sec);
+  font-size: 13px;
+  color: #66788a;
+  margin-bottom: 4px;
 }
 
 .m-val {
-  font-size: 15px;
+  font-size: 14px;
   font-weight: bold;
-  margin-top: 3px;
+}
+
+/* 结论通栏 */
+.conclusion-bar {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 6px;
+  border-radius: 4px;
+  font-size: 13px;
+  font-weight: bold;
+  letter-spacing: 1px;
+}
+
+.c-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  margin-right: 8px;
+  background: currentColor;
+  box-shadow: 0 0 8px currentColor;
+}
+
+.c-label {
+  opacity: 0.7;
+  font-size: 12px;
+  margin-right: 4px;
+}
+
+/* 针对结论背景的颜色重定义 */
+.conclusion-bar.tag-normal-in {
+  background: rgba(0, 255, 157, 0.15);
+  color: #00ff9d;
+}
+
+.conclusion-bar.tag-normal-out {
+  background: rgba(0, 242, 255, 0.1);
+  color: #00f2ff;
+}
+
+.conclusion-bar.tag-error-missing {
+  background: rgba(255, 77, 79, 0.2);
+  color: #ff4d4f;
+}
+
+.conclusion-bar.tag-error-occupied {
+  background: rgba(230, 162, 60, 0.2);
+  color: #e6a23c;
+}
+
+/* 辅助颜色 */
+.text-success {
+  color: #00ff9d;
+}
+
+.text-error {
+  color: #ff4d4f;
+}
+
+.text-sec {
+  color: #8899a6;
 }
 
 /* 右列：参数展示 */
@@ -1974,17 +2183,18 @@ onUnmounted(() => {
 
 .grid-cell .label {
   color: var(--text-sec);
-  font-size: 13px;
+  font-size: 14px;
 }
 
 /* 优化：如果装备名称或编号过长，防止挤压 */
 .grid-cell .val {
   color: #fff;
-  font-size: 13px;
+  font-size: 14px;
   font-weight: bold;
   margin-left: 10px;
   text-align: right;
-  word-break: break-all; /* 允许长编号换行 */
+  word-break: break-all;
+  /* 允许长编号换行 */
 }
 
 .remark-group {
@@ -2007,6 +2217,7 @@ onUnmounted(() => {
   display: grid;
   grid-template-columns: repeat(3, 1fr);
   gap: 12px;
+  padding-bottom:12px;
 }
 
 .chip-detail-card {
@@ -2177,6 +2388,33 @@ onUnmounted(() => {
     transform: rotate(360deg);
   }
 }
+
+.detail-footer {
+  display: flex;
+  justify-content: flex-end;
+  align-items: center;
+  /* 关键：确保内部组件垂直居中 */
+  gap: 16px;
+  /* 稍微加大按钮间距，显得更大气 */
+  width: 100%;
+}
+/* 报修待核实：亮橙色边框 */
+.tag-maintenance-pending {
+  background: rgba(230, 162, 60, 0.2);
+  color: #e6a23c;
+  border: 1px solid #e6a23c;
+}
+
+/* 报修已核实：淡青色 */
+.tag-maintenance-ok {
+  background: rgba(0, 242, 255, 0.15);
+  color: #00f2ff;
+  border: 1px solid rgba(0, 242, 255, 0.3);
+}
+
+.text-muted {
+  opacity: 0.6;
+}
 </style>
 
 <style>
@@ -2189,7 +2427,9 @@ onUnmounted(() => {
   background-color: #141b2d !important;
   background-image: linear-gradient(135deg, rgba(0, 242, 255, 0.05) 0%, transparent 100%);
   border: 1px solid #0099a1 !important;
-  box-shadow: 0 0 30px rgba(0, 0, 0, 0.8), inset 0 0 20px rgba(0, 242, 255, 0.05) !important;
+  box-shadow:
+    0 0 30px rgba(0, 0, 0, 0.8),
+    inset 0 0 20px rgba(0, 242, 255, 0.05) !important;
   border-radius: 8px !important;
   margin: 0 auto !important;
   position: absolute !important;
@@ -2259,8 +2499,11 @@ onUnmounted(() => {
 
 /* 3. 其他弹窗组件适配 */
 .cyber-dialog .el-dialog__footer {
-  padding: 10px 20px 20px;
-  border-top: 1px solid rgba(255, 255, 255, 0.05);
+  padding: 20px 25px;
+  /* 改为上下左右对称，视觉更平衡 */
+  border-top: 1px solid rgba(255, 255, 255, 0.08);
+  /* 稍微加深线条，界限感更强 */
+  padding-bottom: 4px;
 }
 
 .cyber-dialog .el-dialog__headerbtn .el-dialog__close {
@@ -2340,17 +2583,43 @@ onUnmounted(() => {
   padding: 20px;
 }
 
+/* 2. 修复按钮左右 padding 缺失问题 */
 .footer-btn {
-  flex: 1;
-  height: 45px;
+  min-width: 130px;
+  /* 稍微加宽 */
+  padding: 0 24px;
+  height: 42px;
+  /* 稍微增高 */
   border-radius: 4px;
   cursor: pointer;
   display: flex;
   align-items: center;
   justify-content: center;
   gap: 8px;
-  font-size: 15px;
+  font-size: 14px;
   font-weight: bold;
+  transition: all 0.3s;
+  /* 新增：轻微的投影让按钮不那么死板 */
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
+}
+
+.footer-btn:hover {
+  transform: translateY(-1px);
+  /* 悬停微动 */
+  box-shadow: 0 4px 12px rgba(0, 242, 255, 0.2);
+}
+
+/* 3. 新增的操作历史按钮样式 */
+.footer-btn.history-btn {
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid var(--border);
+  color: var(--text-sec);
+}
+
+.footer-btn.history-btn:hover {
+  background: rgba(255, 255, 255, 0.1);
+  color: var(--primary);
+  border-color: var(--primary-dark);
 }
 
 .footer-btn.cancel {
