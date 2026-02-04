@@ -141,7 +141,6 @@
           </div>
 
           <!-- 右侧卡片联动联动左侧过滤器 -->
-          <!-- 右侧卡片联动联动左侧过滤器 -->
           <div class="stats-summary-grid">
             <!-- 全部 -->
             <div class="stat-card clickable" :class="{ active: currentFilter === 'ALL' }" @click="setFilter('ALL')">
@@ -184,6 +183,13 @@
               <span class="a-label"><i class="dot warning"></i> 异常占用 (实在账不在)</span>
               <span class="a-value">{{ stats.unregistered }} 件</span>
             </div>
+            <div class="analysis-row warning-text" v-if="stats.unmonitored > 0">
+              <span class="a-label">
+                <i class="dot warning blink"></i>
+                人工授信 (当前不受监控)
+              </span>
+              <span class="a-value">{{ stats.unmonitored }} 件</span>
+            </div>
           </div>
 
           <div class="flex-spacer">
@@ -212,7 +218,7 @@
     </div>
 
     <!-- 异常核对弹窗 -->
-    <el-dialog v-model="summaryVisible" title="异常项快捷处置" width="1200px" class="cyber-dialog">
+    <el-dialog v-model="summaryVisible" title="异常项快捷处置" width="1250px" class="cyber-dialog">
       <div class="summary-dialog-content">
         <div v-if="abnormalItems.length === 0" class="all-ok-tip">
           <el-icon :size="50" color="#00ff9d">
@@ -224,23 +230,36 @@
           <table class="cyber-table">
             <thead>
               <tr>
-                <th width="80">实照</th>
-                <th width="180">装备/编号/位置</th>
-                <th width="200">账实核对</th>
+                <!-- 1. 实照列宽由 80 增加到 110，适配 4:3 -->
+                <th width="110">装备实照</th>
+                <!-- 2. 基础信息列保持 180 -->
+                <th width="140">装备名称/编号/位置</th>
+                <th width="100">装备流转记录</th>
+                <!-- 3. 账实对比列由 200 压缩至 160 -->
+                <th width="130">账实核对</th>
+                <!-- 4. 异常类型列保持 100 -->
                 <th width="100">异常类型</th>
-                <th width="280">快速处置方案</th>
-                <th>核实备注</th>
+                <!-- 5. 快速处置方案列宽保持 280 (按钮变大后需要此空间) -->
+                <th width="200">快速处置方案（点击执行）</th>
+                <!-- 6. 备注列不设限，自动撑开剩余空间 -->
+                <th>盘点备注</th>
               </tr>
             </thead>
             <tbody>
-              <tr v-for="item in abnormalItems" :key="item.id" :class="{ 'is-processed-row': item.isProcessed }">
+              <!-- 修改 <tr> 的 class -->
+              <tr v-for="item in abnormalItems" :key="item.id" :class="{
+                'is-processed-row':
+                  item.manualVerified || (item.isProcessed && !isAdminDisabled(item)),
+              }">
                 <!-- 1. 装备实照 -->
                 <td>
                   <el-image :src="item.group_image" class="table-thumb" :preview-src-list="[item.group_image]"
                     fit="cover">
                     <template #error>
                       <div class="thumb-err">
-                        <el-icon>
+                        <span>暂无实照</span>
+                        <!-- 新增文字提示 -->
+                        <el-icon :size="20">
                           <Picture />
                         </el-icon>
                       </div>
@@ -258,6 +277,13 @@
                     </el-icon>
                     {{ item.self_address }}号位
                   </div>
+                </td>
+
+                <!-- 3. 新增：流转记录按钮 -->
+                <td>
+                  <button class="mini-action-btn plain-btn" @click="handleCheckHistory(item)">
+                    查看记录
+                  </button>
                 </td>
 
                 <!-- 3. 账实对比 (视觉强化版) -->
@@ -281,12 +307,16 @@
                 </td>
 
                 <!-- 4. 异常类型 -->
-                <td>
-                  <span v-if="item.isProcessed" class="status-resolved">
+                <td class="type-cell">
+                  <span v-if="item.manualVerified || (item.isProcessed && !isAdminDisabled(item))"
+                    class="status-resolved">
                     <el-icon>
                       <Check />
                     </el-icon>
-                    已处置
+                    已核实
+                  </span>
+                  <span v-else-if="isAdminDisabled(item)" class="mini-tag st-unreg">
+                    传感屏蔽/待核
                   </span>
                   <span v-else class="mini-tag" :class="getAbnormalType(item).class">
                     {{ getAbnormalType(item).text }}
@@ -296,16 +326,36 @@
                 <!-- 5. 快速处置按钮 -->
                 <td>
                   <div class="action-btns">
-                    <!-- 场景1：如果已处置 -->
-                    <span v-if="item.isProcessed" class="status-resolved">
+                    <!-- 场景1：已经完成了实物核实 (肉眼看过或数据补录平账) -->
+                    <span v-if="item.manualVerified" class="status-resolved">
                       <el-icon>
                         <Check />
                       </el-icon>
-                      {{ isAdminDisabled(item) ? '人工已核' : '数据已平' }}
+                      人工已核
                     </span>
 
-                    <!-- 场景2：未处置 - 正常感应模式 -->
-                    <template v-else-if="!isAdminDisabled(item)">
+                    <!-- 场景2：补录操作完成 (数据已平) -->
+                    <span v-else-if="item.isProcessed && !isAdminDisabled(item)" class="status-resolved">
+                      <el-icon>
+                        <Check />
+                      </el-icon>
+                      数据已平
+                    </span>
+
+                    <!-- 场景3：传感器已屏蔽，但【尚未】肉眼核实实物 -->
+                    <template v-else-if="isAdminDisabled(item)">
+                      <div class="disposal-step-group">
+                        <button class="mini-action-btn success" @click="handleManualVerify(item)">
+                          肉眼核实
+                        </button>
+                        <button class="mini-action-btn" @click="handleEnableSensor(item)">
+                          恢复感应
+                        </button>
+                      </div>
+                    </template>
+
+                    <!-- 场景4：初始异常状态 (未做任何处置) -->
+                    <template v-else>
                       <button v-if="item.group_status === '在位'" class="mini-action-btn" @click="fixByBorrow(item)">
                         补录领用
                       </button>
@@ -317,28 +367,13 @@
                         屏蔽传感
                       </button>
                     </template>
-
-                    <!-- 场景3：未处置 - 报修/人工模式 -->
-                    <template v-else>
-                      <button class="mini-action-btn success" @click="handleManualVerify(item)">
-                        <el-icon>
-                          <CircleCheck />
-                        </el-icon>
-                        肉眼核实
-                      </button>
-                      <button class="mini-action-btn" @click="handleEnableSensor(item)">
-                        <el-icon>
-                          <Refresh />
-                        </el-icon>
-                        恢复感应
-                      </button>
-                    </template>
                   </div>
                 </td>
 
-                <!-- 6. 备注 -->
+                <!-- 找到以下位置 -->
                 <td>
-                  <el-input v-model="item.inventory_remark" placeholder="备注原因..." class="table-input" />
+                  <el-input v-model="item.inventory_remark" type="textarea" :rows="2" placeholder="请输入盘点备注..."
+                    class="table-textarea" resize="none" />
                 </td>
               </tr>
             </tbody>
@@ -484,24 +519,49 @@
 
         <!-- 第二行：芯片清单 (Chip List) -->
         <div class="detail-row chip-row">
-          <div class="group-title">绑定的芯片详情 ({{ parsedChips.length }} 枚)</div>
+          <div class="group-title">绑定芯片列表 ({{ parsedChips.length }} 枚)</div>
           <div class="chip-cards-container">
             <div v-for="(chip, index) in parsedChips" :key="index" class="chip-detail-card">
+              <!-- 头部：仅显示序号 -->
               <div class="chip-card-header">
-                <span class="chip-idx">#{{ index + 1 }}</span>
-                <span class="chip-code">{{ chip.chip_code }}</span>
+                <span class="chip-idx">芯片 #{{ index + 1 }}</span>
               </div>
+
               <div class="chip-card-body">
-                <div class="chip-info-line">
-                  <span class="l">名称:</span><span class="v">{{ chip.chip_name || '未命名' }}</span>
+                <!-- 1. 图片展示区：强制 4:3 比例 -->
+                <div class="chip-image-zone">
+                  <div v-if="chip.chip_image && chip.chip_image.length > 0" class="chip-img-grid">
+                    <el-image v-for="(img, i) in chip.chip_image" :key="i" :src="img" class="standard-chip-img"
+                      :preview-src-list="chip.chip_image" :initial-index="i" fit="cover" />
+                  </div>
+                  <div v-else class="chip-no-img">
+                    <el-icon>
+                      <Picture />
+                    </el-icon>
+                    <span>无芯片实照</span>
+                  </div>
                 </div>
-                <div class="chip-info-line">
-                  <span class="l">类型:</span><span class="v">{{ chip.chip_type || '--' }}</span>
-                </div>
-                <div class="chip-img-strip">
-                  <el-image v-for="(img, i) in chip.chip_image" :key="i" :src="img" class="mini-chip-img"
-                    :preview-src-list="chip.chip_image" :initial-index="i" />
-                  <div v-if="!chip.chip_image?.length" class="no-img">无芯片照片</div>
+
+                <!-- 2. 芯片信息列表：参考管理页面字段 -->
+                <div class="chip-params-list">
+                  <div class="param-item">
+                    <span class="p-label">芯片名称</span>
+                    <span class="p-value">{{ chip.chip_name || '--' }}</span>
+                  </div>
+                  <div class="param-item">
+                    <span class="p-label">芯片编号</span>
+                    <span class="p-value">{{ chip.chip_code || '--' }}</span>
+                  </div>
+                  <div class="param-item">
+                    <span class="p-label">芯片类型</span>
+                    <span class="p-value">{{ chip.chip_type || '--' }}</span>
+                  </div>
+                  <div class="param-item vertical">
+                    <span class="p-label">芯片参数</span>
+                    <div class="p-content" :title="chip.chip_remark">
+                      {{ chip.chip_remark || '暂无参数描述' }}
+                    </div>
+                  </div>
                 </div>
               </div>
             </div>
@@ -538,9 +598,6 @@ import {
   Location,
   Check,
   Timer as HistoryIcon,
-  EditPen,
-  Refresh,
-  Tools,
 } from '@element-plus/icons-vue'
 import { ElMessage, ElLoading, ElMessageBox } from 'element-plus'
 import { useAudioStore } from '@/stores/audioStore'
@@ -664,31 +721,55 @@ const getRealData = async () => {
   }
 }
 
-// 新增：获取详细盘点结论
-const getDetailedStatus = (item) => {
+// 修改判定函数：细化状态分类
+const getAssessmentResult = (item) => {
   const actual = getActualStatus(item)
-  const system = item.group_status
+  if (actual === '检测中') return 'LOADING'
+
   const isDisabled = isAdminDisabled(item)
 
-  if (actual === '检测中') return { text: '检测中...', class: 'tag-loading' }
-
-  // 报修逻辑
-  if (isDisabled) {
-    return item.manualVerified
-      ? { text: '报修/人工已核', class: 'tag-maintenance-ok' }
-      : { text: '报修/待人核', class: 'tag-maintenance-pending' }
+  // 场景 A：传感器正常开启
+  if (!isDisabled) {
+    const shouldBeStatus = actual === '在位' ? '在位' : '已取出'
+    return item.group_status === shouldBeStatus ? 'HEALTHY' : 'MISMATCH'
   }
 
-  // 正常/异常逻辑
-  if (!isItemAbnormal(item)) {
-    return system === '在位'
-      ? { text: '正常在位', class: 'tag-normal-in' }
-      : { text: '正常借出', class: 'tag-normal-out' }
+  // 场景 B：传感器已禁用
+  else {
+    // 如果还没人工核实 -> 属于“待办异常”
+    if (!item.manualVerified) return 'SENSOR_FAULT'
+    // 如果已人工核实 -> 属于“人工授信/脱离监管” (这就是安全盲区)
+    return 'UNMONITORED'
   }
+}
 
-  return system === '在位'
-    ? { text: '异常离位', class: 'tag-error-missing' }
-    : { text: '异常占用', class: 'tag-error-occupied' }
+// 修正后的异常判断（用于拦截“确认结果”按钮）
+const isItemAbnormal = (item) => {
+  const result = getAssessmentResult(item)
+  // 1. 账实不符项 (MISMATCH)
+  // 2. 传感器坏了且管理员还没肉眼核实过 (SENSOR_FAULT)
+  // 这两种情况都必须停留在“异常/待处置”列表中
+  return result === 'MISMATCH' || result === 'SENSOR_FAULT'
+}
+
+// 新增：获取详细盘点结论
+const getDetailedStatus = (item) => {
+  const result = getAssessmentResult(item)
+
+  if (result === 'LOADING') return { text: '检测中...', class: 'tag-loading' }
+  if (result === 'MISMATCH') {
+    return item.group_status === '在位'
+      ? { text: '异常离位', class: 'tag-error-missing' }
+      : { text: '异常占用', class: 'tag-error-occupied' }
+  }
+  if (result === 'SENSOR_FAULT') return { text: '传感屏蔽/待核', class: 'tag-maintenance-pending' }
+
+  // 关键修改：人工核实后的视觉表现
+  if (result === 'UNMONITORED') return { text: '人工授信/非受控', class: 'tag-unmonitored' }
+
+  return item.group_status === '在位'
+    ? { text: '正常在位', class: 'tag-normal-in' }
+    : { text: '正常借出', class: 'tag-normal-out' }
 }
 
 // --- 2. 硬件感知轮询 ---
@@ -733,11 +814,23 @@ const handleManualVerify = (item) => {
  */
 const handleEnableSensor = async (item) => {
   try {
-    await ElMessageBox.confirm(`确定要恢复 ${item.self_address} 号柜位的传感器感知吗？`, '恢复确认')
+    await ElMessageBox.confirm(
+      `确定要恢复 ${item.self_address} 号柜位的传感器感知吗？恢复后将以传感器实时监测为准。`,
+      '恢复确认',
+      {
+        confirmButtonText: '确定恢复',
+        cancelButtonText: '取消',
+        type: 'warning',
+        customClass: 'cyber-message-box',
+      },
+    )
+
     const newConfig = JSON.parse(JSON.stringify(config_blob.value))
     const switchDetail = newConfig.switch.details.find((d) => d.self_address == item.self_address)
+
     if (switchDetail) {
-      switchDetail.admin_status = 1 // 开启
+      switchDetail.admin_status = 1 // 开启硬件感知
+
       await window.electronAPI.el_post({
         action: 'update',
         payload: {
@@ -746,12 +839,22 @@ const handleEnableSensor = async (item) => {
           condition: `id > 0`,
         },
       })
+
+      // --- 关键修复代码 ---
       config_blob.value = newConfig
-      item.manualVerified = false // 恢复后重置人工状态
-      ElMessage.success('传感器感应已恢复')
+
+      // 重置所有处置状态，让系统重新计算该项是否异常
+      item.manualVerified = false // 清除人工核实标记
+      item.isProcessed = false // 清除已处置标记（重要！）
+      item.inventory_remark = '' // 可选：清除备注
+      // ------------------
+
+      ElMessage.success('传感器感应已恢复，系统将重新实时判定状态')
+
+      // 如果恢复后账实相符，abnormalItems 计算属性会自动将其从弹窗列表中移除
     }
-  } catch {
-    console.log()
+  } catch (e) {
+    console.log('用户取消了恢复', e)
   }
 }
 const lastMismatchCount = ref(-1) // 记录上一次的异常数量，初始为-1用于识别初次加载
@@ -787,6 +890,8 @@ const startMonitorLoop = async () => {
 
 // 修改后
 const getActualStatus = (item) => {
+  // 1. 先判断数据是否就绪
+  if (Object.keys(realtimeSwitchMap).length === 0) return '检测中'
   // === 新增：优先判断是否禁用 ===
   const detail = config_blob.value?.switch?.details?.find(
     (d) => String(d.self_address) === String(item.self_address),
@@ -798,23 +903,6 @@ const getActualStatus = (item) => {
   const status = realtimeSwitchMap[item.self_address]
   if (status === undefined) return '检测中'
   return status === 1 ? '在位' : '不在位'
-}
-
-// 修改后的判定函数：决定该项是否需要出现在“待处置”列表中
-const isItemAbnormal = (item) => {
-  const actual = getActualStatus(item)
-  if (actual === '检测中') return false
-
-  const isDisabled = isAdminDisabled(item) // 封装一下判断逻辑
-
-  if (!isDisabled) {
-    // 【自动模式】：感应必须对上账面
-    const shouldBeStatus = actual === '在位' ? '在位' : '已取出'
-    return item.group_status !== shouldBeStatus
-  } else {
-    // 【人工模式】：如果传感器禁用了，且还没点“人工核实”，它就属于“异常/待办”
-    return !item.manualVerified
-  }
 }
 
 // 新增辅助：判断开关是否被禁用
@@ -840,24 +928,48 @@ const parsedChips = computed(() => {
   }
 })
 
-// 统计逻辑修正
+// 统计逻辑修正版：彻底区分“账实相符”与“人工授信风险”
 const stats = computed(() => {
-  const list = equipmentList.value
-  // 1. 真正的感应异常（开关开启但账实不符）
-  const sensorErrorList = list.filter((i) => !isAdminDisabled(i) && isItemAbnormal(i))
-  // 2. 待人工核实项（开关禁用且未核实）
-  const pendingManualList = list.filter((i) => isAdminDisabled(i) && !i.manualVerified)
+  const list = equipmentList.value || []
+
+  // 1. 核心状态预筛选
+  // 账实不符项 (系统在实不在，或实在线不在)
+  const mismatchItems = list.filter((i) => getAssessmentResult(i) === 'MISMATCH')
+  // 故障待办项 (传感器坏了，管理员还没去看)
+  const faultPendingItems = list.filter((i) => getAssessmentResult(i) === 'SENSOR_FAULT')
+  // 人工授信项 (传感器坏了，管理员点过核实了 —— 这是安全盲区，风险点)
+  const unmonitoredItems = list.filter((i) => getAssessmentResult(i) === 'UNMONITORED')
+  // 绝对健康项 (传感器开启且账实完全吻合)
+  const healthyItems = list.filter((i) => getAssessmentResult(i) === 'HEALTHY')
 
   return {
-    match: list.length - sensorErrorList.length - pendingManualList.length,
-    mismatch: sensorErrorList.length + pendingManualList.length, // 总待办数
-    realMismatch: sensorErrorList.length, // 真正的账实不符
-    pendingManual: pendingManualList.length, // 传感器故障数
-    inPlace: list.filter((i) => i.group_status === '在位' && getActualStatus(i) === '在位').length,
-    outPlace: list.filter((i) => i.group_status === '已取出' && getActualStatus(i) === '不在位')
-      .length,
-    missing: sensorErrorList.filter((i) => i.group_status === '在位').length,
-    unregistered: sensorErrorList.filter((i) => i.group_status === '已取出').length,
+    // --- 顶部三个大卡片的数据源 ---
+    total: list.length,
+
+    // 账实相符：仅包含传感器监控下的健康项 (如果你希望“人工授信”也算进相符，就把 unmonitoredItems 加上)
+    // 建议：此处只计入 HEALTHY，让管理员看到虽然平账了，但“相符率”并不到 100%
+    match: healthyItems.length,
+
+    // 异常数量：包含“明确的账实不符”和“传感器故障但还没去核实”的项
+    // 这两类会阻塞“确认结果并同步”按钮
+    mismatch: mismatchItems.length + faultPendingItems.length,
+
+    // --- 内部明细行的数据源 ---
+
+    // 正常在位：账面在位 且 物理感应在位 且 监控正常
+    inPlace: healthyItems.filter((i) => i.group_status === '在位').length,
+
+    // 正常借出：账面已取 且 物理感应不在 且 监控正常
+    outPlace: healthyItems.filter((i) => i.group_status === '已取出').length,
+
+    // 异常离位：账面在位，但感应不在 (不含报修项)
+    missing: mismatchItems.filter((i) => i.group_status === '在位').length,
+
+    // 异常占用：账面不在，但感应在位 (不含报修项)
+    unregistered: mismatchItems.filter((i) => i.group_status === '已取出').length,
+
+    // 安全盲区统计：传感器被屏蔽且已通过人工核实的数量
+    unmonitored: unmonitoredItems.length,
   }
 })
 
@@ -909,10 +1021,13 @@ const handleOpenSummary = () => {
 
 const finalSubmit = async () => {
   // 校验：是否还有未处理的异常 或 未核实的报修
-  const unpassed = equipmentList.value.filter(i => isItemAbnormal(i))
+  const unpassed = equipmentList.value.filter((i) => isItemAbnormal(i))
   if (unpassed.length > 0) {
     audioStore.play('/audio/还有未核实项.mp3')
-    ElMessageBox.alert(`当前还有 ${unpassed.length} 项装备未完成核对（含待感应修正和待人工核实），请处理后再提交。`, '核对未完成')
+    ElMessageBox.alert(`当前还有 ${unpassed.length} 项装备未完成核对...`, '核对未完成', {
+      confirmButtonText: '知道了',
+      customClass: 'cyber-message-box', // 建议这里也补上
+    })
     return
   }
   const loading = ElLoading.service({ text: '正在生成盘点报告...' })
@@ -1073,6 +1188,9 @@ const fixByReturn = async (item) => {
 /**
  * 处置方案3：禁用故障传感器 (针对：硬件微动开关损坏)
  */
+/**
+ * 处置方案3：禁用故障传感器
+ */
 const fixByDisableSensor = async (item) => {
   await ElMessageBox.confirm(
     `确定禁用 ${item.self_address} 号柜位的传感器感知吗？禁用后系统将不再自动检测该位置的实时状态。`,
@@ -1080,27 +1198,25 @@ const fixByDisableSensor = async (item) => {
     { confirmButtonText: '确认禁用', type: 'error', customClass: 'cyber-message-box' },
   )
 
-  // 1. 获取当前内存中的配置
   const newConfig = JSON.parse(JSON.stringify(config_blob.value))
-  // 2. 找到对应开关配置
   const switchDetail = newConfig.switch.details.find((d) => d.self_address == item.self_address)
   if (switchDetail) {
     switchDetail.admin_status = 0 // 标记为禁用
 
-    // 3. 写回数据库
     await window.electronAPI.el_post({
       action: 'update',
       payload: {
         tableName: 'terminal_settings',
         setValues: { config_blob: JSON.stringify(newConfig) },
-        condition: `id > 0`, // 假设只有一行配置
+        condition: `id > 0`,
       },
     })
 
-    config_blob.value = newConfig // 更新本地内存
-    item.isProcessed = true // 新增这一行
-    item.inventory_remark = '传感器故障已屏蔽'
-    ElMessage.warning('传感器已禁用，请及时通知维保人员')
+    config_blob.value = newConfig
+    item.isProcessed = true
+    // 修改备注，明确这只是硬件层面的操作
+    item.inventory_remark = '传感器故障，已执行物理屏蔽'
+    ElMessage.warning('传感器已禁用，请继续执行肉眼核实以完成盘点')
   }
 }
 
@@ -1817,19 +1933,27 @@ onUnmounted(() => {
   background: rgba(0, 242, 255, 0.1);
   border: 1px solid var(--primary-dark);
   color: var(--primary);
-  padding: 4px 8px;
+  /* 关键修改：强制高度和内边距 */
+  height: 32px;
+  padding: 0 15px;
+  font-size: 13px;
+  font-weight: bold;
+  /* ---------------- */
   border-radius: 4px;
-  font-size: 11px;
   cursor: pointer;
-  display: flex;
+  display: inline-flex;
   align-items: center;
-  gap: 4px;
+  justify-content: center;
+  gap: 6px;
   transition: all 0.2s;
+  white-space: nowrap;
 }
 
+/* 悬停效果同步强化 */
 .mini-action-btn:hover {
   background: var(--primary-dark);
   color: #000;
+  box-shadow: 0 0 10px rgba(0, 242, 255, 0.3);
 }
 
 .mini-action-btn.success {
@@ -1844,27 +1968,73 @@ onUnmounted(() => {
   background: rgba(230, 162, 60, 0.05);
 }
 
-/* 表格缩略图 */
-.table-thumb {
-  width: 60px;
-  height: 60px;
+/* 修正：传感已屏蔽状态标签 - 让它和按钮看起来一样大 */
+.disposal-step-group .mini-tag.st-disabled {
+  height: 32px;
+  /* 与按钮高度完全一致 */
+  padding: 0 12px;
+  /* 保持一致的水平内边距 */
+  font-size: 13px;
+  /* 字体大小一致 */
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   border-radius: 4px;
-  border: 1px solid #2a3546;
+  background: rgba(255, 77, 79, 0.15) !important;
+  color: #ff4d4f !important;
+  border: 1px solid rgba(255, 77, 79, 0.4) !important;
+  margin: 0;
+  /* 清除默认 margin */
+}
+
+/* 表格缩略图 */
+/* 修改后的表格缩略图：适配 4:3 比例 */
+.table-thumb {
+  width: 96px;
+  /* 宽度增加 */
+  height: 72px;
+  /* 按照 4:3 比例计算 */
+  border-radius: 4px;
+  border: 1px solid var(--border);
+  background: #000;
+  display: block;
+  /* 消除间隙 */
 }
 
 .thumb-err {
-  width: 100%;
-  height: 100%;
+  width: 96px;
+  height: 72px;
   background: #0d121c;
   display: flex;
+  flex-direction: column;
   align-items: center;
   justify-content: center;
-  color: #334155;
+  color: #4a5c76;
+  border: 1px dashed #2a3546;
+  gap: 2px;
+  /* 1. 缩小间距，让视觉更紧凑 */
+  font-size: 13px;
+  line-height: 1;
+  /* 2. 关键：强制行高为1，消除文字底部多余间隙 */
+}
+
+/* 3. 针对图标进行微调，确保图标本身没有额外占位 */
+.thumb-err .el-icon {
+  margin-bottom: 0;
+  /* 确保没有下边距 */
+  display: flex;
+  /* 消除行内元素的基线对齐问题 */
+}
+
+.thumb-err span {
+  letter-spacing: 1px;
+  margin-top: 22px;
+  /* 4. 手动微调文字位置，补偿视觉重心 */
 }
 
 /* 位置信息 */
 .t-pos {
-  font-size: 11px;
+  font-size: 12px;
   color: var(--primary);
   margin-top: 4px;
   display: flex;
@@ -1883,23 +2053,19 @@ onUnmounted(() => {
 }
 
 .dot-label {
-  font-size: 11px;
+  font-size: 13px;
   color: #8899a6;
 }
 
-/* 已处理状态 */
+/* 已核实/数据已平 状态标签的高度对齐 */
 .status-resolved {
   color: var(--success);
   font-weight: bold;
-  font-size: 12px;
-  display: flex;
+  font-size: 14px;
+  height: 32px;
+  display: inline-flex;
   align-items: center;
-  gap: 4px;
-}
-
-/* 表格单元格对齐调整 */
-.cyber-table td {
-  vertical-align: middle;
+  gap: 6px;
 }
 
 /* 已禁用状态：深红背景，亮红文字 */
@@ -2212,85 +2378,6 @@ onUnmounted(() => {
   /* 关键：保留换行 */
 }
 
-/* 芯片清单样式 */
-.chip-cards-container {
-  display: grid;
-  grid-template-columns: repeat(3, 1fr);
-  gap: 12px;
-  padding-bottom:12px;
-}
-
-.chip-detail-card {
-  background: #1c2538;
-  border: 1px solid var(--border);
-  border-radius: 6px;
-  overflow: hidden;
-}
-
-.chip-card-header {
-  background: rgba(255, 255, 255, 0.05);
-  padding: 6px 10px;
-  display: flex;
-  justify-content: space-between;
-  border-bottom: 1px solid var(--border);
-}
-
-.chip-idx {
-  color: var(--primary);
-  font-weight: bold;
-  font-size: 12px;
-}
-
-.chip-code {
-  font-size: 11px;
-  color: var(--text-sec);
-  font-family: monospace;
-}
-
-.chip-card-body {
-  padding: 10px;
-}
-
-.chip-info-line {
-  font-size: 12px;
-  margin-bottom: 4px;
-  display: flex;
-  gap: 8px;
-}
-
-.chip-info-line .l {
-  color: var(--text-sec);
-}
-
-.chip-img-strip {
-  display: flex;
-  gap: 6px;
-  margin-top: 10px;
-  overflow-x: auto;
-  padding-bottom: 5px;
-}
-
-.mini-chip-img {
-  width: 50px;
-  height: 50px;
-  border-radius: 4px;
-  border: 1px solid var(--border);
-  flex-shrink: 0;
-}
-
-.no-img {
-  font-size: 10px;
-  color: #444;
-}
-
-.text-success {
-  color: var(--success);
-}
-
-.text-error {
-  color: var(--error);
-}
-
 /* 找到 .img-err 并修改为以下内容 */
 .img-err {
   width: 100%;
@@ -2398,11 +2485,24 @@ onUnmounted(() => {
   /* 稍微加大按钮间距，显得更大气 */
   width: 100%;
 }
+
 /* 报修待核实：亮橙色边框 */
 .tag-maintenance-pending {
-  background: rgba(230, 162, 60, 0.2);
-  color: #e6a23c;
-  border: 1px solid #e6a23c;
+  background: #e6a23c;
+  /* 橙色不透明背景 */
+  color: #000;
+  /* 黑色文字，对比度最高 */
+  font-weight: bold;
+  box-shadow: 0 0 10px rgba(230, 162, 60, 0.4);
+  /* 增加一点发光感，提醒待办 */
+}
+
+/* 同时建议修改详情弹窗里的显示逻辑（约 1139 行附近） */
+.live-monitor-panel .tag-maintenance-pending {
+  background: #e6a23c;
+  color: #000;
+  padding: 2px 8px;
+  border-radius: 4px;
 }
 
 /* 报修已核实：淡青色 */
@@ -2414,6 +2514,274 @@ onUnmounted(() => {
 
 .text-muted {
   opacity: 0.6;
+}
+
+/* --- 芯片卡片容器网格 --- */
+.chip-cards-container {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  /* 依然保持一行 3 个 */
+  gap: 16px;
+  padding-bottom: 20px;
+}
+
+.chip-detail-card {
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  transition: all 0.3s;
+}
+
+.chip-detail-card:hover {
+  border-color: var(--primary-dark);
+  background: rgba(0, 242, 255, 0.02);
+}
+
+/* --- 头部：仅序号 --- */
+.chip-card-header {
+  background: rgba(0, 242, 255, 0.08);
+  padding: 10px 15px;
+  border-bottom: 1px solid var(--border);
+}
+
+.chip-idx {
+  color: var(--primary);
+  font-weight: bold;
+  font-size: 14px;
+  letter-spacing: 1px;
+}
+
+/* --- 内容区布局 --- */
+.chip-card-body {
+  display: flex;
+  flex-direction: column;
+}
+
+/* --- 图片：4:3 比例适配 --- */
+.chip-image-zone {
+  padding: 15px 15px 0 15px;
+}
+
+.chip-img-grid {
+  display: grid;
+  grid-template-columns: 1fr;
+  /* 详情里默认大图展示，如果有多个芯片图会自动撑开 */
+  gap: 8px;
+}
+
+.standard-chip-img {
+  width: 100%;
+  aspect-ratio: 4 / 3;
+  /* 对应拍照的 640x480 */
+  border-radius: 4px;
+  border: 1px solid var(--border);
+  background: #000;
+}
+
+.chip-no-img {
+  width: 100%;
+  aspect-ratio: 4 / 3;
+  background: rgba(0, 0, 0, 0.2);
+  border: 1px dashed var(--border);
+  border-radius: 4px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  color: #334155;
+  font-size: 12px;
+  gap: 8px;
+}
+
+/* --- 信息列表：模仿管理页面布局 --- */
+.chip-params-list {
+  padding: 15px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.param-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 13px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.03);
+  padding-bottom: 8px;
+}
+
+.param-item.vertical {
+  flex-direction: column;
+  align-items: flex-start;
+  border-bottom: none;
+}
+
+.p-label {
+  color: var(--text-sec);
+  flex-shrink: 0;
+}
+
+.p-value {
+  color: #fff;
+  font-weight: 500;
+  text-align: right;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  margin-left: 10px;
+}
+
+/* 参数内容区 */
+.p-content {
+  margin-top: 6px;
+  width: 100%;
+  background: rgba(0, 0, 0, 0.2);
+  padding: 8px;
+  border-radius: 4px;
+  font-size: 12px;
+  color: #cdd9e5;
+  line-height: 1.5;
+  min-height: 50px;
+  max-height: 80px;
+  overflow-y: auto;
+  white-space: pre-wrap;
+  /* 保留参数换行 */
+}
+
+/* 人工授信/非受控状态：醒目的警告色 */
+.tag-unmonitored {
+  background: rgba(255, 170, 0, 0.2) !important;
+  color: #ffaa00 !important;
+  border: 1px solid #ffaa00;
+  box-shadow: 0 0 8px rgba(255, 170, 0, 0.3);
+}
+
+/* 在卡片上增加一个“非受控”标志 */
+.equip-card.is-unmonitored {
+  border-color: #ffaa00 !important;
+  background: rgba(255, 170, 0, 0.05) !important;
+}
+
+/* 闪烁动画提示该位置不可靠 */
+.equip-card.is-unmonitored::after {
+  content: 'UNGUARDED';
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%) rotate(-15deg);
+  font-size: 24px;
+  font-weight: 900;
+  color: rgba(255, 170, 0, 0.15);
+  pointer-events: none;
+  border: 4px solid rgba(255, 170, 0, 0.15);
+  padding: 5px 10px;
+}
+
+.disposal-step-group {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  /* 增大元素间的间距 */
+}
+
+/* 强制让“传感已屏蔽”标签在弹窗表格里显得更小巧一点 */
+.mini-tag.st-disabled {
+  border: 1px solid rgba(255, 77, 79, 0.4);
+  background: rgba(255, 77, 79, 0.1);
+}
+
+/* 针对“屏蔽但未核实”的中间状态 */
+.mini-tag.st-unreg {
+  background: #e6a23c !important;
+  /* 强制使用不透明橙色 */
+  color: #000 !important;
+  /* 强制使用黑色文字 */
+  border: none !important;
+  /* 不透明背景下通常不需要边框 */
+  font-weight: bold;
+}
+
+/* 只有真正处理完的行才变淡 */
+.is-processed-row {
+  background: rgba(0, 255, 157, 0.05) !important;
+  opacity: 0.8;
+  border-left: 4px solid var(--success);
+  /* 增加左侧绿色条，表示彻底完成 */
+}
+
+/* 仅针对弹窗表格中“异常类型”列的标签字体进行放大 */
+.type-cell .mini-tag {
+  font-size: 13px !important;
+  padding: 3px 8px;
+  /* 稍微增加一点内边距让文字不拥挤 */
+}
+
+/* 针对查看记录按钮的弱化样式 */
+.mini-action-btn.plain-btn {
+  background: rgba(255, 255, 255, 0.05);
+  border-color: rgba(255, 255, 255, 0.2);
+  color: #8899a6;
+}
+
+.mini-action-btn.plain-btn:hover {
+  background: rgba(0, 242, 255, 0.1);
+  border-color: var(--primary);
+  color: var(--primary);
+}
+
+/* --- 找到并替换这部分代码 --- */
+.table-textarea :deep(.el-textarea__inner) {
+  background-color: rgba(0, 0, 0, 0.3) !important;
+  /* 稍微调暗背景 */
+  /* 关键修改：使用更淡的颜色，并彻底移除阴影 */
+  border: 1px solid var(--border) !important;
+  box-shadow: none !important;
+
+  color: #cdd9e5 !important;
+  font-size: 12px !important;
+  line-height: 1.5 !important;
+  padding: 6px 10px !important;
+  height: 48px !important;
+  min-height: 48px !important;
+  max-height: 48px !important;
+  overflow-y: auto !important;
+  transition: all 0.3s;
+  border-radius: 4px;
+}
+
+/* 选中后的样式保持青色，增加识别度 */
+.table-textarea :deep(.el-textarea__inner:focus) {
+  border-color: var(--primary) !important;
+  background-color: rgba(0, 242, 255, 0.05) !important;
+  /* 聚焦时稍微亮一点 */
+  box-shadow: 0 0 0 1px var(--primary) inset !important;
+  /* 使用内阴影代替外发光，更硬核 */
+}
+
+/* 占位符颜色 */
+.table-textarea :deep(.el-textarea__inner::placeholder) {
+  color: #4a5c76 !important;
+}
+
+/* 针对 Textarea 内部滚动条的赛博朋克化定制 */
+.table-textarea :deep(.el-textarea__inner)::-webkit-scrollbar {
+  width: 4px !important;
+}
+
+.table-textarea :deep(.el-textarea__inner)::-webkit-scrollbar-track {
+  background: transparent !important;
+}
+
+.table-textarea :deep(.el-textarea__inner)::-webkit-scrollbar-thumb {
+  background: #2a3546 !important;
+  border-radius: 10px !important;
+}
+
+.table-textarea :deep(.el-textarea__inner)::-webkit-scrollbar-thumb:hover {
+  background: var(--primary-dark) !important;
 }
 </style>
 
@@ -2460,7 +2828,7 @@ onUnmounted(() => {
   /* 这里会产生滚动条 */
   background-color: transparent !important;
   color: #ffffff !important;
-  padding: 20px !important;
+  padding: 20px 0px !important;
 }
 
 /* === 核心修复：针对弹窗 Body 和内部 custom-scroll 统一滚动条样式 === */
@@ -2534,14 +2902,10 @@ onUnmounted(() => {
 }
 
 .cyber-table td {
-  padding: 12px;
+  padding: 15px 12px;
+  /* 增加上下间距，缓解拥挤感 */
   border-bottom: 1px solid rgba(255, 255, 255, 0.05);
-}
-
-/* 表格内的输入框背景适配 */
-.table-input .el-input__wrapper {
-  background-color: rgba(0, 0, 0, 0.4) !important;
-  box-shadow: 0 0 0 1px #4a5c76 inset !important;
+  vertical-align: middle;
 }
 
 /* 异常标记 */
@@ -2553,9 +2917,10 @@ onUnmounted(() => {
 }
 
 .st-out-warn {
-  background: rgba(255, 77, 79, 0.15);
-  color: #ff4d4f;
-  border: 1px solid #ff4d4f;
+  background: #ff4d4f !important;
+  color: #0d121c !important;
+  /* 红色背景配白色字 */
+  border: none !important;
 }
 
 .st-unreg {
@@ -2570,10 +2935,22 @@ onUnmounted(() => {
   border: 1px solid #8899a6;
 }
 
+/* 备注输入框深度优化 */
 .table-input .el-input__wrapper {
-  background: rgba(0, 0, 0, 0.3) !important;
+  background-color: rgba(0, 0, 0, 0.4) !important;
   box-shadow: none !important;
-  border: 1px solid #4a5c76;
+  border: 1px solid #2a3546 !important;
+  padding: 4px 12px !important;
+}
+
+.table-input .el-input__inner {
+  font-size: 13px !important;
+  color: #cdd9e5 !important;
+}
+
+/* 选中的行高亮，更易聚焦 */
+.cyber-table tbody tr:hover {
+  background: rgba(255, 255, 255, 0.02);
 }
 
 /* 底部按钮 */
@@ -2586,6 +2963,7 @@ onUnmounted(() => {
 /* 2. 修复按钮左右 padding 缺失问题 */
 .footer-btn {
   min-width: 130px;
+  max-width: 170px;
   /* 稍微加宽 */
   padding: 0 24px;
   height: 42px;
@@ -2762,15 +3140,150 @@ onUnmounted(() => {
   gap: 4px;
 }
 
-/* 处理后的文字提示 */
-.resolved-hint {
-  font-size: 12px;
-  color: #8899a6;
-  font-style: italic;
+/* ==========================================================
+   快速处置列按钮布局优化
+   ========================================================== */
+.disposal-step-group {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  /* 增大按钮间距 */
 }
 
-/* 调整处置按钮在表格中的宽度，防止撑开 */
-.action-btns {
-  min-width: 250px;
+/* 统一处置列中所有元素的高度和字体 */
+.mini-action-btn {
+  height: 34px;
+  /* 稍微调高一点点 */
+  padding: 0 16px;
+  font-size: 13px;
+  font-weight: bold;
+  border-radius: 4px;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  transition: all 0.2s;
+  white-space: nowrap;
+}
+
+/* 确保“人工已核”等状态标签也对齐高度 */
+.status-resolved {
+  height: 34px;
+  display: inline-flex;
+  align-items: center;
+  color: var(--success);
+  font-weight: bold;
+  gap: 6px;
+}
+</style>
+
+<style>
+/* ==========================================================
+   [同步修正版] 赛博朋克风格 ElMessageBox 全局样式覆盖
+   修复：同步领用页面的 530px 宽度及间距逻辑
+   ========================================================== */
+
+/* 1. 弹窗容器 */
+.cyber-message-box.el-message-box {
+  background-color: #141b2d !important;
+  border: 1px solid #0099a1 !important;
+  box-shadow:
+    0 0 30px rgba(0, 0, 0, 0.8),
+    inset 0 0 20px rgba(0, 242, 255, 0.05) !important;
+  border-radius: 8px !important;
+  /* 同步领用页面的大留白感 */
+  padding-bottom: 40px !important;
+  /* 同步领用页面的宽度 */
+  width: 530px !important;
+  max-width: 95vw;
+}
+
+/* 2. 标题区 */
+.cyber-message-box .el-message-box__header {
+  background: rgba(0, 0, 0, 0.2);
+  padding: 15px 25px;
+  /* 增加左右内边距 */
+  border-bottom: 1px solid rgba(0, 242, 255, 0.1);
+}
+
+.cyber-message-box .el-message-box__title {
+  color: #fff !important;
+  /* 同步领用页纯白标题 */
+  font-weight: bold;
+  letter-spacing: 1px;
+}
+
+/* 3. 内容区 */
+.cyber-message-box .el-message-box__content {
+  color: #ccdbe8 !important;
+  padding: 35px 30px !important;
+  /* 增加内边距，显得更宽敞 */
+  font-size: 14px;
+  line-height: 1.6;
+}
+
+/* 4. 底部按钮容器 */
+.cyber-message-box .el-message-box__btns {
+  padding: 10px 30px 0 !important;
+  /* 左右间距对齐内容区 */
+  display: flex !important;
+  justify-content: center !important;
+  align-items: center !important;
+  flex-direction: row-reverse !important;
+  gap: 20px !important;
+}
+
+/* 5. 统一按钮尺寸 */
+.cyber-message-box .el-message-box__btns .el-button {
+  margin: 0 !important;
+  min-width: 130px !important;
+  /* 稍微加宽按钮，适配 530px 的大框 */
+  height: 40px !important;
+  /* 稍微加高，增加点击感 */
+  font-size: 14px !important;
+  font-weight: bold !important;
+  border-radius: 4px !important;
+  display: inline-flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  transition: all 0.3s !important;
+  padding: 0 20px !important;
+}
+
+/* 6. 确认按钮 (Primary) */
+.cyber-message-box .el-button--primary {
+  background: linear-gradient(90deg, #0099a1 0%, #005f66 100%) !important;
+  border: 1px solid #00f2ff !important;
+  color: #fff !important;
+}
+
+.cyber-message-box .el-button--primary:hover {
+  box-shadow: 0 0 15px rgba(0, 242, 255, 0.4) !important;
+}
+
+/* 7. 取消按钮 (Default) */
+.cyber-message-box .el-button:not(.el-button--primary) {
+  background: transparent !important;
+  /* 同步领用页面的透明背景 */
+  border: 1px solid #4a5c76 !important;
+  color: #8899a6 !important;
+}
+
+.cyber-message-box .el-button:not(.el-button--primary):hover {
+  color: #fff !important;
+  border-color: #8899a6 !important;
+  background: rgba(255, 255, 255, 0.05) !important;
+}
+
+/* 8. 针对 Prompt 输入框样式 */
+.cyber-message-box .el-input__wrapper {
+  background-color: rgba(20, 27, 45, 0.9) !important;
+  box-shadow: 0 0 0 1px #4a5c76 inset !important;
+  height: 40px;
+}
+
+.cyber-message-box .el-input__inner {
+  color: #fff !important;
 }
 </style>

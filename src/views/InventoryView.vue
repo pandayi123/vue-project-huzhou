@@ -141,7 +141,6 @@
           </div>
 
           <!-- 右侧卡片联动联动左侧过滤器 -->
-          <!-- 右侧卡片联动联动左侧过滤器 -->
           <div class="stats-summary-grid">
             <!-- 全部 -->
             <div class="stat-card clickable" :class="{ active: currentFilter === 'ALL' }" @click="setFilter('ALL')">
@@ -219,7 +218,8 @@
     </div>
 
     <!-- 异常核对弹窗 -->
-    <el-dialog v-model="summaryVisible" title="异常项快捷处置" width="1200px" class="cyber-dialog">
+    <el-dialog v-model="summaryVisible" title="异常项快捷处置" width="1250px" class="cyber-dialog"
+      :class="{ 'is-keyboard-open': showKeyboard }" @close="closeKeyboard">
       <div class="summary-dialog-content">
         <div v-if="abnormalItems.length === 0" class="all-ok-tip">
           <el-icon :size="50" color="#00ff9d">
@@ -227,29 +227,40 @@
           </el-icon>
           <p>当前无异常项，账实百分百吻合</p>
         </div>
-        <div v-else class="abnormal-table-container custom-scroll">
+        <div v-else class="abnormal-table-container custom-scroll" :style="{ maxHeight: scrollAreaHeight }">
           <table class="cyber-table">
             <thead>
               <tr>
-                <th width="80">实照</th>
-                <th width="180">装备/编号/位置</th>
-                <th width="200">账实核对</th>
+                <!-- 1. 实照列宽由 80 增加到 110，适配 4:3 -->
+                <th width="110">装备实照</th>
+                <!-- 2. 基础信息列保持 180 -->
+                <th width="140">装备名称/编号/位置</th>
+                <th width="100">装备流转记录</th>
+                <!-- 3. 账实对比列由 200 压缩至 160 -->
+                <th width="130">账实核对</th>
+                <!-- 4. 异常类型列保持 100 -->
                 <th width="100">异常类型</th>
-                <th width="280">快速处置方案</th>
-                <th>核实备注</th>
+                <!-- 5. 快速处置方案列宽保持 280 (按钮变大后需要此空间) -->
+                <th width="200">快速处置方案（点击执行）</th>
+                <!-- 6. 备注列不设限，自动撑开剩余空间 -->
+                <th>盘点备注</th>
               </tr>
             </thead>
             <tbody>
               <!-- 修改 <tr> 的 class -->
-              <tr v-for="item in abnormalItems" :key="item.id"
-                :class="{ 'is-processed-row': item.manualVerified || (item.isProcessed && !isAdminDisabled(item)) }">
+              <tr v-for="item in abnormalItems" :key="item.id" :class="{
+                'is-processed-row':
+                  item.manualVerified || (item.isProcessed && !isAdminDisabled(item)),
+              }">
                 <!-- 1. 装备实照 -->
                 <td>
                   <el-image :src="item.group_image" class="table-thumb" :preview-src-list="[item.group_image]"
                     fit="cover">
                     <template #error>
                       <div class="thumb-err">
-                        <el-icon>
+                        <span>暂无实照</span>
+                        <!-- 新增文字提示 -->
+                        <el-icon :size="20">
                           <Picture />
                         </el-icon>
                       </div>
@@ -267,6 +278,13 @@
                     </el-icon>
                     {{ item.self_address }}号位
                   </div>
+                </td>
+
+                <!-- 3. 新增：流转记录按钮 -->
+                <td>
+                  <button class="mini-action-btn plain-btn" @click="handleCheckHistory(item)">
+                    查看记录
+                  </button>
                 </td>
 
                 <!-- 3. 账实对比 (视觉强化版) -->
@@ -290,21 +308,17 @@
                 </td>
 
                 <!-- 4. 异常类型 -->
-                <td>
-                  <!-- 只有真正核实了实物（补录或人工核实），才显示绿色已处置 -->
+                <td class="type-cell">
                   <span v-if="item.manualVerified || (item.isProcessed && !isAdminDisabled(item))"
                     class="status-resolved">
                     <el-icon>
                       <Check />
-                    </el-icon> 已核实
+                    </el-icon>
+                    已核实
                   </span>
-
-                  <!-- 如果只是屏蔽了传感，还没核实实物，显示橙色状态 -->
                   <span v-else-if="isAdminDisabled(item)" class="mini-tag st-unreg">
                     传感屏蔽/待核
                   </span>
-
-                  <!-- 初始异常状态 -->
                   <span v-else class="mini-tag" :class="getAbnormalType(item).class">
                     {{ getAbnormalType(item).text }}
                   </span>
@@ -332,11 +346,7 @@
                     <!-- 场景3：传感器已屏蔽，但【尚未】肉眼核实实物 -->
                     <template v-else-if="isAdminDisabled(item)">
                       <div class="disposal-step-group">
-                        <span class="mini-tag st-disabled">传感已屏蔽</span>
                         <button class="mini-action-btn success" @click="handleManualVerify(item)">
-                          <el-icon>
-                            <CircleCheck />
-                          </el-icon>
                           肉眼核实
                         </button>
                         <button class="mini-action-btn" @click="handleEnableSensor(item)">
@@ -361,9 +371,12 @@
                   </div>
                 </td>
 
-                <!-- 6. 备注 -->
+                <!-- 找到以下位置 -->
                 <td>
-                  <el-input v-model="item.inventory_remark" placeholder="备注原因..." class="table-input" />
+                  <el-input v-model="item.inventory_remark" type="textarea" :rows="2" placeholder="请输入盘点备注..."
+                    class="table-textarea" resize="none"
+                    @focus="openKeyboard('default', 'inventory_remark', $event, item)" @click="updateCursorPos"
+                    @keyup="updateCursorPos" />
                 </td>
               </tr>
             </tbody>
@@ -573,11 +586,17 @@
         </div>
       </template>
     </el-dialog>
+
+    <!-- 虚拟键盘组件 -->
+    <div v-if="showKeyboard" class="keyboard-container" :style="keyboardPosition" @mousedown.prevent>
+      <SimpleKeyboard v-model="currentInputValue" :defaultLayout="currentLayout" @onKeyPress="handleKeyPress"
+        @onClose="closeKeyboard" keyboardClass="show-keyboard" />
+    </div>
   </div>
 </template>
 
 <script setup>
-import { ref, computed, onMounted, onUnmounted, reactive } from 'vue'
+import { ref, computed, onMounted, onUnmounted, reactive, defineAsyncComponent, nextTick, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import {
   Files,
@@ -588,9 +607,6 @@ import {
   Location,
   Check,
   Timer as HistoryIcon,
-  EditPen,
-  Refresh,
-  Tools,
 } from '@element-plus/icons-vue'
 import { ElMessage, ElLoading, ElMessageBox } from 'element-plus'
 import { useAudioStore } from '@/stores/audioStore'
@@ -619,6 +635,91 @@ const isPolling = ref(false) // 轮询开关
 const summaryVisible = ref(false)
 const currentFilter = ref('ALL')
 const selectedName = ref('ALL') // 【新增：记录选中的装备名称】
+
+// --- 虚拟键盘相关核心逻辑 ---
+const SimpleKeyboard = defineAsyncComponent(() => import('@/components/SimpleKeyboard_black.vue'))
+const showKeyboard = ref(false)
+const activeField = ref('')
+const currentInputValue = ref('')
+const activeItem = ref(null) // 关键：记录当前正在编辑的装备项
+const activeInputDom = ref(null)
+const cursorIndex = ref(0)
+const scrollAreaHeight = ref('50vh') // 对应异常表格容器的初始高度
+const currentLayout = ref('default')
+
+const keyboardPosition = ref({
+  bottom: '0px',
+  width: '100%',
+  left: `0px`,
+  position: 'fixed',
+  'z-index': 9999,
+})
+
+// 更新光标位置
+const updateCursorPos = (event) => {
+  const inputEl = event.target.tagName === 'TEXTAREA' || event.target.tagName === 'INPUT'
+    ? event.target
+    : event.target.querySelector('textarea, input')
+  if (inputEl) {
+    cursorIndex.value = inputEl.selectionStart
+    activeInputDom.value = inputEl
+  }
+}
+
+// 打开键盘
+const openKeyboard = (layout, fieldName, event, item) => {
+  activeField.value = fieldName
+  activeItem.value = item // 记录当前行对象
+  currentInputValue.value = item[fieldName] || ''
+  currentLayout.value = layout
+  showKeyboard.value = true
+
+  // 关键：缩小弹窗内的滚动区域高度
+  scrollAreaHeight.value = '25vh'
+
+  if (event && event.target) {
+    activeInputDom.value = event.target
+    cursorIndex.value = event.target.selectionStart || currentInputValue.value.length
+
+    nextTick(() => {
+      // 自动滚动到输入框所在的行
+      event.target.scrollIntoView({ behavior: 'smooth', block: 'center' })
+      event.target.focus()
+      event.target.setSelectionRange(cursorIndex.value, cursorIndex.value)
+    })
+  }
+}
+
+// 关闭键盘
+const closeKeyboard = () => {
+  showKeyboard.value = false
+  scrollAreaHeight.value = '50vh' // 恢复高度
+  if (activeInputDom.value) activeInputDom.value.blur()
+}
+
+const handleKeyPress = (button) => {
+  nextTick(() => { if (activeInputDom.value) activeInputDom.value.focus() })
+  if (button === '{close}' || button === '{submit}') {
+    closeKeyboard()
+  }
+}
+
+// 监听键盘输入并回填到对应的列表项
+watch(currentInputValue, (newValue, oldValue) => {
+  if (showKeyboard.value && activeItem.value && activeField.value) {
+    // 同步修改 abnormalItems 中对应项的数据
+    activeItem.value[activeField.value] = newValue
+
+    const diff = (newValue || '').length - (oldValue || '').length
+    cursorIndex.value += diff
+
+    nextTick(() => {
+      if (activeInputDom.value) {
+        activeInputDom.value.setSelectionRange(cursorIndex.value, cursorIndex.value)
+      }
+    })
+  }
+})
 
 // --- 新增：计算不重复的装备名称列表 ---
 const uniqueNameOptions = computed(() => {
@@ -837,9 +938,9 @@ const handleEnableSensor = async (item) => {
       config_blob.value = newConfig
 
       // 重置所有处置状态，让系统重新计算该项是否异常
-      item.manualVerified = false; // 清除人工核实标记
-      item.isProcessed = false;    // 清除已处置标记（重要！）
-      item.inventory_remark = '';  // 可选：清除备注
+      item.manualVerified = false // 清除人工核实标记
+      item.isProcessed = false // 清除已处置标记（重要！）
+      item.inventory_remark = '' // 可选：清除备注
       // ------------------
 
       ElMessage.success('传感器感应已恢复，系统将重新实时判定状态')
@@ -1926,19 +2027,27 @@ onUnmounted(() => {
   background: rgba(0, 242, 255, 0.1);
   border: 1px solid var(--primary-dark);
   color: var(--primary);
-  padding: 4px 8px;
+  /* 关键修改：强制高度和内边距 */
+  height: 32px;
+  padding: 0 15px;
+  font-size: 13px;
+  font-weight: bold;
+  /* ---------------- */
   border-radius: 4px;
-  font-size: 11px;
   cursor: pointer;
-  display: flex;
+  display: inline-flex;
   align-items: center;
-  gap: 4px;
+  justify-content: center;
+  gap: 6px;
   transition: all 0.2s;
+  white-space: nowrap;
 }
 
+/* 悬停效果同步强化 */
 .mini-action-btn:hover {
   background: var(--primary-dark);
   color: #000;
+  box-shadow: 0 0 10px rgba(0, 242, 255, 0.3);
 }
 
 .mini-action-btn.success {
@@ -1953,27 +2062,73 @@ onUnmounted(() => {
   background: rgba(230, 162, 60, 0.05);
 }
 
-/* 表格缩略图 */
-.table-thumb {
-  width: 60px;
-  height: 60px;
+/* 修正：传感已屏蔽状态标签 - 让它和按钮看起来一样大 */
+.disposal-step-group .mini-tag.st-disabled {
+  height: 32px;
+  /* 与按钮高度完全一致 */
+  padding: 0 12px;
+  /* 保持一致的水平内边距 */
+  font-size: 13px;
+  /* 字体大小一致 */
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   border-radius: 4px;
-  border: 1px solid #2a3546;
+  background: rgba(255, 77, 79, 0.15) !important;
+  color: #ff4d4f !important;
+  border: 1px solid rgba(255, 77, 79, 0.4) !important;
+  margin: 0;
+  /* 清除默认 margin */
+}
+
+/* 表格缩略图 */
+/* 修改后的表格缩略图：适配 4:3 比例 */
+.table-thumb {
+  width: 96px;
+  /* 宽度增加 */
+  height: 72px;
+  /* 按照 4:3 比例计算 */
+  border-radius: 4px;
+  border: 1px solid var(--border);
+  background: #000;
+  display: block;
+  /* 消除间隙 */
 }
 
 .thumb-err {
-  width: 100%;
-  height: 100%;
+  width: 96px;
+  height: 72px;
   background: #0d121c;
   display: flex;
+  flex-direction: column;
   align-items: center;
   justify-content: center;
-  color: #334155;
+  color: #4a5c76;
+  border: 1px dashed #2a3546;
+  gap: 2px;
+  /* 1. 缩小间距，让视觉更紧凑 */
+  font-size: 13px;
+  line-height: 1;
+  /* 2. 关键：强制行高为1，消除文字底部多余间隙 */
+}
+
+/* 3. 针对图标进行微调，确保图标本身没有额外占位 */
+.thumb-err .el-icon {
+  margin-bottom: 0;
+  /* 确保没有下边距 */
+  display: flex;
+  /* 消除行内元素的基线对齐问题 */
+}
+
+.thumb-err span {
+  letter-spacing: 1px;
+  margin-top: 22px;
+  /* 4. 手动微调文字位置，补偿视觉重心 */
 }
 
 /* 位置信息 */
 .t-pos {
-  font-size: 11px;
+  font-size: 12px;
   color: var(--primary);
   margin-top: 4px;
   display: flex;
@@ -1992,23 +2147,19 @@ onUnmounted(() => {
 }
 
 .dot-label {
-  font-size: 11px;
+  font-size: 13px;
   color: #8899a6;
 }
 
-/* 已处理状态 */
+/* 已核实/数据已平 状态标签的高度对齐 */
 .status-resolved {
   color: var(--success);
   font-weight: bold;
-  font-size: 12px;
-  display: flex;
+  font-size: 14px;
+  height: 32px;
+  display: inline-flex;
   align-items: center;
-  gap: 4px;
-}
-
-/* 表格单元格对齐调整 */
-.cyber-table td {
-  vertical-align: middle;
+  gap: 6px;
 }
 
 /* 已禁用状态：深红背景，亮红文字 */
@@ -2439,6 +2590,7 @@ onUnmounted(() => {
   box-shadow: 0 0 10px rgba(230, 162, 60, 0.4);
   /* 增加一点发光感，提醒待办 */
 }
+
 /* 同时建议修改详情弹窗里的显示逻辑（约 1139 行附近） */
 .live-monitor-panel .tag-maintenance-pending {
   background: #e6a23c;
@@ -2625,23 +2777,24 @@ onUnmounted(() => {
 .disposal-step-group {
   display: flex;
   align-items: center;
-  gap: 8px;
-  flex-wrap: wrap;
+  gap: 10px;
+  /* 增大元素间的间距 */
 }
 
 /* 强制让“传感已屏蔽”标签在弹窗表格里显得更小巧一点 */
 .mini-tag.st-disabled {
   border: 1px solid rgba(255, 77, 79, 0.4);
-  padding: 2px 4px;
   background: rgba(255, 77, 79, 0.1);
-  font-size: 10px;
 }
 
 /* 针对“屏蔽但未核实”的中间状态 */
 .mini-tag.st-unreg {
-  background: #e6a23c !important; /* 强制使用不透明橙色 */
-  color: #000 !important;         /* 强制使用黑色文字 */
-  border: none !important;        /* 不透明背景下通常不需要边框 */
+  background: #e6a23c !important;
+  /* 强制使用不透明橙色 */
+  color: #000 !important;
+  /* 强制使用黑色文字 */
+  border: none !important;
+  /* 不透明背景下通常不需要边框 */
   font-weight: bold;
 }
 
@@ -2651,6 +2804,112 @@ onUnmounted(() => {
   opacity: 0.8;
   border-left: 4px solid var(--success);
   /* 增加左侧绿色条，表示彻底完成 */
+}
+
+/* 仅针对弹窗表格中“异常类型”列的标签字体进行放大 */
+.type-cell .mini-tag {
+  font-size: 13px !important;
+  padding: 3px 8px;
+  /* 稍微增加一点内边距让文字不拥挤 */
+}
+
+/* 针对查看记录按钮的弱化样式 */
+.mini-action-btn.plain-btn {
+  background: rgba(255, 255, 255, 0.05);
+  border-color: rgba(255, 255, 255, 0.2);
+  color: #8899a6;
+}
+
+.mini-action-btn.plain-btn:hover {
+  background: rgba(0, 242, 255, 0.1);
+  border-color: var(--primary);
+  color: var(--primary);
+}
+
+/* --- 找到并替换这部分代码 --- */
+.table-textarea :deep(.el-textarea__inner) {
+  background-color: rgba(0, 0, 0, 0.3) !important;
+  /* 稍微调暗背景 */
+  /* 关键修改：使用更淡的颜色，并彻底移除阴影 */
+  border: 1px solid var(--border) !important;
+  box-shadow: none !important;
+
+  color: #cdd9e5 !important;
+  font-size: 12px !important;
+  line-height: 1.5 !important;
+  padding: 6px 10px !important;
+  height: 48px !important;
+  min-height: 48px !important;
+  max-height: 48px !important;
+  overflow-y: auto !important;
+  transition: all 0.3s;
+  border-radius: 4px;
+}
+
+/* 选中后的样式保持青色，增加识别度 */
+.table-textarea :deep(.el-textarea__inner:focus) {
+  border-color: var(--primary) !important;
+  background-color: rgba(0, 242, 255, 0.05) !important;
+  /* 聚焦时稍微亮一点 */
+  box-shadow: 0 0 0 1px var(--primary) inset !important;
+  /* 使用内阴影代替外发光，更硬核 */
+}
+
+/* 占位符颜色 */
+.table-textarea :deep(.el-textarea__inner::placeholder) {
+  color: #4a5c76 !important;
+}
+
+/* 针对 Textarea 内部滚动条的赛博朋克化定制 */
+.table-textarea :deep(.el-textarea__inner)::-webkit-scrollbar {
+  width: 4px !important;
+}
+
+.table-textarea :deep(.el-textarea__inner)::-webkit-scrollbar-track {
+  background: transparent !important;
+}
+
+.table-textarea :deep(.el-textarea__inner)::-webkit-scrollbar-thumb {
+  background: #2a3546 !important;
+  border-radius: 10px !important;
+}
+
+.table-textarea :deep(.el-textarea__inner)::-webkit-scrollbar-thumb:hover {
+  background: var(--primary-dark) !important;
+}
+
+/* 键盘打开时，弹窗自动上移的补丁 */
+:deep(.el-dialog.cyber-dialog.is-keyboard-open) {
+  /* 这里的 -25vh 是关键，它会让弹窗在垂直方向上提 */
+  margin-top: -25vh !important;
+  transition: margin-top 0.3s cubic-bezier(0.25, 0.8, 0.25, 1) !important;
+}
+
+/* 键盘容器样式 */
+.keyboard-container {
+  position: fixed !important;
+  bottom: 0 !important;
+  left: 0 !important;
+  width: 100% !important;
+  z-index: 9999 !important;
+  background-color: #141b2d !important;
+  border-top: 1px solid #00f2ff;
+  box-shadow: 0 -4px 20px rgba(0, 0, 0, 0.6);
+  padding: 5px 0 20px 0 !important;
+}
+
+/* 确保 SimpleKeyboard 样式正确渲染 */
+:deep(.show-keyboard) {
+  background-color: transparent !important;
+}
+:deep(.show-keyboard .hg-button) {
+  background: #2a3546 !important;
+  color: #fff !important;
+  border-bottom: 2px solid #151a23 !important;
+}
+:deep(.show-keyboard .hg-button:active) {
+  background: #00f2ff !important;
+  color: #000 !important;
 }
 </style>
 
@@ -2697,7 +2956,7 @@ onUnmounted(() => {
   /* 这里会产生滚动条 */
   background-color: transparent !important;
   color: #ffffff !important;
-  padding: 20px !important;
+  padding: 20px 0px !important;
 }
 
 /* === 核心修复：针对弹窗 Body 和内部 custom-scroll 统一滚动条样式 === */
@@ -2771,14 +3030,10 @@ onUnmounted(() => {
 }
 
 .cyber-table td {
-  padding: 12px;
+  padding: 15px 12px;
+  /* 增加上下间距，缓解拥挤感 */
   border-bottom: 1px solid rgba(255, 255, 255, 0.05);
-}
-
-/* 表格内的输入框背景适配 */
-.table-input .el-input__wrapper {
-  background-color: rgba(0, 0, 0, 0.4) !important;
-  box-shadow: 0 0 0 1px #4a5c76 inset !important;
+  vertical-align: middle;
 }
 
 /* 异常标记 */
@@ -2791,7 +3046,8 @@ onUnmounted(() => {
 
 .st-out-warn {
   background: #ff4d4f !important;
-  color: #0d121c !important; /* 红色背景配白色字 */
+  color: #0d121c !important;
+  /* 红色背景配白色字 */
   border: none !important;
 }
 
@@ -2807,10 +3063,22 @@ onUnmounted(() => {
   border: 1px solid #8899a6;
 }
 
+/* 备注输入框深度优化 */
 .table-input .el-input__wrapper {
-  background: rgba(0, 0, 0, 0.3) !important;
+  background-color: rgba(0, 0, 0, 0.4) !important;
   box-shadow: none !important;
-  border: 1px solid #4a5c76;
+  border: 1px solid #2a3546 !important;
+  padding: 4px 12px !important;
+}
+
+.table-input .el-input__inner {
+  font-size: 13px !important;
+  color: #cdd9e5 !important;
+}
+
+/* 选中的行高亮，更易聚焦 */
+.cyber-table tbody tr:hover {
+  background: rgba(255, 255, 255, 0.02);
 }
 
 /* 底部按钮 */
@@ -3000,9 +3268,41 @@ onUnmounted(() => {
   gap: 4px;
 }
 
-/* 调整处置按钮在表格中的宽度，防止撑开 */
-.action-btns {
-  min-width: 250px;
+/* ==========================================================
+   快速处置列按钮布局优化
+   ========================================================== */
+.disposal-step-group {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  /* 增大按钮间距 */
+}
+
+/* 统一处置列中所有元素的高度和字体 */
+.mini-action-btn {
+  height: 34px;
+  /* 稍微调高一点点 */
+  padding: 0 16px;
+  font-size: 13px;
+  font-weight: bold;
+  border-radius: 4px;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  transition: all 0.2s;
+  white-space: nowrap;
+}
+
+/* 确保“人工已核”等状态标签也对齐高度 */
+.status-resolved {
+  height: 34px;
+  display: inline-flex;
+  align-items: center;
+  color: var(--success);
+  font-weight: bold;
+  gap: 6px;
 }
 </style>
 

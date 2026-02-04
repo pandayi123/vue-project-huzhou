@@ -180,7 +180,7 @@ const logList = ref([
     type: 'feature',
   },
   {
-    problem: '库室电子开锁保持时间太短，导致配合机械钥匙开门不方便',
+    problem: '库室电子开锁保持时间稍短，导致配合机械钥匙开门不方便',
     proposing_unit: '运输营',
     resolve_time: '2026-01-22',
     solution: '已延长库门开锁状态的保持时间，确保有足够的时间用机械钥匙开门。',
