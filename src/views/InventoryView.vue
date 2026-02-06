@@ -199,16 +199,15 @@
             <div class="spacer-text">装备状态实时自动更新</div>
           </div>
 
+          <!-- 找到这一块 -->
           <div class="action-footer">
             <button class="cyber-btn" @click="handleOpenSummary">
               <div class="btn-content">
-                <el-icon :size="24">
-                  <CircleCheck />
+                <el-icon :size="20">
+                  <Monitor />
+                  <!-- 改为监控图标或盘点图标 -->
                 </el-icon>
-                <!-- 删掉了 text-group 和 sub-text，直接放文字 -->
-                <span class="btn-main-text" style="margin-left: 8px">
-                  {{ stats.mismatch > 0 ? '核对并处理异常' : '确认结果并同步' }}
-                </span>
+                <span class="btn-main-text">开始盘点核对 </span>
               </div>
               <div class="scan-line"></div>
             </button>
@@ -218,16 +217,10 @@
     </div>
 
     <!-- 异常核对弹窗 -->
-    <el-dialog v-model="summaryVisible" title="异常项快捷处置" width="1250px" class="inventory-dialog-unique"
+    <el-dialog v-model="summaryVisible" title="全量装备盘点" width="1250px" class="inventory-dialog-unique"
       :class="{ 'is-keyboard-open': showKeyboard }" @close="closeKeyboard">
       <div class="summary-dialog-content">
-        <div v-if="abnormalItems.length === 0" class="all-ok-tip">
-          <el-icon :size="50" color="#00ff9d">
-            <CircleCheck />
-          </el-icon>
-          <p>当前无异常项，账实百分百吻合</p>
-        </div>
-        <div v-else class="abnormal-table-container custom-scroll" :style="{ maxHeight: scrollAreaHeight }">
+        <div class="abnormal-table-container custom-scroll" :style="{ maxHeight: scrollAreaHeight }">
           <table class="cyber-table">
             <thead>
               <tr>
@@ -239,7 +232,7 @@
                 <!-- 3. 账实对比列由 200 压缩至 160 -->
                 <th width="130">账实核对</th>
                 <!-- 4. 异常类型列保持 100 -->
-                <th width="100">异常类型</th>
+                <th width="100">实时判定状态</th>
                 <!-- 5. 快速处置方案列宽保持 280 (按钮变大后需要此空间) -->
                 <th width="200">快速处置方案（点击执行）</th>
                 <!-- 6. 备注列不设限，自动撑开剩余空间 -->
@@ -248,9 +241,11 @@
             </thead>
             <tbody>
               <!-- 修改 <tr> 的 class -->
-              <tr v-for="item in abnormalItems" :key="item.id" :class="{
+              <tr v-for="item in inventoryWorkList" :key="item.id" :class="{
                 'is-processed-row':
-                  item.manualVerified || (item.isProcessed && !isAdminDisabled(item)),
+                  item.manual_checked ||
+                  item.manualVerified ||
+                  (item.isProcessed && !isAdminDisabled(item)),
               }">
                 <!-- 1. 装备实照 -->
                 <td>
@@ -287,7 +282,7 @@
                   </button>
                 </td>
 
-                <!-- 3. 账实对比 (视觉强化版) -->
+                <!-- 4. 账实对比 (视觉强化版) -->
                 <td>
                   <div class="compare-row">
                     <span class="dot-label">系统账面:</span>
@@ -307,66 +302,43 @@
                   </div>
                 </td>
 
-                <!-- 4. 异常类型 -->
-                <td class="type-cell">
-                  <span v-if="item.manualVerified || (item.isProcessed && !isAdminDisabled(item))"
-                    class="status-resolved">
-                    <el-icon>
-                      <Check />
-                    </el-icon>
-                    已核实
-                  </span>
-                  <span v-else-if="isAdminDisabled(item)" class="mini-tag st-unreg">
-                    传感屏蔽/待核
-                  </span>
-                  <span v-else class="mini-tag" :class="getAbnormalType(item).class">
-                    {{ getAbnormalType(item).text }}
+                <!-- 5. 判定状态 -->
+                <td>
+                  <span class="mini-tag" :class="getDetailedStatus(item).class">
+                    {{ getDetailedStatus(item).text }}
                   </span>
                 </td>
 
-                <!-- 5. 快速处置按钮 -->
+                <!-- 6. 重点：核实操作列 -->
                 <td>
                   <div class="action-btns">
-                    <!-- 场景1：已经完成了实物核实 (肉眼看过或数据补录平账) -->
-                    <span v-if="item.manualVerified" class="status-resolved">
+                    <!-- 场景 A：已经核实过的 (无论是点确认还是点补录) -->
+                    <span
+                      v-if="item.manual_checked || item.manualVerified || (item.isProcessed && !isAdminDisabled(item))"
+                      class="status-resolved">
                       <el-icon>
-                        <Check />
-                      </el-icon>
-                      人工已核
+                        <CircleCheck />
+                      </el-icon>已核实
                     </span>
 
-                    <!-- 场景2：补录操作完成 (数据已平) -->
-                    <span v-else-if="item.isProcessed && !isAdminDisabled(item)" class="status-resolved">
-                      <el-icon>
-                        <Check />
-                      </el-icon>
-                      数据已平
-                    </span>
-
-                    <!-- 场景3：传感器已屏蔽，但【尚未】肉眼核实实物 -->
-                    <template v-else-if="isAdminDisabled(item)">
-                      <div class="disposal-step-group">
-                        <button class="mini-action-btn success" @click="handleManualVerify(item)">
-                          肉眼核实
-                        </button>
-                        <button class="mini-action-btn" @click="handleEnableSensor(item)">
-                          恢复感应
-                        </button>
-                      </div>
+                    <!-- 场景 B：账实相符的项 -> 显示“确认在位” -->
+                    <template v-else-if="getAssessmentResult(item) === 'HEALTHY'">
+                      <button class="mini-action-btn success" @click="handleConfirmNormal(item)">
+                        确认实物在位
+                      </button>
                     </template>
 
-                    <!-- 场景4：初始异常状态 (未做任何处置) -->
+                    <!-- 场景 C：异常项 (逻辑保持你之前的处置方案) -->
+                    <template v-else-if="isAdminDisabled(item)">
+                      <button class="mini-action-btn success" @click="handleManualVerify(item)">肉眼核实</button>
+                      <button class="mini-action-btn" @click="handleEnableSensor(item)">恢复感应</button>
+                    </template>
                     <template v-else>
-                      <button v-if="item.group_status === '在位'" class="mini-action-btn" @click="fixByBorrow(item)">
-                        补录领用
-                      </button>
+                      <button v-if="item.group_status === '在位'" class="mini-action-btn"
+                        @click="fixByBorrow(item)">补录领用</button>
                       <button v-if="item.group_status === '已取出'" class="mini-action-btn success"
-                        @click="fixByReturn(item)">
-                        补录归还
-                      </button>
-                      <button class="mini-action-btn warning" @click="fixByDisableSensor(item)">
-                        屏蔽传感
-                      </button>
+                        @click="fixByReturn(item)">补录归还</button>
+                      <button class="mini-action-btn warning" @click="fixByDisableSensor(item)">屏蔽传感</button>
                     </template>
                   </div>
                 </td>
@@ -383,27 +355,35 @@
           </table>
         </div>
       </div>
+      <!-- 【修改后的页脚部分】 -->
       <template #footer>
         <div class="dialog-footer">
           <div class="footer-left-tip">
-            <span v-if="stats.mismatch > 0" class="warning-text">
-              <el-icon>
-                <Warning />
-              </el-icon>
-              尚有 {{ stats.mismatch }} 项异常未处置，请先处理，再提交
-            </span>
-            <span v-else class="success-text">
-              <el-icon>
-                <CircleCheck />
-              </el-icon>
-              所有项已核对完成，可以生成报告
-            </span>
+            <!-- 进度显示保持不变 -->
+            <div class="inventory-progress-bar">
+              <span class="p-text">盘点核实进度：</span>
+              <span class="p-num">{{ verifiedCount }} / {{ equipmentList.length }}</span>
+              <div class="p-track">
+                <div class="p-fill" :style="{ width: (verifiedCount / equipmentList.length * 100) + '%' }"></div>
+              </div>
+            </div>
           </div>
+
           <div class="footer-right-btns">
-            <!-- 关键：提交按钮。只有当异常数为0时才允许点击 -->
-            <button class="footer-btn confirm" :class="{ 'is-disabled': stats.mismatch > 0 }"
-              :disabled="stats.mismatch > 0" @click="finalSubmit">
-              提交盘点报告
+            <!-- 【新增：移到这里的批量核实按钮】 -->
+            <!-- 只有当还有未确认的正常项时才显示，或者始终显示 -->
+            <button class="footer-btn history-btn" v-if="verifiedCount < equipmentList.length"
+              @click="handleBatchVerifyHealthy">
+              <el-icon>
+                <Check />
+              </el-icon>
+              一键确认正常项
+            </button>
+
+            <!-- 提交按钮 -->
+            <button class="footer-btn confirm" :class="{ 'is-disabled': verifiedCount < equipmentList.length }"
+              :disabled="verifiedCount < equipmentList.length" @click="finalSubmit">
+              生成盘点报告
             </button>
           </div>
         </div>
@@ -863,7 +843,7 @@ const getRealData = async () => {
     equipmentList.value = allData.map((item) => ({
       ...item,
       inventory_remark: '',
-      manual_checked: false,// 新增：是否经过人工点击核实
+      manual_checked: false, // 新增：是否经过人工点击核实
     }))
   } catch (error) {
     console.error('数据获取失败:', error)
@@ -1141,11 +1121,62 @@ const filteredList = computed(() => {
   return list
 })
 
-// --- 修改后的计算属性 ---
-const abnormalItems = computed(() => {
-  // 筛选出：当前依然异常的项 OR 在本次盘点过程中已经点击了处置按钮的项
-  return (equipmentList.value || []).filter((item) => isItemAbnormal(item) || item.isProcessed)
+// 【新增】全量盘点工作列表：严格按物理柜位排序
+const inventoryWorkList = computed(() => {
+  return [...equipmentList.value].sort((a, b) => {
+    return (Number(a.self_address) || 0) - (Number(b.self_address) || 0)
+  })
 })
+// 【新增】已核实数量统计 (包括人工确认正常的 + 已处理平账的)
+const verifiedCount = computed(() => {
+  return equipmentList.value.filter(
+    (item) =>
+      item.manual_checked || item.manualVerified || (item.isProcessed && !isAdminDisabled(item)),
+  ).length
+})
+// 【新增】确认正常项无误
+const handleConfirmNormal = (item) => {
+  item.manual_checked = true
+  item.inventory_remark = item.inventory_remark || '经实物核对，账实一致'
+  audioStore.play('/audio/按钮点击声.mp3')
+}
+
+// 【新增】一键核实所有账实相符项 (提高效率)
+// 修改 handleBatchVerifyHealthy
+const handleBatchVerifyHealthy = async () => {
+  // 找出所有系统判定正常但还没点过核实的
+  const healthyAndUnchecked = equipmentList.value.filter(
+    item => getAssessmentResult(item) === 'HEALTHY' && !item.manual_checked
+  )
+
+  if (healthyAndUnchecked.length === 0) {
+    ElMessage.info('暂无需要批量核实的正常项')
+    return
+  }
+
+  try {
+    await ElMessageBox.confirm(
+      `确定要一键核实当前 ${healthyAndUnchecked.length} 项账实相符的装备吗？请确保您已视觉确认实物在位。`,
+      '批量核实确认',
+      {
+        confirmButtonText: '确定核实',
+        cancelButtonText: '取消',
+        type: 'success',
+        customClass: 'cyber-message-box',
+      }
+    )
+
+    healthyAndUnchecked.forEach((item) => {
+      item.manual_checked = true
+      item.inventory_remark = '系统判定相符，人工批量核对一致'
+    })
+
+    ElMessage.success(`已成功批量核实 ${healthyAndUnchecked.length} 项装备`)
+    audioStore.play('/audio/保存成功.mp3')
+  } catch {
+    // 用户取消
+  }
+}
 
 const getAbnormalType = (item) => {
   const actual = getActualStatus(item)
@@ -1170,9 +1201,12 @@ const handleOpenSummary = () => {
 
 const finalSubmit = async () => {
   // 1. 再次双重校验：是否还有未处理的异常
-  if (stats.value.mismatch > 0) {
+  // 【修改】校验逻辑：必须全部核对完成（已核实数 === 总数）
+  if (verifiedCount.value < equipmentList.value.length) {
     audioStore.play('/audio/校验失败请参考红色文字提示.mp3')
-    ElMessage.error(`当前还有 ${stats.value.mismatch} 项异常未处理，无法提交报告`)
+    ElMessage.error(
+      `盘点未完成！尚有 ${equipmentList.value.length - verifiedCount.value} 项装备未核实。`,
+    )
     return
   }
 
@@ -1990,7 +2024,7 @@ onUnmounted(() => {
   display: flex;
   align-items: center;
   justify-content: center;
-  gap: 12px;
+  gap: 8px;
   width: 100%;
   height: 100%;
 }
@@ -3015,6 +3049,66 @@ onUnmounted(() => {
 .footer-btn.confirm.is-disabled:hover {
   transform: none;
   box-shadow: none;
+}
+
+/* 进度条样式 */
+.inventory-progress-bar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.p-text {
+  color: var(--text-sec);
+  font-size: 14px;
+}
+
+.p-num {
+  color: var(--primary);
+  font-family: 'Consolas';
+  font-weight: bold;
+  font-size: 18px;
+  min-width: 60px;
+}
+
+.p-track {
+  width: 240px;
+  height: 8px;
+  background: rgba(255, 255, 255, 0.05);
+  border-radius: 4px;
+  overflow: hidden;
+  border: 1px solid rgba(0, 242, 255, 0.1);
+}
+
+.p-fill {
+  height: 100%;
+  background: linear-gradient(90deg, var(--primary-dark), var(--primary));
+  box-shadow: 0 0 10px var(--primary-dark);
+  transition: width 0.5s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+/* 之前已处理行的样式微调，让它更明显一点 */
+.is-processed-row {
+  background: rgba(0, 255, 157, 0.04) !important;
+  opacity: 0.85;
+  /* 不要太淡，保证文字清晰 */
+}
+
+/* 确保页脚右侧按钮有足够的间距 */
+.footer-right-btns {
+  display: flex;
+  gap: 15px;
+  /* 增加按钮之间的距离 */
+  align-items: center;
+}
+
+/* 调整批量核实按钮的样式，使其看起来像次级按钮 */
+.footer-btn.history-btn {
+  background: rgba(0, 242, 255, 0.05);
+  border: 1px solid rgba(0, 242, 255, 0.3);
+  color: var(--primary);
+  min-width: 160px;
+  /* 稍微宽一点，因为文字较长 */
 }
 </style>
 
