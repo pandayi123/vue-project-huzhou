@@ -218,7 +218,7 @@
     </div>
 
     <!-- 异常核对弹窗 -->
-    <el-dialog v-model="summaryVisible" title="异常项快捷处置" width="1250px" class="cyber-dialog"
+    <el-dialog v-model="summaryVisible" title="异常项快捷处置" width="1250px" class="inventory-dialog-unique"
       :class="{ 'is-keyboard-open': showKeyboard }" @close="closeKeyboard">
       <div class="summary-dialog-content">
         <div v-if="abnormalItems.length === 0" class="all-ok-tip">
@@ -383,11 +383,35 @@
           </table>
         </div>
       </div>
-      <!-- Footer 保持不变 -->
+      <template #footer>
+        <div class="dialog-footer">
+          <div class="footer-left-tip">
+            <span v-if="stats.mismatch > 0" class="warning-text">
+              <el-icon>
+                <Warning />
+              </el-icon>
+              尚有 {{ stats.mismatch }} 项异常未处置，请先处理，再提交
+            </span>
+            <span v-else class="success-text">
+              <el-icon>
+                <CircleCheck />
+              </el-icon>
+              所有项已核对完成，可以生成报告
+            </span>
+          </div>
+          <div class="footer-right-btns">
+            <!-- 关键：提交按钮。只有当异常数为0时才允许点击 -->
+            <button class="footer-btn confirm" :class="{ 'is-disabled': stats.mismatch > 0 }"
+              :disabled="stats.mismatch > 0" @click="finalSubmit">
+              提交盘点报告
+            </button>
+          </div>
+        </div>
+      </template>
     </el-dialog>
 
     <!-- ================= 装备档案详情弹窗 (新增) ================= -->
-    <el-dialog v-model="detailVisible" width="1100px" class="cyber-dialog detail-dialog" :show-close="true">
+    <el-dialog v-model="detailVisible" width="1100px" class="inventory-dialog-unique detail-dialog" :show-close="true">
       <template #header>
         <div class="detail-header">
           <div class="header-title-wrapper">
@@ -596,7 +620,16 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted, onUnmounted, reactive, defineAsyncComponent, nextTick, watch } from 'vue'
+import {
+  ref,
+  computed,
+  onMounted,
+  onUnmounted,
+  reactive,
+  defineAsyncComponent,
+  nextTick,
+  watch,
+} from 'vue'
 import { useRouter } from 'vue-router'
 import {
   Files,
@@ -657,9 +690,10 @@ const keyboardPosition = ref({
 
 // 更新光标位置
 const updateCursorPos = (event) => {
-  const inputEl = event.target.tagName === 'TEXTAREA' || event.target.tagName === 'INPUT'
-    ? event.target
-    : event.target.querySelector('textarea, input')
+  const inputEl =
+    event.target.tagName === 'TEXTAREA' || event.target.tagName === 'INPUT'
+      ? event.target
+      : event.target.querySelector('textarea, input')
   if (inputEl) {
     cursorIndex.value = inputEl.selectionStart
     activeInputDom.value = inputEl
@@ -669,20 +703,20 @@ const updateCursorPos = (event) => {
 // 打开键盘
 const openKeyboard = (layout, fieldName, event, item) => {
   activeField.value = fieldName
-  activeItem.value = item // 记录当前行对象
+  activeItem.value = item
   currentInputValue.value = item[fieldName] || ''
   currentLayout.value = layout
   showKeyboard.value = true
 
-  // 关键：缩小弹窗内的滚动区域高度
-  scrollAreaHeight.value = '25vh'
+  // 修改：由 25vh 改为 35vh。25vh 太小了，扣除表头后内容区几乎不可见
+  scrollAreaHeight.value = '35vh'
 
   if (event && event.target) {
     activeInputDom.value = event.target
     cursorIndex.value = event.target.selectionStart || currentInputValue.value.length
 
     nextTick(() => {
-      // 自动滚动到输入框所在的行
+      // 这里的 scrollIntoView 很重要，确保输入行不被键盘遮挡
       event.target.scrollIntoView({ behavior: 'smooth', block: 'center' })
       event.target.focus()
       event.target.setSelectionRange(cursorIndex.value, cursorIndex.value)
@@ -693,15 +727,32 @@ const openKeyboard = (layout, fieldName, event, item) => {
 // 关闭键盘
 const closeKeyboard = () => {
   showKeyboard.value = false
-  scrollAreaHeight.value = '50vh' // 恢复高度
-  if (activeInputDom.value) activeInputDom.value.blur()
+  scrollAreaHeight.value = '50vh' // 恢复表格区域高度
+
+  // 强制让当前活跃的 DOM 失去焦点
+  if (activeInputDom.value) {
+    activeInputDom.value.blur()
+  }
 }
 
 const handleKeyPress = (button) => {
-  nextTick(() => { if (activeInputDom.value) activeInputDom.value.focus() })
+  // 关键：如果点击的是关闭或提交，绝对不能再执行 focus()，否则会重新触发 input 的 @focus 事件再次打开键盘
   if (button === '{close}' || button === '{submit}') {
-    closeKeyboard()
+    // 先强制让输入框失去焦点，切断聚焦循环
+    if (activeInputDom.value) {
+      activeInputDom.value.blur()
+    }
+    // 延迟一小会儿执行关闭，确保失去焦点动作已完成
+    setTimeout(() => {
+      closeKeyboard()
+    }, 100)
+    return // 直接返回，不再执行下面的 focus()
   }
+
+  // 其他按键（如字母、数字）才需要保持聚焦
+  nextTick(() => {
+    if (activeInputDom.value) activeInputDom.value.focus()
+  })
 }
 
 // 监听键盘输入并回填到对应的列表项
@@ -809,7 +860,11 @@ const getRealData = async () => {
     // =====================================================
 
     // 最后再赋值给响应式变量，并增加盘点专用的备注字段
-    equipmentList.value = allData.map((item) => ({ ...item, inventory_remark: '' }))
+    equipmentList.value = allData.map((item) => ({
+      ...item,
+      inventory_remark: '',
+      manual_checked: false,// 新增：是否经过人工点击核实
+    }))
   } catch (error) {
     console.error('数据获取失败:', error)
   }
@@ -1114,49 +1169,64 @@ const handleOpenSummary = () => {
 }
 
 const finalSubmit = async () => {
-  // 校验：是否还有未处理的异常 或 未核实的报修
-  const unpassed = equipmentList.value.filter((i) => isItemAbnormal(i))
-  if (unpassed.length > 0) {
-    audioStore.play('/audio/还有未核实项.mp3')
-    ElMessageBox.alert(`当前还有 ${unpassed.length} 项装备未完成核对...`, '核对未完成', {
-      confirmButtonText: '知道了',
-      customClass: 'cyber-message-box', // 建议这里也补上
-    })
+  // 1. 再次双重校验：是否还有未处理的异常
+  if (stats.value.mismatch > 0) {
+    audioStore.play('/audio/校验失败请参考红色文字提示.mp3')
+    ElMessage.error(`当前还有 ${stats.value.mismatch} 项异常未处理，无法提交报告`)
     return
   }
-  const loading = ElLoading.service({ text: '正在生成盘点报告...' })
+
+  const loading = ElLoading.service({
+    text: '正在加密并同步盘点报告...',
+    background: 'rgba(0,0,0,0.8)',
+  })
+
   try {
-    // 构造盘点详单
-    const inventoryDetails = equipmentList.value.map((item) => ({
-      code: item.group_code,
-      name: item.group_name,
-      address: item.self_address,
-      system_status: item.group_status,
-      actual_status: getActualStatus(item),
-      is_abnormal: isItemAbnormal(item),
-      remark: item.inventory_remark || '',
+    // 2. 构造盘点报告详单 (全量数据快照)
+    const reportDetails = equipmentList.value.map((item) => ({
+      group_name: item.group_name,
+      group_code: item.group_code,
+      self_address: item.self_address,
+      system_status: item.group_status, // 账面
+      actual_status: getActualStatus(item), // 实物
+      assessment: getDetailedStatus(item).text, // 判定结论
+      remark: item.inventory_remark || '系统自动核对一致',
+      operator: '管理员', // 如果有登录信息请替换
     }))
 
-    // 将详单序列化后存入日志或专门的 inventory_history 表
-    await window.electronAPI.el_post({
+    // 3. 写入盘点日志表 (inventory_logs)
+    const response = await window.electronAPI.el_post({
       action: 'insert',
       payload: {
-        tableName: 'inventory_logs', // 假设你有一个专门存历史的表
+        tableName: 'inventory_logs',
         setValues: {
           inventory_time: formatTime(),
           total_count: equipmentList.value.length,
-          abnormal_count: stats.value.mismatch,
-          operator: '当前登录人',
-          details_json: JSON.stringify(inventoryDetails),
+          abnormal_count: 0, // 既然能提交，说明此时异常已全部处置清零
+          details_json: JSON.stringify(reportDetails),
+          operator: '当前终端管理员',
         },
       },
     })
 
-    ElMessage.success('盘点报告已存档并同步')
-    summaryVisible.value = false
-    router.push('/')
-  } catch {
-    ElMessage.error('同步失败')
+    if (response.success) {
+      audioStore.play('/audio/保存成功.mp3')
+      ElMessage({
+        type: 'success',
+        message: '盘点报告已生成并成功存入盘点历史记录。',
+        duration: 3000,
+      })
+
+      // 4. 清理状态并关闭
+      summaryVisible.value = false
+      // 可选：盘点结束后跳转回首页或刷新数据
+      await getRealData()
+    } else {
+      throw new Error(response.message)
+    }
+  } catch (error) {
+    console.error('提交盘点失败:', error)
+    ElMessage.error('报告同步失败，请检查网络或数据库连接')
   } finally {
     loading.close()
   }
@@ -1319,7 +1389,6 @@ onMounted(async () => {
   await fetchConfigData()
   await getRealData()
   startMonitorLoop()
-  // plugins.logUserAction('页面访问', '进入装备盘点页面')
 })
 
 onUnmounted(() => {
@@ -1616,7 +1685,6 @@ onUnmounted(() => {
 .tag-error-missing {
   background: rgba(255, 77, 79, 0.9);
   color: #fff;
-  animation: breathe 2s infinite;
   /* 异常项增加呼吸闪烁 */
 }
 
@@ -1625,27 +1693,11 @@ onUnmounted(() => {
   background: rgba(230, 162, 60, 0.9);
   color: #000;
   /* <--- 黄色背景配黑色文字对比度更高 */
-  animation: breathe 2s infinite;
 }
 
 .tag-loading {
   background: rgba(0, 0, 0, 0.6);
   color: #888;
-}
-
-/* 呼吸动画：让异常项更醒目 */
-@keyframes breathe {
-  0% {
-    opacity: 1;
-  }
-
-  50% {
-    opacity: 0.7;
-  }
-
-  100% {
-    opacity: 1;
-  }
 }
 
 /* 约 395 行附近 */
@@ -2835,12 +2887,12 @@ onUnmounted(() => {
   box-shadow: none !important;
 
   color: #cdd9e5 !important;
-  font-size: 12px !important;
+  font-size: 13px !important;
   line-height: 1.5 !important;
-  padding: 6px 10px !important;
-  height: 48px !important;
-  min-height: 48px !important;
-  max-height: 48px !important;
+  padding: 2px 10px !important;
+  height: 52px !important;
+  min-height: 52px !important;
+  max-height: 52px !important;
   overflow-y: auto !important;
   transition: all 0.3s;
   border-radius: 4px;
@@ -2878,11 +2930,24 @@ onUnmounted(() => {
   background: var(--primary-dark) !important;
 }
 
-/* 键盘打开时，弹窗自动上移的补丁 */
-:deep(.el-dialog.cyber-dialog.is-keyboard-open) {
-  /* 这里的 -25vh 是关键，它会让弹窗在垂直方向上提 */
-  margin-top: -25vh !important;
-  transition: margin-top 0.3s cubic-bezier(0.25, 0.8, 0.25, 1) !important;
+:deep(.el-dialog.inventory-dialog-unique) {
+  /* 默认状态下增加过渡动画 */
+  transition: all 0.2s cubic-bezier(0.25, 0.8, 0.25, 1) !important;
+}
+
+/* --- 修改：优化键盘唤起时弹窗的定位 --- */
+:deep(.el-dialog.inventory-dialog-unique.is-keyboard-open) {
+  /* 强制将弹窗顶部固定在距离屏幕顶部 2vh 的位置，不再使用 top:50% */
+  top: 2px !important;
+  /* 只处理水平居中，垂直方向不再偏移 */
+  transform: translate(-50%, 0) !important;
+  margin-top: 0 !important;
+}
+
+/* --- 补充：防止双重滚动条导致的布局闪烁 --- */
+:deep(.is-keyboard-open .el-dialog__body) {
+  overflow: hidden !important;
+  /* 键盘打开时，禁用弹窗外层的滚动，只允许表格内部滚动 */
 }
 
 /* 键盘容器样式 */
@@ -2902,14 +2967,54 @@ onUnmounted(() => {
 :deep(.show-keyboard) {
   background-color: transparent !important;
 }
+
 :deep(.show-keyboard .hg-button) {
   background: #2a3546 !important;
   color: #fff !important;
   border-bottom: 2px solid #151a23 !important;
 }
+
 :deep(.show-keyboard .hg-button:active) {
   background: #00f2ff !important;
   color: #000 !important;
+}
+
+/* 修改：弹窗底部布局 */
+.dialog-footer {
+  display: flex;
+  justify-content: space-between;
+  /* 左右分布 */
+  align-items: center;
+  width: 100%;
+}
+
+.footer-left-tip {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 14px;
+  /* 确保文字颜色和图标对齐 */
+  line-height: 1;
+}
+
+.footer-right-btns {
+  display: flex;
+  gap: 15px;
+}
+
+/* 修改：禁用状态下的提交按钮 */
+.footer-btn.confirm.is-disabled {
+  background: #2a3546 !important;
+  border-color: #4a5c76 !important;
+  color: #666 !important;
+  cursor: not-allowed;
+  filter: grayscale(1);
+  opacity: 0.6;
+}
+
+.footer-btn.confirm.is-disabled:hover {
+  transform: none;
+  box-shadow: none;
 }
 </style>
 
@@ -2919,7 +3024,7 @@ onUnmounted(() => {
    ========================================================== */
 
 /* 1. 强制覆盖 Dialog 核心背景及边框 */
-.cyber-dialog.el-dialog {
+.inventory-dialog-unique.el-dialog {
   background-color: #141b2d !important;
   background-image: linear-gradient(135deg, rgba(0, 242, 255, 0.05) 0%, transparent 100%);
   border: 1px solid #0099a1 !important;
@@ -2938,41 +3043,40 @@ onUnmounted(() => {
   overflow: hidden !important;
 }
 
-.cyber-dialog .el-dialog__header {
+.inventory-dialog-unique .el-dialog__header {
   padding: 20px 20px 10px;
   border-bottom: 1px solid rgba(0, 242, 255, 0.1);
 }
 
-.cyber-dialog .el-dialog__title {
+.inventory-dialog-unique .el-dialog__title {
   color: #00f2ff !important;
   font-weight: bold;
   letter-spacing: 1px;
 }
 
 /* 2. 弹窗主体区 - 统一滚动条风格 */
-.cyber-dialog .el-dialog__body {
+.inventory-dialog-unique .el-dialog__body {
   flex: 1 !important;
   overflow-y: auto !important;
-  /* 这里会产生滚动条 */
   background-color: transparent !important;
   color: #ffffff !important;
-  padding: 20px 0px !important;
+  padding: 10px 0px !important;
 }
 
 /* === 核心修复：针对弹窗 Body 和内部 custom-scroll 统一滚动条样式 === */
-.cyber-dialog .el-dialog__body::-webkit-scrollbar,
+.inventory-dialog-unique .el-dialog__body::-webkit-scrollbar,
 .custom-scroll::-webkit-scrollbar {
   width: 6px !important;
   height: 6px !important;
 }
 
-.cyber-dialog .el-dialog__body::-webkit-scrollbar-track,
+.inventory-dialog-unique .el-dialog__body::-webkit-scrollbar-track,
 .custom-scroll::-webkit-scrollbar-track {
   background: rgba(0, 0, 0, 0.2) !important;
   border-radius: 10px !important;
 }
 
-.cyber-dialog .el-dialog__body::-webkit-scrollbar-thumb,
+.inventory-dialog-unique .el-dialog__body::-webkit-scrollbar-thumb,
 .custom-scroll::-webkit-scrollbar-thumb {
   background: #2a3546 !important;
   /* 深灰蓝滑块 */
@@ -2980,29 +3084,18 @@ onUnmounted(() => {
   border: 1px solid rgba(0, 242, 255, 0.1) !important;
 }
 
-.cyber-dialog .el-dialog__body::-webkit-scrollbar-thumb:hover,
+.inventory-dialog-unique .el-dialog__body::-webkit-scrollbar-thumb:hover,
 .custom-scroll::-webkit-scrollbar-thumb:hover {
   background: #0099a1 !important;
   /* 悬停变青色 */
 }
 
-/* 适配 Firefox */
-.cyber-dialog .el-dialog__body,
-.custom-scroll {
-  scrollbar-width: thin !important;
-  scrollbar-color: #2a3546 rgba(0, 0, 0, 0.2) !important;
-}
-
 /* 3. 其他弹窗组件适配 */
-.cyber-dialog .el-dialog__footer {
-  padding: 20px 25px;
-  /* 改为上下左右对称，视觉更平衡 */
+.inventory-dialog-unique .el-dialog__footer {
   border-top: 1px solid rgba(255, 255, 255, 0.08);
-  /* 稍微加深线条，界限感更强 */
-  padding-bottom: 4px;
 }
 
-.cyber-dialog .el-dialog__headerbtn .el-dialog__close {
+.inventory-dialog-unique .el-dialog__headerbtn .el-dialog__close {
   color: #00f2ff !important;
 }
 
@@ -3023,7 +3116,7 @@ onUnmounted(() => {
 .cyber-table th {
   background: #0d121c;
   padding: 12px;
-  font-size: 13px;
+  font-size: 14px;
   color: #00f2ff;
   border-bottom: 1px solid #2a3546;
   text-align: left;
@@ -3079,13 +3172,6 @@ onUnmounted(() => {
 /* 选中的行高亮，更易聚焦 */
 .cyber-table tbody tr:hover {
   background: rgba(255, 255, 255, 0.02);
-}
-
-/* 底部按钮 */
-.dialog-footer {
-  display: flex;
-  gap: 15px;
-  padding: 20px;
 }
 
 /* 2. 修复按钮左右 padding 缺失问题 */
@@ -3238,18 +3324,14 @@ onUnmounted(() => {
 }
 
 /* 3. 针对 Element Plus el-scrollbar 的统一覆盖 (如果弹窗内使用了该组件) */
-.cyber-dialog .el-scrollbar__bar.is-vertical {
+.inventory-dialog-unique .el-scrollbar__bar.is-vertical {
   width: 6px;
 }
 
-.cyber-dialog .el-scrollbar__thumb {
+.inventory-dialog-unique .el-scrollbar__thumb {
   background-color: #2a3546 !important;
   opacity: 1;
   /* 默认是透明的，改为常亮或半透明 */
-}
-
-.cyber-dialog .el-scrollbar__thumb:hover {
-  background-color: #0099a1 !important;
 }
 
 /* 已处理行的背景变淡 */
