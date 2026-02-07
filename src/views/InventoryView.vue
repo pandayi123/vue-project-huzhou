@@ -207,7 +207,7 @@
                   <Monitor />
                   <!-- 改为监控图标或盘点图标 -->
                 </el-icon>
-                <span class="btn-main-text">开始盘点核对 </span>
+                <span class="btn-main-text">开始盘点 </span>
               </div>
               <div class="scan-line"></div>
             </button>
@@ -217,10 +217,11 @@
     </div>
 
     <!-- 异常核对弹窗 -->
-    <el-dialog v-model="summaryVisible" title="全量装备盘点" width="1250px" class="inventory-dialog-unique"
+    <el-dialog v-model="summaryVisible" title="装备全量盘点" destroy-on-close width="1250px" class="inventory-dialog-unique"
       :class="{ 'is-keyboard-open': showKeyboard }" @close="closeKeyboard">
       <div class="summary-dialog-content">
-        <div class="abnormal-table-container custom-scroll" :style="{ maxHeight: scrollAreaHeight }">
+        <div class="abnormal-table-container custom-scroll" ref="inventoryScrollBody"
+          :style="{ maxHeight: scrollAreaHeight }">
           <table class="cyber-table">
             <thead>
               <tr>
@@ -304,7 +305,7 @@
 
                 <!-- 5. 判定状态 -->
                 <td>
-                  <span class="mini-tag" :class="getDetailedStatus(item).class">
+                  <span class="mini-tag" :class="getDetailedStatus(item).class" style="font-size: 13px;">
                     {{ getDetailedStatus(item).text }}
                   </span>
                 </td>
@@ -391,7 +392,7 @@
     </el-dialog>
 
     <!-- ================= 装备档案详情弹窗 (新增) ================= -->
-    <el-dialog v-model="detailVisible" width="1100px" class="inventory-dialog-unique detail-dialog" :show-close="true">
+    <el-dialog v-model="detailVisible" destroy-on-close width="1100px" class="inventory-dialog-unique detail-dialog" :show-close="true">
       <template #header>
         <div class="detail-header">
           <div class="header-title-wrapper">
@@ -401,7 +402,7 @@
         </div>
       </template>
 
-      <div class="detail-container custom-scroll">
+      <div class="detail-container custom-scroll" ref="detailScrollBody">
         <!-- 第一行：基础展示区 -->
         <div class="detail-row top-row">
           <!-- 左侧：装备实照与物理状态 -->
@@ -591,6 +592,47 @@
       </template>
     </el-dialog>
 
+    <!-- 自定义批量核实确认弹窗 -->
+    <el-dialog v-model="batchConfirmVisible" title="批量核实确认" width="480px"
+      class="inventory-dialog-unique mini-confirm-dialog" :show-close="false">
+      <div class="batch-confirm-body">
+        <div class="confirm-icon-area">
+          <el-icon :size="50" color="#00f2ff">
+            <CircleCheck />
+          </el-icon>
+        </div>
+
+        <div class="confirm-message">
+          确定要一键核实当前 <span class="highlight">{{ batchConfirmStats.total }}</span> 项账实相符装备吗？
+        </div>
+
+        <div class="confirm-stats-grid">
+          <div class="stats-item">
+            <span class="s-label"><i class="dot success"></i> 正常在位项</span>
+            <span class="s-value">{{ batchConfirmStats.inPlace }} 件</span>
+          </div>
+          <div class="stats-item">
+            <span class="s-label"><i class="dot info"></i> 正常借出项</span>
+            <span class="s-value">{{ batchConfirmStats.outPlace }} 件</span>
+          </div>
+        </div>
+
+        <div class="confirm_tip">
+          <el-icon>
+            <Warning />
+          </el-icon>
+          请确保您已视觉确认柜内实物状态与系统一致
+        </div>
+      </div>
+
+      <template #footer>
+        <div class="confirm-footer">
+          <button class="footer-btn cancel" @click="batchConfirmVisible = false">取消</button>
+          <button class="footer-btn confirm" @click="executeBatchVerify">确定核实</button>
+        </div>
+      </template>
+    </el-dialog>
+
     <!-- 虚拟键盘组件 -->
     <div v-if="showKeyboard" class="keyboard-container" :style="keyboardPosition" @mousedown.prevent>
       <SimpleKeyboard v-model="currentInputValue" :defaultLayout="currentLayout" @onKeyPress="handleKeyPress"
@@ -625,6 +667,10 @@ import { ElMessage, ElLoading, ElMessageBox } from 'element-plus'
 import { useAudioStore } from '@/stores/audioStore'
 import { useTimerStore } from '@/stores/timerStore'
 const timerStore = useTimerStore()
+
+// 1. 定义新变量
+const detailVisible = ref(false)
+const selectedDetail = ref(null)
 
 import plugins from '../assets/js/plugin'
 // --- 1. 定义选中状态变量 ---
@@ -763,11 +809,10 @@ const uniqueNameOptions = computed(() => {
   return ['ALL', ...uniqueNames]
 })
 
-// 3. 修改之前的 handleSelectCard 函数
 const handleSelectCard = (item) => {
   selectedId.value = item.id
-  selectedDetail.value = item // 记录当前详情
-  detailVisible.value = true // 弹出详情
+  selectedDetail.value = item
+  detailVisible.value = true
   audioStore.play('/audio/按钮点击声.mp3')
 }
 
@@ -1042,10 +1087,6 @@ const isAdminDisabled = (item) => {
   return detail && Number(detail.admin_status) === 0
 }
 
-// 1. 定义新变量
-const detailVisible = ref(false)
-const selectedDetail = ref(null)
-
 // 2. 解析芯片列表的计算属性
 const parsedChips = computed(() => {
   if (!selectedDetail.value?.chip_list) return []
@@ -1141,41 +1182,50 @@ const handleConfirmNormal = (item) => {
   audioStore.play('/audio/按钮点击声.mp3')
 }
 
+// --- 新增：批量核实二次确认弹窗控制 ---
+const batchConfirmVisible = ref(false)
+const batchConfirmStats = reactive({
+  inPlace: 0,
+  outPlace: 0,
+  total: 0
+})
+
 // 【新增】一键核实所有账实相符项 (提高效率)
-// 修改 handleBatchVerifyHealthy
-const handleBatchVerifyHealthy = async () => {
-  // 找出所有系统判定正常但还没点过核实的
+// 修改后的 handleBatchVerifyHealthy 函数
+const handleBatchVerifyHealthy = () => {
+  // 找出所有符合条件且未核实的项
   const healthyAndUnchecked = equipmentList.value.filter(
     item => getAssessmentResult(item) === 'HEALTHY' && !item.manual_checked
   )
 
   if (healthyAndUnchecked.length === 0) {
-    ElMessage.info('暂无需要批量核实的正常项')
+    ElMessage.info('当前无可核实的正常项')
     return
   }
 
-  try {
-    await ElMessageBox.confirm(
-      `确定要一键核实当前 ${healthyAndUnchecked.length} 项账实相符的装备吗？请确保您已视觉确认实物在位。`,
-      '批量核实确认',
-      {
-        confirmButtonText: '确定核实',
-        cancelButtonText: '取消',
-        type: 'success',
-        customClass: 'cyber-message-box',
-      }
-    )
+  // 预计算统计信息
+  batchConfirmStats.total = healthyAndUnchecked.length
+  batchConfirmStats.inPlace = healthyAndUnchecked.filter(i => i.group_status === '在位').length
+  batchConfirmStats.outPlace = healthyAndUnchecked.filter(i => i.group_status !== '在位').length
 
-    healthyAndUnchecked.forEach((item) => {
-      item.manual_checked = true
-      item.inventory_remark = '系统判定相符，人工批量核对一致'
-    })
+  audioStore.play('/audio/按钮点击声.mp3')
+  batchConfirmVisible.value = true // 打开自定义确认框
+}
 
-    ElMessage.success(`已成功批量核实 ${healthyAndUnchecked.length} 项装备`)
-    audioStore.play('/audio/保存成功.mp3')
-  } catch {
-    // 用户取消
-  }
+// 执行最终的批量核实
+const executeBatchVerify = () => {
+  const healthyAndUnchecked = equipmentList.value.filter(
+    item => getAssessmentResult(item) === 'HEALTHY' && !item.manual_checked
+  )
+
+  healthyAndUnchecked.forEach((item) => {
+    item.manual_checked = true
+    item.inventory_remark = '系统判定相符，人工批量核对一致'
+  })
+
+  batchConfirmVisible.value = false
+  ElMessage.success(`已成功批量核实 ${healthyAndUnchecked.length} 项装备`)
+  audioStore.play('/audio/保存成功.mp3')
 }
 
 const getAbnormalType = (item) => {
@@ -1686,52 +1736,89 @@ onUnmounted(() => {
   text-shadow: 0 0 5px var(--primary);
 }
 
-/* 新增：图片上方状态标签 */
-/* 约 370 行附近 */
+/* --- 1. 状态浮层基础样式（所有标签共用） --- */
 .status-overlay-tag {
   position: absolute;
   top: 6px;
   left: 6px;
   z-index: 10;
-  padding: 2px 8px;
+  padding: 2px 10px;
+  /* 稍微加宽一点，更显精致 */
   border-radius: 4px;
   font-size: 11px;
-  font-weight: bold;
-  letter-spacing: 0.5px;
-  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.5);
+  font-weight: 900;
+  /* 极粗字体，增强赛博感 */
+  letter-spacing: 1px;
+  /* 字符间距，更有科技感 */
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.4);
   backdrop-filter: blur(2px);
-
-  /* --- 关键补充：强制统一高度渲染 --- */
   line-height: 1.2;
   display: flex;
   align-items: center;
   justify-content: center;
   white-space: nowrap;
+  transition: all 0.3s ease;
 }
 
-/* 正常借出：蓝色或淡灰色 */
-.tag-normal-out {
-  background: rgba(0, 153, 161, 0.85);
-  color: #fff;
-}
+/* --- 2. 浅色背景组：统一用黑色文字 --- */
 
-/* 异常离位：亮红色 */
-.tag-error-missing {
-  background: rgba(255, 77, 79, 0.9);
-  color: #fff;
-  /* 异常项增加呼吸闪烁 */
+/* 正常在位：亮绿色 */
+.tag-normal-in {
+  background: rgba(0, 255, 157, 0.95) !important;
+  color: #000 !important;
+  text-shadow: none;
+  /* 浅色底不需要文字阴影 */
 }
 
 /* 异常占用：橙黄色 */
 .tag-error-occupied {
-  background: rgba(230, 162, 60, 0.9);
-  color: #000;
-  /* <--- 黄色背景配黑色文字对比度更高 */
+  background: rgba(230, 162, 60, 0.95) !important;
+  color: #000 !important;
 }
 
+/* 传感屏蔽/待核实：警告橙 */
+.tag-maintenance-pending {
+  background: #ff9800 !important;
+  color: #000 !important;
+  box-shadow: 0 0 12px rgba(255, 152, 0, 0.3);
+}
+
+/* --- 3. 深色背景组：统一用白色文字 --- */
+
+/* 正常借出：青蓝色 */
+.tag-normal-out {
+  background: rgba(0, 153, 161, 0.9) !important;
+  color: #fff !important;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.5);
+  /* 深色底加微弱阴影托出文字 */
+}
+
+/* 异常离位：亮红色 */
+.tag-error-missing {
+  background: rgba(255, 77, 79, 0.9) !important;
+  color: #fff !important;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.5);
+}
+
+/* 异常项呼吸动画 */
+@keyframes tagPulse {
+  0% {
+    box-shadow: 0 0 0px rgba(255, 77, 79, 0);
+  }
+
+  50% {
+    box-shadow: 0 0 10px rgba(255, 77, 79, 0.5);
+  }
+
+  100% {
+    box-shadow: 0 0 0px rgba(255, 77, 79, 0);
+  }
+}
+
+/* 检测中 */
 .tag-loading {
-  background: rgba(0, 0, 0, 0.6);
-  color: #888;
+  background: rgba(0, 0, 0, 0.7) !important;
+  color: #aaa !important;
 }
 
 /* 约 395 行附近 */
@@ -1802,7 +1889,7 @@ onUnmounted(() => {
 
 .c-label {
   font-size: 13px;
-  color: #66788a;
+  color: #292e32;
 }
 
 .c-tag {
@@ -2268,40 +2355,6 @@ onUnmounted(() => {
   box-shadow: 0 0 5px var(--warning);
 }
 
-/* 正常借出标签：使用蓝色系 */
-.tag-normal-out {
-  background: rgba(0, 153, 161, 0.85);
-  /* 沉稳的青蓝色 */
-  color: #fff;
-}
-
-/* 正常在位标签保持明亮绿色 */
-.tag-normal-in {
-  background: rgba(0, 255, 157, 0.9);
-  color: #000;
-}
-
-/* 4. 修正监测结论在面板里的颜色显示 (防止 getDetailedStatus 的类名背景太突兀) */
-.live-monitor-panel .tag-normal-in {
-  background: rgba(0, 255, 157, 0.2);
-  color: #00ff9d;
-}
-
-.live-monitor-panel .tag-normal-out {
-  background: rgba(0, 153, 161, 0.2);
-  color: #00f2ff;
-}
-
-.live-monitor-panel .tag-error-missing {
-  background: rgba(255, 77, 79, 0.2);
-  color: #ff4d4f;
-}
-
-.live-monitor-panel .tag-error-occupied {
-  background: rgba(230, 162, 60, 0.2);
-  color: #e6a23c;
-}
-
 /* ================= 详情弹窗专项样式 ================= */
 
 /* 头部样式 */
@@ -2435,16 +2488,7 @@ onUnmounted(() => {
 }
 
 /* 结论通栏 */
-.conclusion-bar {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  padding: 6px;
-  border-radius: 4px;
-  font-size: 13px;
-  font-weight: bold;
-  letter-spacing: 1px;
-}
+
 
 .c-dot {
   width: 6px;
@@ -2461,25 +2505,91 @@ onUnmounted(() => {
   margin-right: 4px;
 }
 
-/* 针对结论背景的颜色重定义 */
+/* --- 1. 强化结论通栏的基础样式 --- */
+.conclusion-bar {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  /* 统一高度的关键：固定内边距和行高 */
+  padding: 12px 10px !important;
+  height: 46px;
+  /* 强制所有结论栏高度一致 */
+  box-sizing: border-box;
+
+  border-radius: 4px;
+  font-size: 15px;
+  font-weight: 900;
+  letter-spacing: 2px;
+  margin-top: 15px;
+  box-shadow: 0 4px 10px rgba(0, 0, 0, 0.3);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  transition: all 0.3s ease;
+}
+
+/* --- 2. 统一各状态的色彩 (确保与左侧逻辑一致) --- */
+
+/* 正常在位：亮绿色 + 黑色字 */
 .conclusion-bar.tag-normal-in {
-  background: rgba(0, 255, 157, 0.15);
-  color: #00ff9d;
+  background: #00ff9d !important;
+  color: #000 !important;
 }
 
+/* 正常借出：修复蓝色为灰蓝色，与左侧 st-out 逻辑统一 */
 .conclusion-bar.tag-normal-out {
-  background: rgba(0, 242, 255, 0.1);
-  color: #00f2ff;
+  background: rgba(0, 153, 161, 0.9) !important;
+  /* 深灰蓝，表示正常但不在位 */
+  color: #fff !important;
 }
 
+/* 异常离位：亮红色 + 白色字 */
 .conclusion-bar.tag-error-missing {
-  background: rgba(255, 77, 79, 0.2);
-  color: #ff4d4f;
+  background: rgba(255, 77, 79, 0.9) !important;
+  color: #fff !important;
 }
 
+/* 异常占用：橙黄色 + 黑色字 */
 .conclusion-bar.tag-error-occupied {
-  background: rgba(230, 162, 60, 0.2);
-  color: #e6a23c;
+  background: rgba(230, 162, 60, 0.95) !important;
+  color: #000 !important;
+}
+
+/* 传感屏蔽/待核：修正高度坍塌 + 统一橙色 */
+/* 使用具体类名组合，确保优先级高于 .mini-tag 的定义 */
+.conclusion-bar.tag-maintenance-pending {
+  background: #ff9800 !important;
+  color: #000 !important;
+  padding: 12px 10px !important;
+  /* 强制恢复内边距 */
+  display: flex !important;
+  align-items: center !important;
+  height: 46px !important;
+}
+
+/* 人工授信：淡橙色 */
+.conclusion-bar.tag-unmonitored {
+  background: rgba(255, 170, 0, 0.2) !important;
+  color: #ffaa00 !important;
+  border: 1px solid #ffaa00 !important;
+}
+
+/* --- 3. 内部元素微调 --- */
+.conclusion-bar .c-label {
+  opacity: 0.8;
+  font-size: 13px;
+  margin-right: 4px;
+  font-weight: normal;
+}
+
+.conclusion-bar .c-text {
+  /* 确保文字垂直居中 */
+  line-height: 1;
+}
+
+
+/* 结论栏内部的小点同步隐藏或改色（因为背景已经是实色了） */
+.c-dot {
+  display: none;
+  /* 实色背景下不需要小圆点 */
 }
 
 /* 辅助颜色 */
@@ -2666,16 +2776,6 @@ onUnmounted(() => {
   width: 100%;
 }
 
-/* 报修待核实：亮橙色边框 */
-.tag-maintenance-pending {
-  background: #e6a23c;
-  /* 橙色不透明背景 */
-  color: #000;
-  /* 黑色文字，对比度最高 */
-  font-weight: bold;
-  box-shadow: 0 0 10px rgba(230, 162, 60, 0.4);
-  /* 增加一点发光感，提醒待办 */
-}
 
 /* 同时建议修改详情弹窗里的显示逻辑（约 1139 行附近） */
 .live-monitor-panel .tag-maintenance-pending {
@@ -3471,14 +3571,74 @@ onUnmounted(() => {
   white-space: nowrap;
 }
 
-/* 确保“人工已核”等状态标签也对齐高度 */
-.status-resolved {
-  height: 34px;
-  display: inline-flex;
-  align-items: center;
-  color: var(--success);
+/* --- 2. 批量确认弹窗专属样式 --- */
+.batch-confirm-body {
+  text-align: center;
+  padding: 10px 20px;
+}
+
+.confirm-icon-area {
+  margin-bottom: 20px;
+  filter: drop-shadow(0 0 10px rgba(0, 242, 255, 0.4));
+}
+
+.confirm-message {
+  font-size: 16px;
+  color: #fff;
+  margin-bottom: 25px;
+  line-height: 1.5;
+}
+
+.confirm-message .highlight {
+  color: var(--primary);
+  font-size: 24px;
   font-weight: bold;
+  font-family: 'Consolas';
+  margin: 0 5px;
+}
+
+.confirm-stats-grid {
+  background: rgba(0, 0, 0, 0.2);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 15px;
+  margin-bottom: 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.stats-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.stats-item .s-label {
+  font-size: 14px;
+  color: var(--text-sec);
+}
+
+.stats-item .s-value {
+  font-weight: bold;
+  color: #fff;
+}
+
+.confirm_tip {
+  display: flex;
+  align-items: center;
+  justify-content: center;
   gap: 6px;
+  font-size: 13px;
+  color: #ffaa00;
+  opacity: 0.8;
+}
+
+.confirm-footer {
+  display: flex;
+  justify-content: center;
+  gap: 20px;
+  padding-bottom: 10px;
 }
 </style>
 

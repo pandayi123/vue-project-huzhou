@@ -5,25 +5,24 @@
       <div class="header-left">
         <div class="icon-box-glow">
           <el-icon :size="24" class="primary-icon">
-            <Box />
+            <Files />
           </el-icon>
         </div>
         <div class="title-text">
-          <h1>装备归还</h1>
-          <span class="sub-title">智能感知 · 实时物联 · 智慧监管</span>
+          <h1>装备盘点</h1>
+          <span class="sub-title">实时感知 · 账实校对 · 异常追踪</span>
         </div>
       </div>
 
+      <!-- 修改后：增加并排的盘点历史按钮 -->
       <div class="header-right">
-        <!-- 新增：一键开门按钮 -->
-        <button class="btn-open-all" @click="handleManualOpenDoor">
+        <button class="history-link-btn header-btn" @click="goToHistory">
           <el-icon>
-            <Unlock />
+            <HistoryIcon />
           </el-icon>
-          一键开门
+          盘点记录
         </button>
-
-        <button class="btn-exit" @click="handleSafeExit">
+        <button class="btn-exit" @click="$router.push('/')">
           <el-icon>
             <SwitchButton />
           </el-icon>
@@ -34,741 +33,764 @@
 
     <!-- ================= 主体内容区 ================= -->
     <div class="main-body">
-      <!-- 左侧：装备卡片列表 -->
+      <!-- 左侧：盘点明细列表 -->
       <div class="list-section">
         <div class="section-title">
+          <!-- 修改后：只保留下拉筛选框 -->
           <div class="title-left">
-            <span class="text-glow">装备列表 ({{ filteredList.length }})</span>
-            <span v-if="selectedIds.length > 0" class="selection-count">
-              已选中 <span class="highlight-num">{{ selectedIds.length }}</span> 项
-            </span>
+            <div class="select-wrapper">
+              <el-select v-model="selectedName" placeholder="选择装备名称筛选" class="cyber-select"
+                popper-class="cyber-select-popper" size="large">
+                <el-option label="全部装备名称" value="ALL" />
+                <el-option v-for="name in (uniqueNameOptions || []).filter((n) => n !== 'ALL')" :key="name"
+                  :label="name" :value="name" />
+              </el-select>
+            </div>
           </div>
 
-          <!-- 平滑切换的标签栏 -->
-          <div class="filter-tabs" ref="tabsContainer">
-            <div class="tab-glider" :style="gliderStyle"></div>
-            <span v-for="(tab, index) in filterOptions" :key="tab.value" class="tab"
-              :class="{ active: currentFilter === tab.value }" :ref="(el) => (tabRefs[index] = el)"
-              @click="setFilter(tab.value)">
-              {{ tab.label }}
-            </span>
+          <!-- 右侧：过滤器标签 -->
+          <div class="title-right-actions">
+            <div class="filter-tabs">
+              <span v-for="tab in filterOptions" :key="tab.value" class="tab"
+                :class="{ active: currentFilter === tab.value }" @click="setFilter(tab.value)">
+                {{ tab.label }}
+                <span class="tab-count" v-if="tab.value === 'ERROR' && stats.mismatch > 0">
+                  {{ stats.mismatch }}
+                </span>
+              </span>
+            </div>
           </div>
         </div>
 
         <el-scrollbar class="scroll-area">
           <div class="card-grid">
-            <!-- 修改 1: :class 逻辑翻转。如果 '在位'，则添加 status-disabled (变灰) -->
-            <div v-for="item in filteredList" :key="item.id" class="equip-card" :class="{
-              active: selectedIds.includes(item.id),
-              'status-disabled': item.group_status === '在位',
-            }" @click="toggleSelect(item.id)">
-              <div class="check-ribbon" v-if="selectedIds.includes(item.id)">
-                <el-icon>
-                  <Check />
-                </el-icon>
+            <!-- 定位到 <div class="card-grid"> 内部 -->
+            <div v-for="item in filteredList" :key="item.id" class="equip-card"
+              :class="{ 'is-active': selectedId === item.id }" @click="handleSelectCard(item)">
+              <!-- 顶部：装备图片 -->
+              <div class="equip-image-preview">
+                <!-- 新增：状态浮层标签 -->
+                <div class="status-overlay-tag" :class="getDetailedStatus(item).class">
+                  {{ getDetailedStatus(item).text }}
+                </div>
+                <el-image :src="item.group_image" fit="cover" style="width: 100%; height: 100%">
+                  <template #placeholder>
+                    <div class="image-placeholder"></div>
+                  </template>
+                  <template #error>
+                    <div class="image-error-slot">
+                      <el-icon :size="24">
+                        <Box />
+                      </el-icon>
+                    </div>
+                  </template>
+                </el-image>
               </div>
 
-              <!-- 状态标签颜色也需要适配 -->
-              <div class="card-status-badge"
-                :class="item.group_status === '在位' ? 'st-in-place-disabled' : 'st-out-active'">
-                {{ item.group_status === '在位' ? '在位' : '待归还' }}
-              </div>
-
-              <div class="card-icon">
-                <!-- 修改 2: 图标逻辑翻转。'已取出'显示高亮图标，'在位'显示锁定图标 -->
-                <el-icon v-if="item.group_status !== '在位'" :size="32" class="icon-active">
-                  <SoldOut />
-                  <!-- 或者使用 Back/Upload 图标 -->
-                </el-icon>
-                <el-icon v-else :size="32" class="icon-locked">
-                  <Files />
-                </el-icon>
-              </div>
-
+              <!-- 中部：核心信息区 -->
               <div class="card-info">
                 <div class="equip-name" :title="item.group_name">{{ item.group_name }}</div>
-                <div class="equip-code">编号：{{ item.group_code }}</div>
-                <div class="equip-pos">
-                  <el-icon>
-                    <Location />
-                  </el-icon>
-                  {{ item.self_address }}号柜位
+                <div class="equip-code">{{ item.group_code }}</div>
+
+                <!-- 账实对比区：左右分布布局 -->
+                <!-- 定位到 status-compare-group 内部 -->
+                <div class="status-compare-group">
+                  <div class="compare-item">
+                    <span class="c-label">系统账面</span>
+                    <span class="c-tag" :class="item.group_status === '在位' ? 'st-in' : 'st-out'">
+                      {{ item.group_status }}
+                    </span>
+                  </div>
+                  <div class="compare-item">
+                    <span class="c-label">柜内感知</span>
+                    <!-- 修改 class 和显示逻辑 -->
+                    <span class="c-tag" :class="{
+                      'st-in': getActualStatus(item) === '在位',
+                      'st-out': getActualStatus(item) === '不在位',
+                      'st-loading': getActualStatus(item) === '检测中',
+                      'st-disabled': getActualStatus(item) === '已禁用', // <--- 新增
+                    }">
+                      {{ getActualStatus(item) }}
+                    </span>
+                  </div>
                 </div>
               </div>
-              <div class="active-bar"></div>
-            </div>
 
-            <div v-if="filteredList.length === 0" class="no-data-tip">暂无匹配装备</div>
+              <!-- 底部：柜位信息（新增） -->
+              <div class="card-footer-pos">
+                <el-icon>
+                  <Location />
+                </el-icon>
+                <span class="pos-text">{{ item.self_address }} 号柜位</span>
+              </div>
+            </div>
+            <!-- 无数据提示 -->
+            <div v-if="filteredList.length === 0" class="no-data-placeholder">
+              {{ currentFilter === 'ERROR' ? '当前暂无账实不符项' : '暂无装备数据' }}
+            </div>
           </div>
         </el-scrollbar>
       </div>
 
-      <!-- 右侧：详情与操作面板 -->
+      <!-- 右侧：盘点数据报告面板 -->
       <div class="operation-section">
-        <!-- 场景1：未选中 -->
-        <template v-if="selectedIds.length === 0">
-          <div class="empty-placeholder">
-            <div class="icon-circle">
-              <el-icon :size="50">
-                <Mouse />
-              </el-icon>
-            </div>
-            <div class="empty-text">等待操作指令</div>
-            <div class="empty-sub">请在左侧列表选择装备</div>
+        <div class="report-panel">
+          <div class="report-header">
+            <div class="report-main-title">装备统计信息</div>
+            <div class="report-time">实时状态刷新：{{ currentTime }}</div>
           </div>
-        </template>
 
-        <!-- 场景2：单选详情 -->
-        <template v-else-if="selectedIds.length === 1">
-          <div class="detail-card">
-            <div class="detail-header">
-              <div class="header-title-group">
-                <div class="big-name">{{ singleItem.group_name }}</div>
-                <div class="status-tag-large" :class="singleItem.group_status === '在位' ? 'st-in-place-disabled' : 'st-out-active'
-                  ">
-                  {{ singleItem.group_status === '在位' ? '在位' : '待归还' }}
-                </div>
-              </div>
-              <button class="btn-text-action" @click="clearSelection">取消选择</button>
+          <!-- 右侧卡片联动联动左侧过滤器 -->
+          <div class="stats-summary-grid">
+            <!-- 全部 -->
+            <div class="stat-card clickable" :class="{ active: currentFilter === 'ALL' }" @click="setFilter('ALL')">
+              <div class="s-num">{{ equipmentList.length }}</div>
+              <div class="s-text">装备总数</div>
             </div>
 
-            <div class="info-table">
-              <div class="info-row">
-                <span class="label">装备编号</span>
-                <span class="value font-mono highlight">{{ singleItem.group_code }}</span>
-              </div>
-              <div class="info-row">
-                <span class="label">装备类型</span>
-                <span class="value">{{ singleItem.group_type }}</span>
-              </div>
-              <div class="info-row">
-                <span class="label">存放位置</span>
-                <span class="value">{{ singleItem.self_address }} 号位 /
-                  {{ singleItem.lock_self_address === 1 ? '上柜' : '下柜' }}</span>
-              </div>
-              <div class="info-row">
-                <span class="label">包含芯片</span>
-                <span class="value">{{ singleItem.group_chip_count }} 枚</span>
-              </div>
-              <div class="info-row">
-                <span class="label">配发时间</span>
-                <span class="value">{{ singleItem.group_distribution_time }}</span>
-              </div>
+            <!-- 正常 -->
+            <div class="stat-card is-success clickable" :class="{ active: currentFilter === 'NORMAL' }"
+              @click="setFilter('NORMAL')">
+              <div class="s-num">{{ stats.match }}</div>
+              <div class="s-text">账实相符</div>
             </div>
 
-            <div class="remark-area">
-              <div class="area-title">参数 / 备注信息</div>
-              <div class="remark-content custom-scroll">
-                {{ singleItem.group_remark || '该装备暂无详细参数描述...' }}
-              </div>
-            </div>
-
-            <div class="action-footer">
-              <!-- 修改 3: 按钮禁用逻辑翻转 -->
-              <button class="cyber-btn" :class="{ disabled: singleItem.group_status === '在位' }"
-                :disabled="singleItem.group_status === '在位'" @click="handleStartBorrowProcess">
-                <div class="btn-content">
-                  <el-icon :size="24" v-if="singleItem.group_status !== '在位'">
-                    <SoldOut />
-                  </el-icon>
-                  <el-icon :size="24" v-else>
-                    <CircleCloseFilled />
-                  </el-icon>
-                  <div class="text-group">
-                    <!-- 文案修改 -->
-                    <span class="btn-main-text">{{
-                      singleItem.group_status !== '在位' ? '立即归还' : '已在位·无需归还'
-                      }}</span>
-                    <span class="btn-sub-text">{{
-                      singleItem.group_status !== '在位'
-                        ? '开门放入 · 自动感应'
-                        : '装备在库 · 禁止操作'
-                    }}</span>
-                  </div>
-                </div>
-                <div class="scan-line" v-if="singleItem.group_status !== '在位'"></div>
-              </button>
+            <!-- 异常 -->
+            <div class="stat-card is-danger clickable"
+              :class="{ active: currentFilter === 'ERROR', 'has-err': stats.mismatch > 0 }" @click="setFilter('ERROR')">
+              <div class="s-num">{{ stats.mismatch }}</div>
+              <div class="s-text">异常数量</div>
             </div>
           </div>
-        </template>
 
-        <!-- 场景3：批量操作 -->
-        <template v-else>
-          <div class="batch-card">
-            <div class="batch-header">
-              <div class="batch-title">
-                <el-icon>
-                  <List />
+          <!-- 账实相符率进度条已按方案二彻底删除 -->
+
+          <div class="analysis-section">
+            <div class="analysis-title">装备盘点明细</div>
+            <div class="analysis-row success-text">
+              <span class="a-label"><i class="dot success"></i> 正常在位</span>
+              <span class="a-value">{{ stats.inPlace }} 件</span>
+            </div>
+            <div class="analysis-row info-text">
+              <span class="a-label"><i class="dot info"></i> 正常借出</span>
+              <span class="a-value">{{ stats.outPlace }} 件</span>
+            </div>
+            <div class="analysis-row danger-text" v-if="stats.missing > 0">
+              <span class="a-label"><i class="dot danger"></i> 异常离位 (账在实不在)</span>
+              <span class="a-value">{{ stats.missing }} 件</span>
+            </div>
+            <div class="analysis-row warning-text" v-if="stats.unregistered > 0">
+              <span class="a-label"><i class="dot warning"></i> 异常占用 (实在账不在)</span>
+              <span class="a-value">{{ stats.unregistered }} 件</span>
+            </div>
+            <div class="analysis-row warning-text" v-if="stats.unmonitored > 0">
+              <span class="a-label">
+                <i class="dot warning blink"></i>
+                人工授信 (当前不受监控)
+              </span>
+              <span class="a-value">{{ stats.unmonitored }} 件</span>
+            </div>
+          </div>
+
+          <div class="flex-spacer">
+            <el-icon :size="60" class="spacer-icon">
+              <Monitor />
+            </el-icon>
+            <div class="spacer-text">装备状态实时自动更新</div>
+          </div>
+
+          <!-- 找到这一块 -->
+          <div class="action-footer">
+            <button class="cyber-btn" @click="handleOpenSummary">
+              <div class="btn-content">
+                <el-icon :size="20">
+                  <Monitor />
+                  <!-- 改为监控图标或盘点图标 -->
                 </el-icon>
-                批量操作清单
+                <span class="btn-main-text">开始盘点核对 </span>
               </div>
-              <button class="btn-text-action danger" @click="clearSelection">清空已选</button>
-            </div>
-
-            <div class="batch-summary">
-              <div class="summary-item">
-                <span class="num">{{ selectedItems.length }}</span>
-                <span class="txt">总选中</span>
-              </div>
-              <div class="summary-item success">
-                <span class="num">{{ validItemsCount }}</span>
-                <span class="txt">可归还</span>
-              </div>
-              <div class="summary-item warning" v-if="selectedItems.length - validItemsCount > 0">
-                <span class="num">{{ selectedItems.length - validItemsCount }}</span>
-                <span class="txt">不可用</span>
-              </div>
-            </div>
-
-            <el-scrollbar class="batch-list-scroll">
-              <div class="batch-list">
-                <div v-for="item in selectedItems" :key="item.id" class="batch-item">
-                  <div class="item-left">
-                    <div class="b-name">{{ item.group_name }}</div>
-                    <div class="b-code" :title="item.group_code">{{ item.group_code }}</div>
-                  </div>
-                  <div class="item-right">
-                    <button class="btn-icon-view" @click.stop="openDetailModal(item)" title="查看详情">
-                      <el-icon>
-                        <View />
-                      </el-icon>
-                    </button>
-                    <span class="mini-tag" :class="item.group_status === '在位' ? 'st-in-place-disabled' : 'st-out-active'
-                      ">
-                      {{ item.group_status === '在位' ? '在位' : '待归还' }}
-                    </span>
-                    <div class="b-pos">{{ item.self_address }}号</div>
-                    <button class="btn-icon-remove" @click.stop="toggleSelect(item.id)">
-                      <el-icon>
-                        <Close />
-                      </el-icon>
-                    </button>
-                  </div>
-                </div>
-              </div>
-            </el-scrollbar>
-
-            <div class="action-footer">
-              <div v-if="selectedItems.length - validItemsCount > 0" class="batch-warning">
-                <el-icon>
-                  <Warning />
-                </el-icon>
-                系统将自动跳过 {{ selectedItems.length - validItemsCount }} 个不可归还装备
-              </div>
-
-              <button class="cyber-btn" :class="{ disabled: validItemsCount === 0 }" :disabled="validItemsCount === 0"
-                @click="handleStartBorrowProcess">
-                <div class="btn-content">
-                  <el-icon :size="24">
-                    <Collection />
-                  </el-icon>
-                  <div class="text-group">
-                    <span class="btn-main-text">批量归还 ({{ validItemsCount }}项)</span>
-                    <span class="btn-sub-text">操作留痕 · 错取报警</span>
-                  </div>
-                </div>
-                <div class="scan-line" v-if="validItemsCount > 0"></div>
-              </button>
-            </div>
-          </div>
-        </template>
-      </div>
-
-      <!-- 详情查看弹窗 (只读) -->
-      <el-dialog v-model="detailVisible" title="装备详情概览" width="400px" class="cyber-dialog" :append-to-body="true"
-        :destroy-on-close="true">
-        <div class="detail-card-modal">
-          <div class="detail-header-modal">
-            <div class="big-name-modal">{{ viewingItem.group_name }}</div>
-            <div class="status-tag-large" :class="viewingItem.group_status === '在位' ? 'st-in-place-disabled' : 'st-out-active'
-              ">
-              {{ viewingItem.group_status === '在位' ? '在位' : '待归还' }}
-            </div>
-          </div>
-          <div class="info-table">
-            <div class="info-row">
-              <span class="label">装备编号</span>
-              <span class="value font-mono highlight">{{ viewingItem.group_code }}</span>
-            </div>
-            <div class="info-row">
-              <span class="label">装备类型</span>
-              <span class="value">{{ viewingItem.group_type }}</span>
-            </div>
-            <div class="info-row">
-              <span class="label">存放位置</span>
-              <span class="value">{{ viewingItem.self_address }} 号位</span>
-            </div>
-            <div class="info-row">
-              <span class="label">包含芯片</span>
-              <span class="value">{{ viewingItem.group_chip_count }} 枚</span>
-            </div>
-            <div class="info-row">
-              <span class="label">配发时间</span>
-              <span class="value">{{ viewingItem.group_distribution_time }}</span>
-            </div>
-          </div>
-          <div class="remark-area-modal">
-            <div class="area-title">参数 / 备注信息</div>
-            <div class="remark-content custom-scroll">
-              {{ viewingItem.group_remark || '该装备暂无详细参数描述...' }}
-            </div>
+              <div class="scan-line"></div>
+            </button>
           </div>
         </div>
-      </el-dialog>
+      </div>
+    </div>
 
-      <!-- ================= 核心：实时领用监控弹窗 (全屏遮罩) ================= -->
-      <el-dialog v-model="borrowProcessVisible" :show-close="false" :close-on-click-modal="false" width="600px"
-        class="cyber-dialog process-dialog" center :append-to-body="true">
-        <div class="process-container">
-          <!-- 标题区 -->
-          <div class="process-header">
-            <div class="p-title">正在归还装备</div>
-            <div class="p-sub">柜门已打开，请将选中的装备放入对应位置</div>
+    <!-- 异常核对弹窗 -->
+    <el-dialog v-model="summaryVisible" title="全量装备盘点" width="1250px" class="inventory-dialog-unique"
+      :class="{ 'is-keyboard-open': showKeyboard }" @close="closeKeyboard">
+      <div class="summary-dialog-content">
+        <div class="abnormal-table-container custom-scroll" :style="{ maxHeight: scrollAreaHeight }">
+          <table class="cyber-table">
+            <thead>
+              <tr>
+                <!-- 1. 实照列宽由 80 增加到 110，适配 4:3 -->
+                <th width="110">装备实照</th>
+                <!-- 2. 基础信息列保持 180 -->
+                <th width="140">装备名称/编号/位置</th>
+                <th width="100">装备流转记录</th>
+                <!-- 3. 账实对比列由 200 压缩至 160 -->
+                <th width="130">账实核对</th>
+                <!-- 4. 异常类型列保持 100 -->
+                <th width="100">实时判定状态</th>
+                <!-- 5. 快速处置方案列宽保持 280 (按钮变大后需要此空间) -->
+                <th width="200">快速处置方案（点击执行）</th>
+                <!-- 6. 备注列不设限，自动撑开剩余空间 -->
+                <th>盘点备注</th>
+              </tr>
+            </thead>
+            <tbody>
+              <!-- 修改 <tr> 的 class -->
+              <tr v-for="item in inventoryWorkList" :key="item.id" :class="{
+                'is-processed-row':
+                  item.manual_checked ||
+                  item.manualVerified ||
+                  (item.isProcessed && !isAdminDisabled(item)),
+              }">
+                <!-- 1. 装备实照 -->
+                <td>
+                  <el-image :src="item.group_image" class="table-thumb" :preview-src-list="[item.group_image]"
+                    fit="cover">
+                    <template #error>
+                      <div class="thumb-err">
+                        <span>暂无实照</span>
+                        <!-- 新增文字提示 -->
+                        <el-icon :size="20">
+                          <Picture />
+                        </el-icon>
+                      </div>
+                    </template>
+                  </el-image>
+                </td>
+
+                <!-- 2. 基础信息 + 物理地址 -->
+                <td>
+                  <div class="t-name">{{ item.group_name }}</div>
+                  <div class="t-code">{{ item.group_code }}</div>
+                  <div class="t-pos">
+                    <el-icon>
+                      <Location />
+                    </el-icon>
+                    {{ item.self_address }}号位
+                  </div>
+                </td>
+
+                <!-- 3. 新增：流转记录按钮 -->
+                <td>
+                  <button class="mini-action-btn plain-btn" @click="handleCheckHistory(item)">
+                    查看记录
+                  </button>
+                </td>
+
+                <!-- 4. 账实对比 (视觉强化版) -->
+                <td>
+                  <div class="compare-row">
+                    <span class="dot-label">系统账面:</span>
+                    <span class="mini-tag" :class="item.group_status === '在位' ? 'st-in' : 'st-out'">
+                      {{ item.group_status }}
+                    </span>
+                  </div>
+                  <div class="compare-row" style="margin-top: 8px">
+                    <span class="dot-label">柜内感知:</span>
+                    <span class="mini-tag" :class="{
+                      'st-in': getActualStatus(item) === '在位',
+                      'st-out': getActualStatus(item) === '不在位',
+                      'st-disabled': getActualStatus(item) === '已禁用', // <--- 新增
+                    }">
+                      {{ getActualStatus(item) }}
+                    </span>
+                  </div>
+                </td>
+
+                <!-- 5. 判定状态 -->
+                <td>
+                  <span class="mini-tag" :class="getDetailedStatus(item).class">
+                    {{ getDetailedStatus(item).text }}
+                  </span>
+                </td>
+
+                <!-- 6. 重点：核实操作列 -->
+                <td>
+                  <div class="action-btns">
+                    <!-- 场景 A：已经核实过的 (无论是点确认还是点补录) -->
+                    <span
+                      v-if="item.manual_checked || item.manualVerified || (item.isProcessed && !isAdminDisabled(item))"
+                      class="status-resolved">
+                      <el-icon>
+                        <CircleCheck />
+                      </el-icon>已核实
+                    </span>
+
+                    <!-- 场景 B：账实相符的项 -> 显示“确认在位” -->
+                    <template v-else-if="getAssessmentResult(item) === 'HEALTHY'">
+                      <button class="mini-action-btn success" @click="handleConfirmNormal(item)">
+                        确认实物在位
+                      </button>
+                    </template>
+
+                    <!-- 场景 C：异常项 (逻辑保持你之前的处置方案) -->
+                    <template v-else-if="isAdminDisabled(item)">
+                      <button class="mini-action-btn success" @click="handleManualVerify(item)">肉眼核实</button>
+                      <button class="mini-action-btn" @click="handleEnableSensor(item)">恢复感应</button>
+                    </template>
+                    <template v-else>
+                      <button v-if="item.group_status === '在位'" class="mini-action-btn"
+                        @click="fixByBorrow(item)">补录领用</button>
+                      <button v-if="item.group_status === '已取出'" class="mini-action-btn success"
+                        @click="fixByReturn(item)">补录归还</button>
+                      <button class="mini-action-btn warning" @click="fixByDisableSensor(item)">屏蔽传感</button>
+                    </template>
+                  </div>
+                </td>
+
+                <!-- 找到以下位置 -->
+                <td>
+                  <el-input v-model="item.inventory_remark" type="textarea" :rows="2" placeholder="请输入盘点备注..."
+                    class="table-textarea" resize="none"
+                    @focus="openKeyboard('default', 'inventory_remark', $event, item)" @click="updateCursorPos"
+                    @keyup="updateCursorPos" />
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+      <!-- 【修改后的页脚部分】 -->
+      <template #footer>
+        <div class="dialog-footer">
+          <div class="footer-left-tip">
+            <!-- 进度显示保持不变 -->
+            <div class="inventory-progress-bar">
+              <span class="p-text">盘点核实进度：</span>
+              <span class="p-num">{{ verifiedCount }} / {{ equipmentList.length }}</span>
+              <div class="p-track">
+                <div class="p-fill" :style="{ width: (verifiedCount / equipmentList.length * 100) + '%' }"></div>
+              </div>
+            </div>
           </div>
 
-          <!-- 动画指示器 -->
-          <div class="scan-anim-box">
-            <div class="scanner"></div>
+          <div class="footer-right-btns">
+            <!-- 【新增：移到这里的批量核实按钮】 -->
+            <!-- 只有当还有未确认的正常项时才显示，或者始终显示 -->
+            <button class="footer-btn history-btn" v-if="verifiedCount < equipmentList.length"
+              @click="handleBatchVerifyHealthy">
+              <el-icon>
+                <Check />
+              </el-icon>
+              一键确认正常项
+            </button>
+
+            <!-- 提交按钮 -->
+            <button class="footer-btn confirm" :class="{ 'is-disabled': verifiedCount < equipmentList.length }"
+              :disabled="verifiedCount < equipmentList.length" @click="finalSubmit">
+              生成盘点报告
+            </button>
           </div>
+        </div>
+      </template>
+    </el-dialog>
 
-          <!-- 实时列表 -->
-          <div class="monitor-list">
-            <!-- 待领取的正确装备 -->
-            <!-- 请替换原有的 monitor-list 中的 v-for 部分 -->
-            <div v-for="item in activeBorrowList" :key="'target-' + item.id" class="m-item"
-              :class="{ taken: item.isReturned }">
-              <div class="m-left">
-                <!-- 情况1: 已归还 -->
-                <el-icon v-if="item.isReturned" color="#00ff9d" :size="20">
-                  <Check />
+    <!-- ================= 装备档案详情弹窗 (新增) ================= -->
+    <el-dialog v-model="detailVisible" width="1100px" class="inventory-dialog-unique detail-dialog" :show-close="true">
+      <template #header>
+        <div class="detail-header">
+          <div class="header-title-wrapper">
+            <span class="main-title">{{ selectedDetail?.group_name }}</span>
+            <span class="sub-code">{{ selectedDetail?.group_code }}</span>
+          </div>
+        </div>
+      </template>
+
+      <div class="detail-container custom-scroll">
+        <!-- 第一行：基础展示区 -->
+        <div class="detail-row top-row">
+          <!-- 左侧：装备实照与物理状态 -->
+          <div class="detail-left-col">
+            <div class="image-box">
+              <el-image :src="selectedDetail?.group_image" fit="contain"
+                :preview-src-list="[selectedDetail?.group_image]">
+                <!-- 新增：加载中的占位图 -->
+                <template #placeholder>
+                  <div class="img-loading-placeholder">
+                    <el-icon class="is-loading" :size="30">
+                      <Loading />
+                    </el-icon>
+                    <span>加载中...</span>
+                  </div>
+                </template>
+                <template #error>
+                  <div class="img-err">
+                    <el-icon :size="40">
+                      <Picture />
+                    </el-icon><span>暂无实照</span>
+                  </div>
+                </template>
+              </el-image>
+              <div class="image-label">装备主视图</div>
+            </div>
+            <!-- 修改后 -->
+            <!-- 修改后：三段式感知对比面板 -->
+            <div class="live-monitor-panel">
+              <div class="panel-title">
+                <el-icon>
+                  <Monitor />
                 </el-icon>
+                实时感知状态对比
+              </div>
 
-                <!-- 情况2: 未归还 & 传感器正常 -->
-                <el-icon v-else-if="!isSensorDisabled(item.self_address)" class="pulse-icon" color="#00f2ff" :size="20">
-                  <Location />
-                </el-icon>
-
-                <!-- 情况3: 未归还 & 传感器禁用(坏了) -->
-                <el-icon v-else color="#E6A23C" :size="20">
-                  <Tools />
-                </el-icon>
-
-                <div class="m-info-group">
-                  <span class="m-name">{{ item.group_name }}</span>
-                  <span class="m-addr">
-                    位置: {{ item.self_address }}号
-                    <span v-if="isSensorDisabled(item.self_address)"
-                      style="color: #e6a23c; font-size: 10px">(传感器已禁用)</span>
+              <!-- 第一部分：数据源对比层 -->
+              <div class="monitor-compare-row">
+                <div class="m-compare-box">
+                  <span class="m-label">系统账面</span>
+                  <span class="m-val" :class="selectedDetail?.group_status === '在位' ? 'text-success' : 'text-sec'">
+                    {{ selectedDetail?.group_status }}
+                  </span>
+                </div>
+                <div class="m-divider"></div>
+                <!-- 视觉分隔线 -->
+                <div class="m-compare-box">
+                  <span class="m-label">物理感应</span>
+                  <span class="m-val" :class="getActualStatus(selectedDetail) === '在位' ? 'text-success' : 'text-error'
+                    ">
+                    {{ getActualStatus(selectedDetail) }}
                   </span>
                 </div>
               </div>
 
-              <div class="m-status">
-                <span v-if="item.isReturned" class="success-text">已归还</span>
-
-                <!-- 增加手动确认按钮 -->
-                <button v-else-if="isSensorDisabled(item.self_address)" class="manual-confirm-btn"
-                  @click="manualConfirmReturned(item)">
-                  <el-icon>
-                    <Pointer />
-                  </el-icon>
-                  确认放入
-                </button>
-
-                <span v-else>等待放入...</span>
+              <!-- 第二部分：通栏结论层 -->
+              <div class="conclusion-bar" :class="getDetailedStatus(selectedDetail).class">
+                <span class="c-dot"></span>
+                <span class="c-label">判定结果：</span>
+                <span class="c-text">{{ getDetailedStatus(selectedDetail).text }}</span>
               </div>
-            </div>
-
-            <!-- 报警区域：检测到拿错的装备 -->
-            <div v-for="errItem in wrongTakenList" :key="'wrong-' + errItem.id" class="m-item error-shake">
-              <div class="m-left">
-                <el-icon color="#ff4d4f" :size="24">
-                  <Warning />
-                </el-icon>
-                <div class="m-info-group">
-                  <span class="m-name" style="color: #ff4d4f">误拿警告: {{ errItem.group_name }}</span>
-                  <span class="m-addr" style="color: #ff8888">位置: {{ errItem.self_address }}号</span>
-                </div>
-              </div>
-              <div class="m-status error-text">请立即放回!</div>
             </div>
           </div>
 
-          <!-- 底部操作区 -->
-          <div class="process-footer">
-            <div class="status-summary" v-if="wrongTakenList.length === 0">
-              <span v-if="remainingCount > 0" class="processing-text">
-                <el-icon class="is-loading">
-                  <Loading />
-                </el-icon>
-                剩余 {{ remainingCount }} 件归还
-              </span>
-              <span v-else class="success-text">
-                <el-icon>
-                  <CircleCheck />
-                </el-icon>
-                所有装备已归还，请关闭柜门
-              </span>
+          <!-- 右侧：核心账面参数 -->
+          <div class="detail-right-col">
+            <div class="info-group">
+              <!-- 标题已修改为 装备详情 -->
+              <div class="group-title">基本信息</div>
+              <div class="info-grid">
+                <!-- 新增：装备名称 -->
+                <div class="grid-cell">
+                  <span class="label">装备名称</span>
+                  <span class="val">{{ selectedDetail?.group_name || '--' }}</span>
+                </div>
+                <!-- 新增：装备编号 -->
+                <div class="grid-cell">
+                  <span class="label">装备编号</span>
+                  <span class="val">{{ selectedDetail?.group_code || '--' }}</span>
+                </div>
+                <!-- 原有：装备类型 -->
+                <div class="grid-cell">
+                  <span class="label">装备类型</span>
+                  <span class="val">{{ selectedDetail?.group_type || '--' }}</span>
+                </div>
+                <!-- 原有：配发时间 -->
+                <div class="grid-cell">
+                  <span class="label">配发时间</span>
+                  <span class="val">{{ selectedDetail?.group_distribution_time || '--' }}</span>
+                </div>
+                <!-- 原有：芯片数量 -->
+                <div class="grid-cell">
+                  <span class="label">芯片数量</span>
+                  <span class="val">{{ selectedDetail?.group_chip_count }} 枚</span>
+                </div>
+                <!-- 原有：芯片数量 -->
+                <div class="grid-cell">
+                  <span class="label">质量分级</span>
+                  <span class="val">堪用品</span>
+                </div>
+                <!-- 原有：芯片数量 -->
+                <div class="grid-cell">
+                  <span class="label">柜位编号</span>
+                  <span class="val">{{ selectedDetail?.self_address }}号柜位</span>
+                </div>
+                <!-- 空 -->
+                <div class="grid-cell">
+                  <span class="label"></span>
+                  <span class="val"></span>
+                </div>
+              </div>
             </div>
-            <div class="status-summary error-text" v-else>检测到异常！请放回误拿装备</div>
 
-            <!-- [修改点] 底部增加关门提示与按钮禁用逻辑 -->
-
-            <!-- 如果装备全取走，且没有拿错，但门没关，显示黄色闪烁提示 -->
-            <div v-if="remainingCount === 0 && wrongTakenList.length === 0 && !areDoorsClosed"
-              class="door-warning-anim">
-              <el-icon class="is-loading">
-                <Loading />
-              </el-icon>
-              检测到柜门未关闭，请关门...
-            </div>
-
-            <div class="btn-group">
-              <!--
-                 1. 只有全部取走且无错误时，才显示完成按钮
-                 2. :class disabled-state 动态添加灰色样式
-                 3. :disabled 动态禁用，如果门没关就不能点
-              -->
-              <button v-if="remainingCount === 0 && wrongTakenList.length === 0" class="cyber-btn finish-btn"
-                :class="{ 'disabled-state': !areDoorsClosed }" :disabled="!areDoorsClosed"
-                @click="secureFinalize('NORMAL')">
-                <!-- 修改这里 -->
-                <span v-if="areDoorsClosed">确认已关门并完成</span>
-                <span v-else>等待关门...</span>
-              </button>
-
-              <!-- 紧急停止/人工干预 -->
-              <button class="btn-text-action danger" style="margin-top: 15px; margin-left: auto; margin-right: auto"
-                @click="forceExitProcess">
-                人工强制结束
-              </button>
+            <div class="info-group remark-group">
+              <div class="group-title">装备参数</div>
+              <div class="remark-content">
+                {{ selectedDetail?.group_remark || '暂无详细描述参数' }}
+              </div>
             </div>
           </div>
         </div>
-      </el-dialog>
+
+        <!-- 第二行：芯片清单 (Chip List) -->
+        <div class="detail-row chip-row">
+          <div class="group-title">绑定芯片列表 ({{ parsedChips.length }} 枚)</div>
+          <div class="chip-cards-container">
+            <div v-for="(chip, index) in parsedChips" :key="index" class="chip-detail-card">
+              <!-- 头部：仅显示序号 -->
+              <div class="chip-card-header">
+                <span class="chip-idx">芯片 #{{ index + 1 }}</span>
+              </div>
+
+              <div class="chip-card-body">
+                <!-- 1. 图片展示区：强制 4:3 比例 -->
+                <div class="chip-image-zone">
+                  <div v-if="chip.chip_image && chip.chip_image.length > 0" class="chip-img-grid">
+                    <el-image v-for="(img, i) in chip.chip_image" :key="i" :src="img" class="standard-chip-img"
+                      :preview-src-list="chip.chip_image" :initial-index="i" fit="cover" />
+                  </div>
+                  <div v-else class="chip-no-img">
+                    <el-icon>
+                      <Picture />
+                    </el-icon>
+                    <span>无芯片实照</span>
+                  </div>
+                </div>
+
+                <!-- 2. 芯片信息列表：参考管理页面字段 -->
+                <div class="chip-params-list">
+                  <div class="param-item">
+                    <span class="p-label">芯片名称</span>
+                    <span class="p-value">{{ chip.chip_name || '--' }}</span>
+                  </div>
+                  <div class="param-item">
+                    <span class="p-label">芯片编号</span>
+                    <span class="p-value">{{ chip.chip_code || '--' }}</span>
+                  </div>
+                  <div class="param-item">
+                    <span class="p-label">芯片类型</span>
+                    <span class="p-value">{{ chip.chip_type || '--' }}</span>
+                  </div>
+                  <div class="param-item vertical">
+                    <span class="p-label">芯片参数</span>
+                    <div class="p-content" :title="chip.chip_remark">
+                      {{ chip.chip_remark || '暂无参数描述' }}
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- 修改后 -->
+      <template #footer>
+        <div class="detail-footer">
+          <!-- 🚩 新增操作历史按钮 -->
+          <button class="footer-btn history-btn" @click="handleCheckHistory(selectedDetail)">
+            <el-icon>
+              <HistoryIcon />
+            </el-icon>
+            装备流转记录
+          </button>
+          <button class="footer-btn confirm" @click="detailVisible = false">关闭弹窗</button>
+        </div>
+      </template>
+    </el-dialog>
+
+    <!-- 虚拟键盘组件 -->
+    <div v-if="showKeyboard" class="keyboard-container" :style="keyboardPosition" @mousedown.prevent>
+      <SimpleKeyboard v-model="currentInputValue" :defaultLayout="currentLayout" @onKeyPress="handleKeyPress"
+        @onClose="closeKeyboard" keyboardClass="show-keyboard" />
     </div>
   </div>
 </template>
 
 <script setup>
-import { ref, computed, onMounted, onUnmounted, nextTick, watch, reactive } from 'vue'
 import {
+  ref,
+  computed,
+  onMounted,
+  onUnmounted,
+  reactive,
+  defineAsyncComponent,
+  nextTick,
+  watch,
+} from 'vue'
+import { useRouter } from 'vue-router'
+import {
+  Files,
   Box,
   SwitchButton,
-  Location,
-  Files,
-  CircleCloseFilled,
-  Warning,
-  Check,
-  Mouse,
-  List,
-  Close,
-  Collection /*Search,*/,
-  View,
-  Loading,
+  Monitor,
   CircleCheck,
-  SoldOut,
-  Tools,
-  Pointer,
-  Unlock,
+  Location,
+  Check,
+  Timer as HistoryIcon,
 } from '@element-plus/icons-vue'
-import { ElMessage, ElMessageBox, ElLoading } from 'element-plus'
-import { useTimerStore } from '@/stores/timerStore'
+import { ElMessage, ElLoading, ElMessageBox } from 'element-plus'
 import { useAudioStore } from '@/stores/audioStore'
-// import { useConfigStore } from '@/stores/configStore'
-import { useRouter } from 'vue-router'
-const router = useRouter()
-
+import { useTimerStore } from '@/stores/timerStore'
 const timerStore = useTimerStore()
+
+import plugins from '../assets/js/plugin'
+// --- 1. 定义选中状态变量 ---
+const selectedId = ref(null)
+
+const router = useRouter()
 const audioStore = useAudioStore()
-// const configStore = useConfigStore()
 
-// --- 新增状态变量 ---
-const areDoorsClosed = ref(false) // 默认为 false，因为流程刚开始时门肯定是开的
-const hasPlayedCloseDoorPrompt = ref(false) // [新增] 控制关门提示音只播一次
-
-// --- [新增] 领用用途相关变量 ---
-const borrowReason = ref('') // 绑定的用途值
-
-// --- 核心数据变量 ---
-const config_blob = ref(null)
-const equipmentList = ref([])
-const searchVal = ref('')
-const currentFilter = ref('ALL')
-const selectedIds = ref([])
-const detailVisible = ref(false)
-const viewingItem = ref({})
-const el_loading = ref(false)
-
-// --- 业务流程控制变量 ---
-const borrowProcessVisible = ref(false) // 监控弹窗显隐
-const isPolling = ref(false) // 轮询开关
-const activeBorrowList = ref([]) // 目标领用列表（含实时状态）
-const wrongTakenList = ref([]) // 误拿列表
-const allInPlaceItems = ref([]) // 初始在位的所有装备（用于比对）
-const realtimeSwitchMap = reactive({}) // 实时硬件状态映射表 {address: 1/0}
-
-// --- 过滤选项 ---
+// --- 过滤器配置 ---
 const filterOptions = [
-  { label: '全部装备', value: 'ALL' },
-  { label: '待归还（已取出）', value: 'OUT' },
-  { label: '在位', value: 'IN' },
+  { label: '所有项', value: 'ALL' },
+  { label: '正常项', value: 'NORMAL' },
+  { label: '异常项', value: 'ERROR' },
 ]
 
-// --- 动画与 Ref ---
-const tabsContainer = ref(null)
-const tabRefs = ref([])
-const gliderStyle = ref({ width: '0px', transform: 'translateX(0px)', opacity: 0 })
+// --- 核心状态变量 ---
+const equipmentList = ref([]) // 真实装备列表
+const config_blob = ref(null) // 硬件配置信息
+const realtimeSwitchMap = reactive({}) // 硬件感知映射表 { self_address: status }
+const isPolling = ref(false) // 轮询开关
+const summaryVisible = ref(false)
+const currentFilter = ref('ALL')
+const selectedName = ref('ALL') // 【新增：记录选中的装备名称】
 
-// --- 辅助：判断传感器是否禁用 (与领用代码一致) ---
-const isSensorDisabled = (address) => {
-  if (!config_blob.value?.switch?.details) return false
-  const conf = config_blob.value.switch.details.find((d) => d.self_address == address)
-  // 兼容数字和字符串类型的判断 (admin_status: 0 表示禁用/维修中)
-  return conf && (conf.admin_status == 0 || conf.admin_status === '0')
+// --- 虚拟键盘相关核心逻辑 ---
+const SimpleKeyboard = defineAsyncComponent(() => import('@/components/SimpleKeyboard_black.vue'))
+const showKeyboard = ref(false)
+const activeField = ref('')
+const currentInputValue = ref('')
+const activeItem = ref(null) // 关键：记录当前正在编辑的装备项
+const activeInputDom = ref(null)
+const cursorIndex = ref(0)
+const scrollAreaHeight = ref('50vh') // 对应异常表格容器的初始高度
+const currentLayout = ref('default')
+
+const keyboardPosition = ref({
+  bottom: '0px',
+  width: '100%',
+  left: `0px`,
+  position: 'fixed',
+  'z-index': 9999,
+})
+
+// 更新光标位置
+const updateCursorPos = (event) => {
+  const inputEl =
+    event.target.tagName === 'TEXTAREA' || event.target.tagName === 'INPUT'
+      ? event.target
+      : event.target.querySelector('textarea, input')
+  if (inputEl) {
+    cursorIndex.value = inputEl.selectionStart
+    activeInputDom.value = inputEl
+  }
 }
 
-// --- 动作：手动确认归还 (用于传感器损坏时) ---
-const manualConfirmReturned = (item) => {
-  item.isReturned = true // 在归还场景下，isReturned = true 代表“已归还”
+// 打开键盘
+const openKeyboard = (layout, fieldName, event, item) => {
+  activeField.value = fieldName
+  activeItem.value = item
+  currentInputValue.value = item[fieldName] || ''
+  currentLayout.value = layout
+  showKeyboard.value = true
+
+  // 修改：由 25vh 改为 35vh。25vh 太小了，扣除表头后内容区几乎不可见
+  scrollAreaHeight.value = '35vh'
+
+  if (event && event.target) {
+    activeInputDom.value = event.target
+    cursorIndex.value = event.target.selectionStart || currentInputValue.value.length
+
+    nextTick(() => {
+      // 这里的 scrollIntoView 很重要，确保输入行不被键盘遮挡
+      event.target.scrollIntoView({ behavior: 'smooth', block: 'center' })
+      event.target.focus()
+      event.target.setSelectionRange(cursorIndex.value, cursorIndex.value)
+    })
+  }
+}
+
+// 关闭键盘
+const closeKeyboard = () => {
+  showKeyboard.value = false
+  scrollAreaHeight.value = '50vh' // 恢复表格区域高度
+
+  // 强制让当前活跃的 DOM 失去焦点
+  if (activeInputDom.value) {
+    activeInputDom.value.blur()
+  }
+}
+
+const handleKeyPress = (button) => {
+  // 关键：如果点击的是关闭或提交，绝对不能再执行 focus()，否则会重新触发 input 的 @focus 事件再次打开键盘
+  if (button === '{close}' || button === '{submit}') {
+    // 先强制让输入框失去焦点，切断聚焦循环
+    if (activeInputDom.value) {
+      activeInputDom.value.blur()
+    }
+    // 延迟一小会儿执行关闭，确保失去焦点动作已完成
+    setTimeout(() => {
+      closeKeyboard()
+    }, 100)
+    return // 直接返回，不再执行下面的 focus()
+  }
+
+  // 其他按键（如字母、数字）才需要保持聚焦
+  nextTick(() => {
+    if (activeInputDom.value) activeInputDom.value.focus()
+  })
+}
+
+// 监听键盘输入并回填到对应的列表项
+watch(currentInputValue, (newValue, oldValue) => {
+  if (showKeyboard.value && activeItem.value && activeField.value) {
+    // 同步修改 abnormalItems 中对应项的数据
+    activeItem.value[activeField.value] = newValue
+
+    const diff = (newValue || '').length - (oldValue || '').length
+    cursorIndex.value += diff
+
+    nextTick(() => {
+      if (activeInputDom.value) {
+        activeInputDom.value.setSelectionRange(cursorIndex.value, cursorIndex.value)
+      }
+    })
+  }
+})
+
+// --- 新增：计算不重复的装备名称列表 ---
+const uniqueNameOptions = computed(() => {
+  // 增加安全检查，防止数据加载前报错
+  if (!equipmentList.value || equipmentList.value.length === 0) return ['ALL']
+
+  const names = equipmentList.value.map((item) => item.group_name)
+  // 去重并排序
+  const uniqueNames = Array.from(new Set(names)).sort((a, b) => a.localeCompare(b, 'zh-CN'))
+  return ['ALL', ...uniqueNames]
+})
+
+// 3. 修改之前的 handleSelectCard 函数
+const handleSelectCard = (item) => {
+  selectedId.value = item.id
+  selectedDetail.value = item // 记录当前详情
+  detailVisible.value = true // 弹出详情
   audioStore.play('/audio/按钮点击声.mp3')
 }
-// =================================================================
-// 核心逻辑：安全退出 (带硬件检测)
-// =================================================================
 
-const handleSafeExit = async () => {
-  // 1. 阻断：如果当前正在进行归还流程（弹窗开着）
-  if (borrowProcessVisible.value) {
-    ElMessageBox.alert(
-      '当前正在进行归还操作，请先完成操作或点击“人工强制结束”关闭流程后再退出。',
-      '操作受限',
-      {
-        type: 'warning',
-        customClass: 'cyber-message-box warning-mode',
-        confirmButtonText: '知道了',
-      },
-    )
-    return
-  }
-
-  // 2. 初次检查 (显示 Loading)
-  const loading = ElLoading.service({
-    lock: true,
-    text: '正在扫描所有柜门状态...',
-    background: 'rgba(0, 0, 0, 0.7)',
-  })
-
-  let isAllClosed = false
-  try {
-    isAllClosed = await checkGlobalDoorStatus()
-  } catch (e) {
-    console.error('Exit check failed:', e)
-    isAllClosed = true // 硬件报错时允许通行，防止死锁
-  }
-  loading.close()
-
-  // 场景 A: 门直接就是关的 -> 安全退出
-  if (isAllClosed) {
-    router.push('/')
-    return
-  }
-
-  // 场景 B: 门没关 -> 启动“智能等待”并拦截跳转
-  audioStore.play('/audio/安全警告检测到柜门未关闭.mp3')
-
-  let stopPolling = false // 控制循环结束
-  // --- 定义后台轮询任务 ---
-  const startPollingLoop = async () => {
-    while (!stopPolling) {
-      try {
-        await new Promise((resolve) => setTimeout(resolve, 1000))
-        if (stopPolling) break
-
-        const closedNow = await checkGlobalDoorStatus()
-        if (closedNow) {
-          stopPolling = true
-          ElMessageBox.close() // 编程方式关闭弹窗
-          router.push('/')
-          break
-        }
-      } catch (e) {
-        console.error('Polling error:', e)
-      }
-    }
-  }
-
-  startPollingLoop()
-
-  // --- 显示 UI 拦截弹窗 ---
-  try {
-    const htmlContent = `
-      <div style="display: flex; flex-direction: column; align-items: center; text-align: center; padding: 10px 0;">
-        <div style="margin-bottom: 20px;"><svg viewBox="0 0 1024 1024" width="60" height="60" style="color: #ff4d4f;"><path fill="currentColor" d="M512 64a448 448 0 1 1 0 896 448 448 0 0 1 0-896zm0 192a58.432 58.432 0 0 0-58.24 63.744l23.36 256.384a35.072 35.072 0 0 0 69.76 0l23.296-256.384A58.432 58.432 0 0 0 512 256zm0 512a51.2 51.2 0 1 0 0-102.4 51.2 51.2 0 0 0 0 102.4z"></path></svg></div>
-        <div style="color: #ff4d4f; font-weight: bold; font-size: 20px; margin-bottom: 15px;">检测到柜门未关闭</div>
-        <div style="background: rgba(0, 242, 255, 0.08); border: 1px solid rgba(0, 242, 255, 0.2); padding: 15px 25px; border-radius: 6px; margin-bottom: 20px;">
-           <span style="color: #00f2ff; font-size: 14px; font-weight: bold;">请关闭柜门，系统检测后将自动退出...</span>
-        </div>
-        <div style="color: #666; font-size: 12px;">如果传感器故障，可点击下方按钮强制退出</div>
-      </div>
-    `
-
-    await ElMessageBox.confirm(htmlContent, '安全阻断', {
-      dangerouslyUseHTMLString: true,
-      confirmButtonText: '忽视风险，强制退出',
-      showCancelButton: false,
-      showClose: false,
-      closeOnClickModal: false,
-      confirmButtonClass: 'el-button--danger',
-      customClass: 'cyber-message-box error-mode',
-      center: true,
-    })
-
-    // 用户点击了“强制退出”
-    stopPolling = true
-    router.push('/')
-  } catch (action) {
-    console.log('用户点击了取消或关闭按钮', action)
-    stopPolling = true
-    // 如果是自动触发的跳转，这里不需要额外处理
-  }
-}
-// --- 新增：全局检测所有柜门状态 (用于安全退出和结算) ---
-const checkGlobalDoorStatus = async () => {
-  if (!config_blob.value?.lock?.details) return true
-
-  // 获取所有用到的锁板通道
-  const usedChannels = new Set()
-  config_blob.value.lock.details.forEach((lock) => {
-    if (lock.channel_address) usedChannels.add(lock.channel_address)
-  })
-
-  try {
-    const res = await window.electronAPI.el_post({
-      action: 'read_all_inputs',
-      payload: { deviceAddress: 201, startAddress: 0x0000, registerCount: 10 },
-    })
-
-    if (res && res.success && res.data && res.data.length >= 8) {
-      for (const channel of usedChannels) {
-        let dataIndex = -1
-        if (channel === 1) dataIndex = 6
-        if (channel === 2) dataIndex = 7
-        // 0=开, 1=关
-        if (dataIndex !== -1 && res.data[dataIndex] === 0) {
-          return false
-        }
-      }
-      return true
-    }
-    return false
-  } catch (e) {
-    console.error('全局门锁状态读取失败', e)
-    return false
-  }
+// --- 新增：跳转历史方法 ---
+const goToHistory = () => {
+  audioStore.play('/audio/按钮点击声.mp3')
+  router.push('/inventory-history') // 请确保你的路由中有这个路径
 }
 
-// =================================================================
-// 计算属性
-// =================================================================
-const filteredList = computed(() => {
-  let list = equipmentList.value
-
-  // 1. 全局过滤：必须排除 '已出柜' 和 '未入柜'
-  list = list.filter((item) => item.group_status !== '已出柜' && item.group_status !== '未入柜')
-
-  // 2. 搜索过滤
-  if (searchVal.value) {
-    const keyword = searchVal.value.toLowerCase()
-    list = list.filter(
-      (item) =>
-        (item.group_name && item.group_name.toLowerCase().includes(keyword)) ||
-        (item.group_code && item.group_code.toLowerCase().includes(keyword)),
-    )
-  }
-
-  // 3. 标签过滤
-  if (currentFilter.value === 'IN') {
-    list = list.filter((item) => item.group_status === '在位')
-  } else if (currentFilter.value === 'OUT') {
-    list = list.filter((item) => item.group_status !== '在位')
-  }
-
-  return list
-})
-
-const selectedItems = computed(() => {
-  return equipmentList.value.filter((item) => selectedIds.value.includes(item.id))
-})
-
-const singleItem = computed(() => selectedItems.value[0])
-
-const validItemsCount = computed(() => {
-  // 逻辑翻转：统计所有状态 不是 '在位' 的装备
-  return selectedItems.value.filter((item) => item.group_status !== '在位').length
-})
-
-// 剩余未取的数量
-const remainingCount = computed(() => {
-  return activeBorrowList.value.filter((i) => !i.isReturned).length
-})
-
-// =================================================================
-// UI 交互方法
-// =================================================================
-const updateGlider = () => {
-  nextTick(() => {
-    const activeIndex = filterOptions.findIndex((opt) => opt.value === currentFilter.value)
-    if (activeIndex !== -1 && tabRefs.value[activeIndex]) {
-      const activeEl = tabRefs.value[activeIndex]
-      gliderStyle.value = {
-        width: `${activeEl.offsetWidth}px`,
-        transform: `translateX(${activeEl.offsetLeft}px)`,
-        opacity: 1,
-      }
-    }
-  })
+// --- 时间格式化 ---
+const formatTime = () => {
+  const now = new Date()
+  return `${now.getFullYear()}/${String(now.getMonth() + 1).padStart(2, '0')}/${String(now.getDate()).padStart(2, '0')} ${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}:${String(now.getSeconds()).padStart(2, '0')}`
 }
+const currentTime = ref(formatTime())
 
-const setFilter = (filterType) => {
-  currentFilter.value = filterType
-}
-
-watch(currentFilter, () => {
-  updateGlider()
-})
-
-const toggleSelect = (id) => {
-  audioStore.play(`/audio/按钮点击声.mp3`)
-  const index = selectedIds.value.indexOf(id)
-  if (index === -1) {
-    selectedIds.value.push(id)
-  } else {
-    selectedIds.value.splice(index, 1)
-  }
-}
-
-const clearSelection = () => {
-  selectedIds.value = []
-}
-
-const openDetailModal = (item) => {
-  viewingItem.value = item
-  detailVisible.value = true
-}
-
-// =================================================================
-// 数据获取与初始化
-// =================================================================
+// --- 1. 初始化配置与数据 ---
 const fetchConfigData = async () => {
   try {
     const response = await window.electronAPI.el_post({
       action: 'queryMultipleTables',
-      payload: {
-        arr: [{ tablename: 'terminal_settings', condition: '' }],
-      },
+      payload: { arr: [{ tablename: 'terminal_settings', condition: '' }] },
     })
-
     if (response.success && response.data?.terminal_settings) {
       config_blob.value = JSON.parse(response.data.terminal_settings.config_blob)
     }
@@ -777,1051 +799,669 @@ const fetchConfigData = async () => {
   }
 }
 
-const getData = async () => {
-  el_loading.value = true
+const getRealData = async () => {
+  let allData = []
+  let currentPage = 1
+  let hasMore = true
+  const pageSize = 10
   try {
-    let allData = []
-    let currentPage = 1
-    let hasMoreData = true
-    const pageSize = 10
-
-    while (hasMoreData) {
-      const response = await window.electronAPI.el_post({
+    while (hasMore) {
+      const res = await window.electronAPI.el_post({
         action: 'queryPagination',
-        payload: {
-          tableName: 'equipment',
-          page: currentPage,
-          pageSize: pageSize,
-        },
+        payload: { tableName: 'equipment', page: currentPage, pageSize: pageSize },
       })
-
-      if (response.data && response.data.data && response.data.data.length > 0) {
-        allData = [...allData, ...response.data.data]
-        if (response.data.data.length < pageSize) {
-          hasMoreData = false
-        } else {
-          currentPage++
-        }
+      if (res.data?.data?.length > 0) {
+        allData = [...allData, ...res.data.data]
+        currentPage++
       } else {
-        hasMoreData = false
+        hasMore = false
       }
     }
 
+    // ================= [新增/同步的代码段] =================
     allData.forEach((row) => {
+      // 1. 格式化日期（防止弹窗查看详情时日期太长）
       if (row.group_distribution_time) {
         const date = new Date(row.group_distribution_time)
         if (!isNaN(date.getTime())) {
           row.group_distribution_time = date.toISOString().split('T')[0]
         }
       }
+      // 2. 补全锁位置（虽然盘点不用开门，但保证数据结构完整性）
       if (!row.lock_self_address && config_blob.value?.lock?.details?.length > 0) {
         row.lock_self_address = config_blob.value.lock.details[0].self_address
       }
     })
 
+    // 3. 核心：按物理柜位排序！让盘点顺序与柜子摆放顺序一致
     allData.sort((a, b) => {
       return (Number(a.self_address) || 0) - (Number(b.self_address) || 0)
     })
+    // =====================================================
 
-    equipmentList.value = allData
+    // 最后再赋值给响应式变量，并增加盘点专用的备注字段
+    equipmentList.value = allData.map((item) => ({
+      ...item,
+      inventory_remark: '',
+      manual_checked: false, // 新增：是否经过人工点击核实
+    }))
   } catch (error) {
-    console.error('获取装备数据失败:', error)
-    ElMessage.error('数据加载失败')
-  } finally {
-    el_loading.value = false
+    console.error('数据获取失败:', error)
   }
 }
 
-// =================================================================
-// 核心业务：领用流程 (Handle Borrow Process)
-// =================================================================
+// 修改判定函数：细化状态分类
+const getAssessmentResult = (item) => {
+  const actual = getActualStatus(item)
+  if (actual === '检测中') return 'LOADING'
 
-// 1. 启动归还流程
-const handleStartBorrowProcess = async () => {
-  // 筛选出 需要归还 的装备 (即当前不在位的)
-  const itemsToReturn = selectedItems.value.filter((item) => item.group_status !== '在位')
+  const isDisabled = isAdminDisabled(item)
 
-  if (itemsToReturn.length === 0) {
-    audioStore.play('/audio/没有可归还的装备选中.mp3')
-    return
+  // 场景 A：传感器正常开启
+  if (!isDisabled) {
+    const shouldBeStatus = actual === '在位' ? '在位' : '已取出'
+    return item.group_status === shouldBeStatus ? 'HEALTHY' : 'MISMATCH'
   }
 
-  // 初始化状态
-  // isReturned 在归还页面意为 "isReturned" (是否已归还)
-  activeBorrowList.value = itemsToReturn.map((item) => ({
-    ...item,
-    isReturned: false,
-  }))
-
-  // 归还时，"allInPlaceItems" 用于监控是否有人趁机拿走了别的装备
-  // 排除掉当前要归还的这些（虽然它们本身就不在位）
-  const targetIds = itemsToReturn.map((i) => i.id)
-  allInPlaceItems.value = equipmentList.value.filter(
-    (item) => item.group_status === '在位' && !targetIds.includes(item.id),
-  )
-
-  wrongTakenList.value = [] // 误拿列表
-
-  // UI 状态重置
-  borrowProcessVisible.value = true
-  isPolling.value = true
-  areDoorsClosed.value = false
-  hasPlayedCloseDoorPrompt.value = false
-
-  // 发送开锁指令
-  try {
-    audioStore.play('/audio/柜门已打开请放入装备.mp3') // 建议改为：柜门已打开请放入装备
-
-    const uniqueLockAddresses = new Set()
-    itemsToReturn.forEach((item) => {
-      const addr = getLockRegisterAddress(item)
-      if (addr) uniqueLockAddresses.add(addr)
-    })
-
-    for (const lockRegister of uniqueLockAddresses) {
-      // 开锁
-      await window.electronAPI.el_post({
-        action: 'control_register',
-        payload: { deviceAddress: 201, registerAddress: lockRegister, value: 50, isWrite: true },
-      })
-      // 开灯 (时间设长一点)
-      await window.electronAPI.el_post({
-        action: 'control_register',
-        payload: { deviceAddress: 201, registerAddress: 12, value: 900000, isWrite: true },
-      })
-      await new Promise((r) => setTimeout(r, 500))
-    }
-  } catch (e) {
-    console.error('部分柜门可能未打开', e)
-  }
-
-  // 启动循环
-  startMonitorLoop()
-}
-
-// 辅助：获取锁地址
-const getLockRegisterAddress = (item) => {
-  if (item.open_lock_register_address) return item.open_lock_register_address
-  if (config_blob.value) {
-    const lockConfig = config_blob.value.lock.details.find(
-      (l) => l.self_address == item.lock_self_address,
-    )
-    if (lockConfig) return lockConfig.open_lock_register_address
-  }
-  return null
-}
-
-// 辅助：检查门锁状态 (仅当物品都取走且无误拿时调用)
-const checkDoorStatus = async () => {
-  // 1. 如果没有需要领用的物品，直接返回 true (或根据业务逻辑返回 false)
-  if (activeBorrowList.value.length === 0) return true
-
-  // 2. 收集当前任务涉及的所有“通道地址” (1 或 2)
-  // 我们需要知道要检查哪些门。通过装备找到对应的锁配置。
-  const requiredChannels = new Set()
-
-  if (config_blob.value?.lock?.details) {
-    activeBorrowList.value.forEach((item) => {
-      // 找到该装备对应的锁配置 (通过 lock_self_address 匹配)
-      const lockConfig = config_blob.value.lock.details.find(
-        (d) => d.self_address == item.lock_self_address,
-      )
-      if (lockConfig && lockConfig.channel_address) {
-        requiredChannels.add(lockConfig.channel_address)
-      }
-    })
-  }
-
-  // 如果没有找到对应的锁配置，默认无需关门检测
-  if (requiredChannels.size === 0) return true
-
-  try {
-    // 3. 读取门锁板状态 (Device 201)
-    // 参考 executeEverySecond 中的读取方式
-    const res = await window.electronAPI.el_post({
-      action: 'read_all_inputs',
-      payload: {
-        deviceAddress: 201, // 门锁板地址
-        startAddress: 0x0000,
-        registerCount: 10,
-      },
-    })
-
-    if (res && res.success && res.data && res.data.length >= 8) {
-      let allClosed = true
-
-      // 4. 遍历我们需要检查的通道
-      for (const channel of requiredChannels) {
-        // 映射规则：channel 1 -> index 6, channel 2 -> index 7
-        let dataIndex = -1
-        if (channel === 1) dataIndex = 6
-        if (channel === 2) dataIndex = 7
-
-        if (dataIndex !== -1) {
-          // 状态判断：参考代码中 1 为关门，0 为开门
-          const isClosed = res.data[dataIndex] === 1
-          if (!isClosed) {
-            allClosed = false
-            break // 只要有一个没关，就判定为未全部关闭
-          }
-        }
-      }
-      return allClosed
-    }
-
-    return false // 读取失败视为未关门，保证安全
-  } catch (e) {
-    console.error('门锁状态读取失败', e)
-    return false
+  // 场景 B：传感器已禁用
+  else {
+    // 如果还没人工核实 -> 属于“待办异常”
+    if (!item.manualVerified) return 'SENSOR_FAULT'
+    // 如果已人工核实 -> 属于“人工授信/脱离监管” (这就是安全盲区)
+    return 'UNMONITORED'
   }
 }
 
-// 2. 硬件轮询循环
-const startMonitorLoop = async () => {
-  while (isPolling.value) {
-    try {
-      // ================= Phase 1: 物品状态检测 =================
-
-      // A. 读取硬件
-      await updateAllHardwareStatus()
-
-      // B. 检查【目标装备】是否已归还 (放入)
-      for (const target of activeBorrowList.value) {
-        // 使用新的检测逻辑
-        const isInPlace = checkItemInPlace(target)
-
-        // 状态防抖：只有状态改变时才更新
-        if (isInPlace && !target.isReturned) {
-          target.isReturned = true // 标记为已归还
-          audioStore.play('/audio/拿对提示音.mp3')
-        } else if (!isInPlace && target.isReturned) {
-          // 如果传感器是好的，但信号断了，说明用户又拿出来了 -> 状态回退
-          // 如果传感器是禁用的，不允许自动回退 (必须由用户手动操作，避免接触不良导致反复跳变)
-          if (!isSensorDisabled(target.self_address)) {
-            target.isReturned = false
-          }
-        }
-      }
-
-      // C. 检查【在位装备】是否被误拿 (安全报警)
-      const currentWrongList = []
-      for (const safeItem of allInPlaceItems.value) {
-        // 这里的 checkItemRemoved 逻辑不变：检测 1 -> 0
-        const isRemoved = checkItemRemoved(safeItem)
-        if (isRemoved) {
-          currentWrongList.push(safeItem)
-        }
-      }
-
-      // 报警触发
-      if (currentWrongList.length > wrongTakenList.value.length) {
-        audioStore.play('/audio/拿错提示音.mp3')
-      }
-      wrongTakenList.value = currentWrongList
-
-      // ================= Phase 2: 门锁状态检测 (同领用逻辑) =================
-
-      const allItemsReturned = activeBorrowList.value.every((i) => i.isReturned)
-      const noErrors = wrongTakenList.value.length === 0
-
-      if (allItemsReturned && noErrors) {
-        // 播放关门提示 (单次)
-        if (!hasPlayedCloseDoorPrompt.value) {
-          audioStore.play('/audio/所有装备已归还请关闭柜门.mp3') // 建议替换为：所有装备已归还...
-          hasPlayedCloseDoorPrompt.value = true
-        }
-
-        // 检测门锁
-        areDoorsClosed.value = await checkDoorStatus()
-
-        // [可选] 自动完成逻辑 (如果不想要自动，注释掉下面这行)
-        if (areDoorsClosed.value) {
-          await finalizeBorrow()
-          return
-        }
-      } else {
-        // 状态未满足，重置部分标记
-        if (!allItemsReturned) {
-          hasPlayedCloseDoorPrompt.value = false
-        }
-        areDoorsClosed.value = false
-      }
-
-      await new Promise((r) => setTimeout(r, 500))
-    } catch (e) {
-      console.error('监控循环异常', e)
-      await new Promise((r) => setTimeout(r, 1000))
-    }
-  }
+// 修正后的异常判断（用于拦截“确认结果”按钮）
+const isItemAbnormal = (item) => {
+  const result = getAssessmentResult(item)
+  // 1. 账实不符项 (MISMATCH)
+  // 2. 传感器坏了且管理员还没肉眼核实过 (SENSOR_FAULT)
+  // 这两种情况都必须停留在“异常/待处置”列表中
+  return result === 'MISMATCH' || result === 'SENSOR_FAULT'
 }
 
-// 辅助：检测装备是否在位 (归还逻辑的核心)
-const checkItemInPlace = (item) => {
-  // 1. 如果传感器被禁用/损坏，永远返回 false
-  // 这样 activeBorrowList 里的 item 就不会自动变绿，强制用户点“手动确认”
-  if (isSensorDisabled(item.self_address)) return false
+// 新增：获取详细盘点结论
+const getDetailedStatus = (item) => {
+  const result = getAssessmentResult(item)
 
-  // 2. 正常硬件检测
-  const status = realtimeSwitchMap[item.self_address]
-  if (status === undefined) return false
+  if (result === 'LOADING') return { text: '检测中...', class: 'tag-loading' }
+  if (result === 'MISMATCH') {
+    return item.group_status === '在位'
+      ? { text: '异常离位', class: 'tag-error-missing' }
+      : { text: '异常占用', class: 'tag-error-occupied' }
+  }
+  if (result === 'SENSOR_FAULT') return { text: '传感屏蔽/待核', class: 'tag-maintenance-pending' }
 
-  // 假设 1 = 闭合(有装备), 0 = 断开(无装备)
-  // 具体根据您的硬件配置调整，如果相反则改为 status === 0
-  return status === 1
+  // 关键修改：人工核实后的视觉表现
+  if (result === 'UNMONITORED') return { text: '人工授信/非受控', class: 'tag-unmonitored' }
+
+  return item.group_status === '在位'
+    ? { text: '正常在位', class: 'tag-normal-in' }
+    : { text: '正常借出', class: 'tag-normal-out' }
 }
 
-// 辅助：检测装备是否被移走 (用于误拿报警)
-const checkItemRemoved = (item) => {
-  if (isSensorDisabled(item.self_address)) return false // 坏传感器忽略报警
-
-  const status = realtimeSwitchMap[item.self_address]
-  if (status === undefined) return false
-  return status === 0 // 0 代表被移走
-}
-
-// 3. 安全提交包装器 (包含门锁检测循环)
-const secureFinalize = async (entryType = 'NORMAL') => {
-  console.log('entryType:', entryType)
-  const loading = ElLoading.service({
-    lock: true,
-    text: '正在检查柜门闭合状态...',
-    background: 'rgba(0, 0, 0, 0.7)',
-  })
-
-  let isAllClosed = false
-  try {
-    isAllClosed = await checkGlobalDoorStatus()
-  } catch (e) {
-    console.log('e:', e)
-  }
-  loading.close()
-
-  // 场景 A: 门已关 -> 直接提交
-  if (isAllClosed) {
-    await finalizeBorrow()
-    return
-  }
-
-  // 场景 B: 门没关 -> 弹窗提示 + 后台轮询
-  audioStore.play('/audio/安全警告检测到柜门未关闭.mp3')
-
-  let stopPolling = false
-
-  // 轮询检测门是否关上
-  const startPollingLoop = async () => {
-    while (!stopPolling) {
-      try {
-        await new Promise((r) => setTimeout(r, 1000))
-        if (stopPolling) break
-        const closedNow = await checkGlobalDoorStatus()
-        if (closedNow) {
-          stopPolling = true
-          await finalizeBorrow() // 自动提交
-          ElMessageBox.close() // 关闭弹窗
-          break
-        }
-      } catch (e) {
-        console.log('e:', e)
-      }
-    }
-  }
-  startPollingLoop()
-
-  // 弹出警告框
-  try {
-    await ElMessageBox.confirm(
-      `<div style="text-align:center">
-         <div style="color:#ff4d4f;font-weight:bold;font-size:18px;margin-bottom:10px">检测到柜门未关闭</div>
-         <div style="color:#00f2ff;margin-bottom:10px">系统正在等待柜门关闭...</div>
-         <div style="color:#666;font-size:12px">检测到信号后将自动完成归还流程</div>
-       </div>`,
-      '安全检测',
-      {
-        dangerouslyUseHTMLString: true,
-        confirmButtonText: '强制执行 (忽略门磁)',
-        showCancelButton: false,
-        showClose: false,
-        closeOnClickModal: false,
-        confirmButtonClass: 'el-button--danger',
-        customClass: 'cyber-message-box error-mode',
-      },
-    )
-    // 用户点了强制执行
-    stopPolling = true
-    await finalizeBorrow()
-  } catch (e) {
-    console.log('e:', e)
-    stopPolling = true
-  }
-}
-
-// 辅助：读取硬件并更新 Map
+// --- 2. 硬件感知轮询 ---
 const updateAllHardwareStatus = async () => {
   if (!config_blob.value?.switch?.expansion_board_addresses) return
-
   for (const address of config_blob.value.switch.expansion_board_addresses) {
-    const result = await window.electronAPI.el_post({
-      action: 'read_all_inputs',
-      payload: {
-        deviceAddress: address,
-        startAddress: 0x0001,
-        registerCount: 10,
-      },
-    })
-
-    if (result?.success && result.data) {
-      result.data.forEach((state, index) => {
-        const detail = config_blob.value.switch.details.find(
-          (d) => d.expansion_board_address === address && d.channel_address === index + 1,
-        )
-        if (detail) {
-          realtimeSwitchMap[detail.self_address] = state
-        }
+    try {
+      const result = await window.electronAPI.el_post({
+        action: 'read_all_inputs',
+        payload: { deviceAddress: address, startAddress: 0x0001, registerCount: 10 },
       })
+      if (result?.success && result.data) {
+        console.log('硬件状态数据:', result.data)
+        result.data.forEach((state, index) => {
+          const detail = config_blob.value.switch.details.find(
+            (d) => d.expansion_board_address === address && d.channel_address === index + 1,
+          )
+          if (detail) {
+            realtimeSwitchMap[detail.self_address] = state
+          }
+        })
+      }
+    } catch (e) {
+      console.error('读取硬件失败:', e)
     }
   }
 }
 
-// 3. 确认完成并保存
-const finalizeBorrow = async () => {
-  isPolling.value = false
-  el_loading.value = true
+/**
+ * 处置方案：人工核实通过
+ */
+const handleManualVerify = (item) => {
+  item.manualVerified = true
+  item.isProcessed = true
+  item.inventory_remark = '传感器故障，肉眼核实实物在位'
+  audioStore.play('/audio/核实成功.mp3')
+  ElMessage.success(`${item.group_name} 已通过人工核实`)
+}
 
-  const currentUser = { id: 1, username: '管理员', id_card: 'ADMIN001' } // 假设有身份证字段
-
-  // 生成时间字符串
-  const now = new Date()
-  const year = now.getFullYear()
-  const month = String(now.getMonth() + 1).padStart(2, '0')
-  const day = String(now.getDate()).padStart(2, '0')
-  const hours = String(now.getHours()).padStart(2, '0')
-  const minutes = String(now.getMinutes()).padStart(2, '0')
-  const seconds = String(now.getSeconds()).padStart(2, '0')
-  const timeNow = `${year}-${month}-${day} ${hours}:${minutes}:${seconds}`
-
+/**
+ * 处置方案：开启/恢复传感器
+ */
+const handleEnableSensor = async (item) => {
   try {
-    for (const item of activeBorrowList.value) {
-      if (item.isReturned) {
-        // isReturned 在归还界面代表 "已归还/已放入"
+    await ElMessageBox.confirm(
+      `确定要恢复 ${item.self_address} 号柜位的传感器感知吗？恢复后将以传感器实时监测为准。`,
+      '恢复确认',
+      {
+        confirmButtonText: '确定恢复',
+        cancelButtonText: '取消',
+        type: 'warning',
+        customClass: 'cyber-message-box',
+      },
+    )
 
-        // =========================================================
-        // 修改 A: 更新 borrow_records 表 (闭环逻辑)
-        // 逻辑：找到该装备当前正在进行中(status=0)的记录，把它结单
-        // =========================================================
-        await window.electronAPI.el_post({
-          action: 'update',
-          payload: {
-            tableName: 'borrow_records',
-            setValues: {
-              // --- 归还信息 ---
-              return_username: currentUser.username,
-              return_id_card: currentUser.id_card || '',
-              return_time: timeNow, // 写入归还时间
-              status: 1, // 1 = 已完结
-              return_remark: '正常归还', // 或者使用界面输入的 borrowReason
-              is_synced: 0, // 标记为未同步，等待上传
-              last_modified: timeNow,
-            },
-            // 【核心关键点】条件：找到这个装备ID，且状态是未归还(0)的那条记录
-            condition: `equipment_id = ${item.id} AND status = 0`,
-          },
-        })
+    const newConfig = JSON.parse(JSON.stringify(config_blob.value))
+    const switchDetail = newConfig.switch.details.find((d) => d.self_address == item.self_address)
 
-        // =========================================================
-        // 补充保险措施：如果数据库脏了，找不到 status=0 的记录怎么办？
-        // (可选) 如果 update 返回 changes: 0，说明没有对应的领用记录，
-        // 你可以选择插入一条“无头”归还记录，或者忽略。
-        // 但通常硬件逻辑保证了必须先领出才能归还，所以上面的 update 足够。
-        // =========================================================
+    if (switchDetail) {
+      switchDetail.admin_status = 1 // 开启硬件感知
 
-        // =========================================================
-        // B. 更新 equipment 表状态 (这部分是正确的，保持不变)
-        // =========================================================
-        await window.electronAPI.el_post({
-          action: 'update',
-          payload: {
-            tableName: 'equipment',
-            setValues: {
-              group_status: '在位',
-              // last_modified: timeNow // 如果equipment表有这个字段最好更新一下
-            },
-            condition: `id = ${item.id}`,
-          },
-        })
+      await window.electronAPI.el_post({
+        action: 'update',
+        payload: {
+          tableName: 'terminal_settings',
+          setValues: { config_blob: JSON.stringify(newConfig) },
+          condition: `id > 0`,
+        },
+      })
+
+      // --- 关键修复代码 ---
+      config_blob.value = newConfig
+
+      // 重置所有处置状态，让系统重新计算该项是否异常
+      item.manualVerified = false // 清除人工核实标记
+      item.isProcessed = false // 清除已处置标记（重要！）
+      item.inventory_remark = '' // 可选：清除备注
+      // ------------------
+
+      ElMessage.success('传感器感应已恢复，系统将重新实时判定状态')
+
+      // 如果恢复后账实相符，abnormalItems 计算属性会自动将其从弹窗列表中移除
+    }
+  } catch (e) {
+    console.log('用户取消了恢复', e)
+  }
+}
+const lastMismatchCount = ref(-1) // 记录上一次的异常数量，初始为-1用于识别初次加载
+const startMonitorLoop = async () => {
+  isPolling.value = true
+  while (isPolling.value) {
+    await updateAllHardwareStatus()
+    currentTime.value = formatTime()
+
+    // --- [新增：实时语音提示逻辑] ---
+    const currentMismatch = stats.value.mismatch // 获取当前最新的异常总数
+
+    // 只有当不是初次扫描（lastMismatchCount !== -1）且数量发生变化时才触发
+    if (lastMismatchCount.value !== -1) {
+      if (currentMismatch > lastMismatchCount.value) {
+        // 场景：异常增加了（比如有人私自拿走了装备）
+        audioStore.play('/audio/拿错提示音.mp3') // 建议使用急促、警示性的音效
+        ElMessage.warning('检测到新的账务不符项！')
+      } else if (currentMismatch < lastMismatchCount.value) {
+        // 场景：异常减少了（比如错拿的放回去了，或者缺失的补回来了）
+        audioStore.play('/audio/拿对提示音.mp3') // 建议使用清脆、正向的音效
+        ElMessage.success('异常项已消除，状态恢复正常')
       }
     }
 
-    borrowReason.value = ''
-    audioStore.play('/audio/归还完成数据已保存.mp3') // 建议改为“归还完成...”
+    // 更新旧值，供下一次循环比对
+    lastMismatchCount.value = currentMismatch
+    // ----------------------------
 
-    borrowProcessVisible.value = false
-    selectedIds.value = []
-    setTimeout(() => {
-      router.replace('/')
-    }, 50)
-  } catch (e) {
-    audioStore.play('/audio/数据保存失败请联系管理员.mp3')
-    console.error('归还结算失败:', e)
-  } finally {
-    el_loading.value = false
+    await new Promise((r) => setTimeout(r, 1000)) // 建议盘点时设为 800ms，感知更灵敏
   }
 }
 
-// 4. 强制退出 / 异常处理 (增强版 - 逻辑完善)
-const forceExitProcess = () => {
-  // ================= Step 1: 安全拦截 (误拿) =================
-  if (wrongTakenList.value.length > 0) {
-    ElMessageBox.alert(
-      `<div style="color: #ff4d4f; font-weight: bold;">检测到库存安全警报</div>
-       <div style="margin-top: 10px; color: #ccc;">系统感应到柜内有 <span style="color: #ff4d4f; font-size: 16px;">${wrongTakenList.value.length}</span> 件误拿装备。</div>
-       <div style="margin-top: 5px; color: #8899a6; font-size: 12px;">为了保障库存数据准确，系统已锁定结束功能。请将红色报警装备放回原位。</div>`,
-      '禁止强制操作',
+// 修改后
+const getActualStatus = (item) => {
+  // 1. 先判断数据是否就绪
+  if (Object.keys(realtimeSwitchMap).length === 0) return '检测中'
+  // === 新增：优先判断是否禁用 ===
+  const detail = config_blob.value?.switch?.details?.find(
+    (d) => String(d.self_address) === String(item.self_address),
+  )
+  if (detail && Number(detail.admin_status) === 0) {
+    return '已禁用'
+  }
+
+  const status = realtimeSwitchMap[item.self_address]
+  if (status === undefined) return '检测中'
+  return status === 1 ? '在位' : '不在位'
+}
+
+// 新增辅助：判断开关是否被禁用
+const isAdminDisabled = (item) => {
+  const detail = config_blob.value?.switch?.details?.find(
+    (d) => String(d.self_address) === String(item.self_address),
+  )
+  return detail && Number(detail.admin_status) === 0
+}
+
+// 1. 定义新变量
+const detailVisible = ref(false)
+const selectedDetail = ref(null)
+
+// 2. 解析芯片列表的计算属性
+const parsedChips = computed(() => {
+  if (!selectedDetail.value?.chip_list) return []
+  try {
+    const list = selectedDetail.value.chip_list
+    return typeof list === 'string' ? JSON.parse(list) : list
+  } catch {
+    return []
+  }
+})
+
+// 统计逻辑修正版：彻底区分“账实相符”与“人工授信风险”
+const stats = computed(() => {
+  const list = equipmentList.value || []
+
+  // 1. 核心状态预筛选
+  // 账实不符项 (系统在实不在，或实在线不在)
+  const mismatchItems = list.filter((i) => getAssessmentResult(i) === 'MISMATCH')
+  // 故障待办项 (传感器坏了，管理员还没去看)
+  const faultPendingItems = list.filter((i) => getAssessmentResult(i) === 'SENSOR_FAULT')
+  // 人工授信项 (传感器坏了，管理员点过核实了 —— 这是安全盲区，风险点)
+  const unmonitoredItems = list.filter((i) => getAssessmentResult(i) === 'UNMONITORED')
+  // 绝对健康项 (传感器开启且账实完全吻合)
+  const healthyItems = list.filter((i) => getAssessmentResult(i) === 'HEALTHY')
+
+  return {
+    // --- 顶部三个大卡片的数据源 ---
+    total: list.length,
+
+    // 账实相符：仅包含传感器监控下的健康项 (如果你希望“人工授信”也算进相符，就把 unmonitoredItems 加上)
+    // 建议：此处只计入 HEALTHY，让管理员看到虽然平账了，但“相符率”并不到 100%
+    match: healthyItems.length,
+
+    // 异常数量：包含“明确的账实不符”和“传感器故障但还没去核实”的项
+    // 这两类会阻塞“确认结果并同步”按钮
+    mismatch: mismatchItems.length + faultPendingItems.length,
+
+    // --- 内部明细行的数据源 ---
+
+    // 正常在位：账面在位 且 物理感应在位 且 监控正常
+    inPlace: healthyItems.filter((i) => i.group_status === '在位').length,
+
+    // 正常借出：账面已取 且 物理感应不在 且 监控正常
+    outPlace: healthyItems.filter((i) => i.group_status === '已取出').length,
+
+    // 异常离位：账面在位，但感应不在 (不含报修项)
+    missing: mismatchItems.filter((i) => i.group_status === '在位').length,
+
+    // 异常占用：账面不在，但感应在位 (不含报修项)
+    unregistered: mismatchItems.filter((i) => i.group_status === '已取出').length,
+
+    // 安全盲区统计：传感器被屏蔽且已通过人工核实的数量
+    unmonitored: unmonitoredItems.length,
+  }
+})
+
+// --- 修改：filteredList 逻辑（整合标签过滤和名称过滤） ---
+const filteredList = computed(() => {
+  let list = equipmentList.value || []
+
+  // 1. 标签状态过滤 (全部/异常/正常)
+  if (currentFilter.value === 'NORMAL') {
+    list = list.filter((i) => !isItemAbnormal(i))
+  } else if (currentFilter.value === 'ERROR') {
+    list = list.filter(isItemAbnormal)
+  }
+
+  // 2. 下拉框名称过滤 (如果选了特定名称，则进一步过滤)
+  if (selectedName.value !== 'ALL') {
+    list = list.filter((item) => item.group_name === selectedName.value)
+  }
+
+  return list
+})
+
+// 【新增】全量盘点工作列表：严格按物理柜位排序
+const inventoryWorkList = computed(() => {
+  return [...equipmentList.value].sort((a, b) => {
+    return (Number(a.self_address) || 0) - (Number(b.self_address) || 0)
+  })
+})
+// 【新增】已核实数量统计 (包括人工确认正常的 + 已处理平账的)
+const verifiedCount = computed(() => {
+  return equipmentList.value.filter(
+    (item) =>
+      item.manual_checked || item.manualVerified || (item.isProcessed && !isAdminDisabled(item)),
+  ).length
+})
+// 【新增】确认正常项无误
+const handleConfirmNormal = (item) => {
+  item.manual_checked = true
+  item.inventory_remark = item.inventory_remark || '经实物核对，账实一致'
+  audioStore.play('/audio/按钮点击声.mp3')
+}
+
+// 【新增】一键核实所有账实相符项 (提高效率)
+// 修改 handleBatchVerifyHealthy
+const handleBatchVerifyHealthy = async () => {
+  // 找出所有系统判定正常但还没点过核实的
+  const healthyAndUnchecked = equipmentList.value.filter(
+    item => getAssessmentResult(item) === 'HEALTHY' && !item.manual_checked
+  )
+
+  if (healthyAndUnchecked.length === 0) {
+    ElMessage.info('暂无需要批量核实的正常项')
+    return
+  }
+
+  try {
+    await ElMessageBox.confirm(
+      `确定要一键核实当前 ${healthyAndUnchecked.length} 项账实相符的装备吗？请确保您已视觉确认实物在位。`,
+      '批量核实确认',
       {
-        dangerouslyUseHTMLString: true,
-        confirmButtonText: '收到，立即处理',
-        customClass: 'cyber-message-box error-mode',
-        center: true,
-        showClose: false,
-      },
+        confirmButtonText: '确定核实',
+        cancelButtonText: '取消',
+        type: 'success',
+        customClass: 'cyber-message-box',
+      }
+    )
+
+    healthyAndUnchecked.forEach((item) => {
+      item.manual_checked = true
+      item.inventory_remark = '系统判定相符，人工批量核对一致'
+    })
+
+    ElMessage.success(`已成功批量核实 ${healthyAndUnchecked.length} 项装备`)
+    audioStore.play('/audio/保存成功.mp3')
+  } catch {
+    // 用户取消
+  }
+}
+
+const getAbnormalType = (item) => {
+  const actual = getActualStatus(item)
+  if (item.group_status === '在位' && actual === '不在位')
+    return { text: '异常离位', class: 'st-out-warn' }
+  if (item.group_status === '已取出' && actual === '在位')
+    return { text: '异常占用', class: 'st-unreg' }
+  return { text: '未知异常', class: 'st-other' }
+}
+
+//在过滤器切换时重置选中项：
+const setFilter = (type) => {
+  audioStore.play('/audio/按钮点击声.mp3')
+  currentFilter.value = type
+  selectedId.value = null // 切换分类时取消选中
+}
+
+const handleOpenSummary = () => {
+  audioStore.play('/audio/按钮点击声.mp3')
+  summaryVisible.value = true
+}
+
+const finalSubmit = async () => {
+  // 1. 再次双重校验：是否还有未处理的异常
+  // 【修改】校验逻辑：必须全部核对完成（已核实数 === 总数）
+  if (verifiedCount.value < equipmentList.value.length) {
+    audioStore.play('/audio/校验失败请参考红色文字提示.mp3')
+    ElMessage.error(
+      `盘点未完成！尚有 ${equipmentList.value.length - verifiedCount.value} 项装备未核实。`,
     )
     return
   }
 
-  // ================= Step 2: 正常/异常流程判断 =================
-  const takenCount = activeBorrowList.value.filter((i) => i.isReturned).length
-  const remainingNum = activeBorrowList.value.length - takenCount
+  const loading = ElLoading.service({
+    text: '正在加密并同步盘点报告...',
+    background: 'rgba(0,0,0,0.8)',
+  })
 
-  // 场景A：全部归还 (正常情况)
-  // 将变量名 allItemsTaken 改为 allItemsReturned 更有意义
-  const allItemsReturned = activeBorrowList.value.every((i) => i.isReturned)
+  try {
+    // 2. 构造盘点报告详单 (全量数据快照)
+    const reportDetails = equipmentList.value.map((item) => ({
+      group_name: item.group_name,
+      group_code: item.group_code,
+      self_address: item.self_address,
+      system_status: item.group_status, // 账面
+      actual_status: getActualStatus(item), // 实物
+      assessment: getDetailedStatus(item).text, // 判定结论
+      remark: item.inventory_remark || '系统自动核对一致',
+      operator: '管理员', // 如果有登录信息请替换
+    }))
 
-  if (allItemsReturned) {
-    ElMessageBox.confirm(
-      `<div style="color: #00f2ff;">确认完成归还流程？</div>
-     <div style="margin-top: 10px; color: #ccc;">系统检测到所有选中装备已安全放入柜位。</div>
-     <div style="margin-top: 5px; color: #8899a6; font-size: 12px;">点击确认后，系统将记录归还时间并更新库存。</div>`,
-      '归还确认',
+    // 3. 写入盘点日志表 (inventory_logs)
+    const response = await window.electronAPI.el_post({
+      action: 'insert',
+      payload: {
+        tableName: 'inventory_logs',
+        setValues: {
+          inventory_time: formatTime(),
+          total_count: equipmentList.value.length,
+          abnormal_count: 0, // 既然能提交，说明此时异常已全部处置清零
+          details_json: JSON.stringify(reportDetails),
+          operator: '当前终端管理员',
+        },
+      },
+    })
+
+    if (response.success) {
+      audioStore.play('/audio/保存成功.mp3')
+      ElMessage({
+        type: 'success',
+        message: '盘点报告已生成并成功存入盘点历史记录。',
+        duration: 3000,
+      })
+
+      // 4. 清理状态并关闭
+      summaryVisible.value = false
+      // 可选：盘点结束后跳转回首页或刷新数据
+      await getRealData()
+    } else {
+      throw new Error(response.message)
+    }
+  } catch (error) {
+    console.error('提交盘点失败:', error)
+    ElMessage.error('报告同步失败，请检查网络或数据库连接')
+  } finally {
+    loading.close()
+  }
+}
+
+// --- [核心功能：快速处置逻辑] ---
+
+/**
+ * 处置方案1：补录领用 (针对：账面在，实物不在)
+ */
+const fixByBorrow = async (item) => {
+  try {
+    const { value: reason } = await ElMessageBox.prompt(
+      '检测到紧急领用，请输入领用用途',
+      '补录领用登记',
       {
-        dangerouslyUseHTMLString: true,
+        confirmButtonText: '确认补录',
+        cancelButtonText: '取消',
+        inputPlaceholder: '例如：紧急领用、演训调拨...',
+        customClass: 'cyber-message-box',
+      },
+    )
+
+    if (reason) {
+      // 1. 插入领用记录
+      await window.electronAPI.el_post({
+        action: 'insert',
+        payload: {
+          tableName: 'borrow_records',
+          setValues: {
+            equipment_id: item.id,
+            group_code: item.group_code,
+            group_name: item.group_name,
+            username: '系统核对补录',
+            borrow_time: formatTime(),
+            status: 0,
+            remark: `盘点补录：${reason}`,
+          },
+        },
+      })
+      // 2. 更新装备状态
+      await window.electronAPI.el_post({
+        action: 'update',
+        payload: {
+          tableName: 'equipment',
+          setValues: { group_status: '已取出' },
+          condition: `id = ${item.id}`,
+        },
+      })
+
+      item.group_status = '已取出' // 同步前端视图
+      item.isProcessed = true // 新增这一行
+      item.inventory_remark = '已完成补录登记'
+      audioStore.play('/audio/领用完成数据已保存.mp3')
+      ElMessage.success(`${item.group_name} 领用记录已补齐`)
+    }
+  } catch {
+    console.log('取消补录')
+  }
+}
+
+const handleCheckHistory = (item) => {
+  audioStore.play('/audio/按钮点击声.mp3')
+  // 这里可以跳转到历史页面并带上参数，或者弹出另一个记录弹窗
+  // router.push({ path: '/borrow-history', query: { code: item.group_code } })
+  ElMessage.info(`正在查询 ${item.group_name} 的流转记录...`)
+}
+
+/**
+ * 处置方案2：补录归还 (针对：实物在位，但系统显示已取出/维修中)
+ * 逻辑：1. 将装备状态设为“在位”
+ *      2. 将借用记录表中该装备对应的“未归还”记录标记为“已归还”并记录归还时间
+ */
+const fixByReturn = async (item) => {
+  try {
+    await ElMessageBox.confirm(
+      `确认为该装备已归还？系统将自动销毁对应的未归还记录，完成账务平齐。`,
+      '补录归还确认',
+      {
         confirmButtonText: '确认归还',
         cancelButtonText: '取消',
-        customClass: 'cyber-message-box success-mode',
-        center: true,
+        type: 'success',
+        customClass: 'cyber-message-box',
       },
     )
-      .then(() => {
-        finalizeBorrow() // 执行最终结算逻辑
-      })
-      .catch(() => { })
-  }
-  // 场景B：还有物品未取出 (异常情况)
-  else {
-    ElMessageBox.confirm(
-      `<div style="text-align: left;">
-     <div style="color: #E6A23C; font-weight: bold; font-size: 15px; margin-bottom: 10px;">
-       <i class="el-icon-warning"></i> 传感器状态异常确认
-     </div>
-     <div style="color: #ccc; margin-bottom: 8px;">
-       仍有 <span style="color: #E6A23C; font-size: 16px; font-weight: bold;">${remainingNum}</span> 件装备显示“未感应到/未放入”。
-     </div>
-     <div style="background: rgba(255, 255, 255, 0.05); padding: 8px; border-radius: 4px; font-size: 12px; color: #aaa;">
-       <p><strong>情况 1：</strong>如果您确实没带回来 —— 请点击 <span style="color:#ff4d4f">放弃/部分归还</span></p>
-       <p style="margin-top:4px;"><strong>情况 2：</strong>如果您已放入但传感器故障 —— 请点击 <span style="color:#E6A23C">强制标记已还</span></p>
-     </div>
-   </div>`,
-      '异常处理',
-      {
-        dangerouslyUseHTMLString: true,
-        confirmButtonText: '强制标记为已还并保存', // 对应 confirm (处理坏传感器)
-        cancelButtonText: '放弃 / 仅结算已还项', // 对应 cancel (进入二级判断)
-        distinguishCancelAndClose: true,
-        customClass: 'cyber-message-box warning-mode',
-        center: true,
-      },
-    )
-      .then(() => {
-        // === 逻辑分支 1：用户坚持说都拿了 (强制修正传感器数据) ===
-        activeBorrowList.value.forEach((item) => {
-          if (!item.isReturned) item.isReturned = true
-        })
-        console.warn('用户执行了强制领用操作，忽略了传感器状态')
-        finalizeBorrow()
-      })
-      .catch((action) => {
-        // === 逻辑分支 2：用户点击了“放弃/部分领用” 或 关闭窗口 ===
-        if (action === 'cancel') {
-          // [新增关键逻辑] 检查手里是否已经拿了东西
-          if (takenCount > 0) {
-            // 拦截！不能直接关！
-            handlePartialSettlement(takenCount)
-          } else {
-            // 真的一件都没拿，直接退出
-            closeBorrowProcess()
-          }
-        }
-      })
-  }
-}
 
-// 辅助函数：处理部分领用结算 (修改后：支持退回指引)
-const handlePartialSettlement = (count) => {
-  ElMessageBox.confirm(
-    `<div style="text-align: left;">
-       <div style="color: #00f2ff; font-weight: bold; font-size: 15px; margin-bottom: 10px;">
-         检测到您已放入 ${count} 件装备
-       </div>
-       <div style="color: #ccc; margin-bottom: 15px; font-size: 13px;">
-         请选择您的下一步操作：
-       </div>
-       <div style="margin-bottom: 8px; padding: 8px; background: rgba(0, 242, 255, 0.05); border-radius: 4px;">
-         <span style="color: #00f2ff; font-weight:bold;">方案 A (结算):</span>
-         <div style="color:#8899a6; font-size:12px; margin-top: 2px;">
-           也就是“部分归还”。系统将保存这 ${count} 件装备的归还记录，并结束流程。
-         </div>
-       </div>
-       <div style="padding: 8px; background: rgba(255, 255, 255, 0.05); border-radius: 4px;">
-         <span style="color: #fff; font-weight:bold;">方案 B (继续):</span>
-         <div style="color:#8899a6; font-size:12px; margin-top: 2px;">
-           我还有装备要还。请点击下方按钮，<strong>回到监控界面</strong>，继续放入装备。
-         </div>
-       </div>
-     </div>`,
-    '操作确认',
-    {
-      dangerouslyUseHTMLString: true,
-      confirmButtonText: '结算已放入的装备',
-      cancelButtonText: '继续归还',
-      distinguishCancelAndClose: true,
-      customClass: 'cyber-message-box',
-      center: true,
-    },
-  )
-    .then(() => {
-      // === 用户选择 A：结算 ===
-      finalizeBorrow()
-    })
-    .catch((action) => {
-      // === 用户选择 B：退回装备 ===
-      if (action === 'cancel') {
-        // [关键修改] 这里不再调用 closeBorrowProcess()
-        // 而是什么都不做，让 confirm 框关闭，从而露出底层的“监控弹窗”
-
-        // 给用户一个提示，告诉他现在该干什么
-        /*
-        ElMessage({
-          message: '请根据列表指示，将标有【已取出】的装备放回对应柜位',
-          type: 'info',
-          duration: 5000,
-          offset: 100,
-        })
-        */
-        audioStore.play('/audio/继续归还操作.mp3')
-
-        // 此时：
-        // 1. 监控弹窗 borrowProcessVisible 依然是 true
-        // 2. 硬件轮询 startMonitorLoop 依然在运行
-        // 3. 当用户把装备放回去时，checkItemRemoved 会变回 false
-        // 4. item.isReturned 会自动变回 false (变回蓝色图标)
-      }
-    })
-}
-
-// 辅助函数：统一关闭流程
-const closeBorrowProcess = () => {
-  isPolling.value = false
-  borrowProcessVisible.value = false
-  audioStore.play('/audio/设置已中断.mp3')
-  selectedIds.value = [] // 清空选中
-}
-// --- 新增：一键开启所有相关柜门并启动监控 ---
-const handleManualOpenDoor = async () => {
-  try {
-    // 1. 二次确认，防止误触
-    await ElMessageBox.confirm('确定要开启所有柜门进行归还操作吗？', '操作提示', {
-      confirmButtonText: '确定开门',
-      cancelButtonText: '取消',
-      type: 'warning',
-      center: true,
-      customClass: 'cyber-message-box',
-    })
-
-    // 2. 获取所有配置中的锁地址
-    if (!config_blob.value?.lock?.details) {
-      // ElMessage.error('未找到柜门配置信息')
-      console.log('未找到柜门配置信息')
-      return
-    }
-
-    const allLockAddresses = [
-      ...new Set(config_blob.value.lock.details.map((l) => l.open_lock_register_address)),
-    ]
-
-    // 3. 执行硬件开锁指令
-    for (const lockRegister of allLockAddresses) {
-      await window.electronAPI.el_post({
-        action: 'control_register',
-        payload: { deviceAddress: 201, registerAddress: lockRegister, value: 80, isWrite: true },
-      })
-      await new Promise((r) => setTimeout(r, 300)) // 适当延时防止总线拥堵
-    }
-    // 开启照明 (寄存器12)
+    // 1. 更新装备表：恢复为“在位”
     await window.electronAPI.el_post({
-      action: 'control_register',
-      payload: { deviceAddress: 201, registerAddress: 12, value: 900000, isWrite: true },
+      action: 'update',
+      payload: {
+        tableName: 'equipment',
+        setValues: { group_status: '在位' },
+        condition: `id = ${item.id}`,
+      },
     })
 
-    // 4. 【逻辑完善点】自动进入归还监控状态
-    // 如果当前没有选中任何装备，我们默认监控“所有不在位”的装备
-    if (selectedIds.value.length === 0) {
-      const outItems = equipmentList.value.filter((item) => item.group_status !== '在位')
-      if (outItems.length > 0) {
-        activeBorrowList.value = outItems.map((item) => ({ ...item, isReturned: false }))
-        // 设置初始在位装备用于误拿报警
-        allInPlaceItems.value = equipmentList.value.filter((item) => item.group_status === '在位')
+    // 2. 核心：平账逻辑。关闭 borrow_records 表中该装备所有未归还(status=0)的记录
+    await window.electronAPI.el_post({
+      action: 'update',
+      payload: {
+        tableName: 'borrow_records',
+        setValues: {
+          status: 1, // 状态改为已归还
+          return_time: formatTime(), // 记录盘点核对时间为归还时间
+        },
+        // 匹配该装备 ID 且 状态为未归还的记录
+        condition: `equipment_id = ${item.id} AND status = 0`,
+      },
+    })
 
-        borrowProcessVisible.value = true
-        isPolling.value = true
-        startMonitorLoop() // 启动轮询
-      } else {
-        // ElMessage.success('柜门已开启（当前无待归还装备）')
-        console.log('当前无待归还装备')
-      }
-    } else {
-      // 如果已经选了装备，则直接调用原有的流程启动方法
-      handleStartBorrowProcess()
-    }
+    // 3. 更新前端状态同步 UI
+    item.group_status = '在位'
+    item.isProcessed = true // 新增这一行
+    item.inventory_remark = '手动核对实物在位，已完成补录归还及平账处理'
 
-    audioStore.play('/audio/柜门已打开请放入装备.mp3')
-  } catch (error) {
-    if (error !== 'cancel') {
-      console.error('开门失败:', error)
-    }
+    ElMessage.success(`${item.group_name} 已完成补录归还`)
+    audioStore.play('/audio/按钮点击声.mp3')
+  } catch (e) {
+    console.log('取消归还补录', e)
   }
 }
-// --- 生命周期 ---
+
+/**
+ * 处置方案3：禁用故障传感器 (针对：硬件微动开关损坏)
+ */
+/**
+ * 处置方案3：禁用故障传感器
+ */
+const fixByDisableSensor = async (item) => {
+  await ElMessageBox.confirm(
+    `确定禁用 ${item.self_address} 号柜位的传感器感知吗？禁用后系统将不再自动检测该位置的实时状态。`,
+    '传感器屏蔽/报修',
+    { confirmButtonText: '确认禁用', type: 'error', customClass: 'cyber-message-box' },
+  )
+
+  const newConfig = JSON.parse(JSON.stringify(config_blob.value))
+  const switchDetail = newConfig.switch.details.find((d) => d.self_address == item.self_address)
+  if (switchDetail) {
+    switchDetail.admin_status = 0 // 标记为禁用
+
+    await window.electronAPI.el_post({
+      action: 'update',
+      payload: {
+        tableName: 'terminal_settings',
+        setValues: { config_blob: JSON.stringify(newConfig) },
+        condition: `id > 0`,
+      },
+    })
+
+    config_blob.value = newConfig
+    item.isProcessed = true
+    // 修改备注，明确这只是硬件层面的操作
+    item.inventory_remark = '传感器故障，已执行物理屏蔽'
+    ElMessage.warning('传感器已禁用，请继续执行肉眼核实以完成盘点')
+  }
+}
+
 onMounted(async () => {
   if (timerStore.isTimerActive) timerStore.stopInterval()
   await fetchConfigData()
-  await getData()
-  updateGlider()
+  await getRealData()
+  startMonitorLoop()
 })
 
-onUnmounted(async () => {
-  // 关灯
-  await window.electronAPI.el_post({
-    action: 'control_register',
-    payload: {
-      deviceAddress: 201,
-      registerAddress: 12,
-      value: 0,
-      isWrite: true,
-    },
-  })
+onUnmounted(() => {
   isPolling.value = false
+  // 4. 恢复全局定时器（如果有）
   if (!timerStore.isTimerActive) timerStore.startInterval()
 })
 </script>
 
-<style>
-/* --- [新增] 用途选择器样式 --- */
-.reason-section {
-  margin-bottom: 15px;
-  background: rgba(0, 0, 0, 0.2);
-  padding: 10px;
-  border-radius: 4px;
-  border: 1px solid rgba(255, 255, 255, 0.05);
-}
-
-.reason-label {
-  font-size: 12px;
-  color: var(--primary);
-  margin-bottom: 6px;
-  font-weight: bold;
-  letter-spacing: 1px;
-}
-
-/* ==========================================================
-   [修复] 领用用途输入框背景色 (兼容新旧版 Element Plus)
-   ========================================================== */
-.cyber-select {
-  width: 100%;
-}
-
-/* 1. 输入框本体背景与边框
-   同时针对 .el-input__wrapper (旧版/通用) 和 .el-select__wrapper (新版Select) */
-.cyber-select .el-input__wrapper,
-.cyber-select .el-select__wrapper {
-  background-color: rgba(20, 27, 45, 0.8) !important;
-  /* 强制深色背景 */
-  box-shadow: 0 0 0 1px #4a5c76 inset !important;
-  /* 边框颜色 */
-  transition: all 0.3s;
-}
-
-/* 2. 鼠标悬停 或 聚焦时的样式
-   注意：新版使用 .is-focused，旧版使用 .is-focus */
-.cyber-select .el-input__wrapper:hover,
-.cyber-select .el-input__wrapper.is-focus,
-.cyber-select .el-select__wrapper:hover,
-.cyber-select .el-select__wrapper.is-focused {
-  box-shadow: 0 0 0 1px var(--primary) inset !important;
-  /* 聚焦高亮色 */
-  background-color: rgba(0, 242, 255, 0.05) !important;
-  /* 聚焦背景色 */
-}
-
-/* 3. 输入框内的文字颜色
-   同时针对 .el-input__inner (旧版) 和 .el-select__selected-item (新版) */
-.cyber-select .el-input__inner,
-.cyber-select .el-select__selected-item {
-  color: #fff !important;
-  font-family: 'Segoe UI', sans-serif;
-}
-
-/* 4. 修复占位符 (Placeholder) 颜色 */
-.cyber-select .el-input__inner::placeholder,
-.cyber-select .el-select__placeholder {
-  color: #8899a6 !important;
-}
-
-/* 下拉菜单 (注意：如果 popper-append-to-body 为 true，这部分可能需要写在全局样式里) */
-.el-select-dropdown__item {
-  color: #ccc;
-}
-
-.el-select-dropdown__item.selected {
-  color: var(--primary);
-  font-weight: bold;
-}
-
-.el-select-dropdown__item:hover {
-  background-color: rgba(0, 242, 255, 0.1);
-  color: #fff;
-}
-
-/* 覆盖 Popper 背景 */
-.el-popper.is-light {
-  background: #141b2d !important;
-  border: 1px solid var(--primary-dark) !important;
-}
-
-.el-popper__arrow::before {
-  background: #141b2d !important;
-  border: 1px solid var(--primary-dark) !important;
-}
-
-/* 1. 在这里为弹窗重新定义变量 */
-.cyber-dialog {
-  --primary: #00f2ff;
-  --primary-dark: #0099a1;
-  --bg-dark: #0a0e17;
-  --card-bg: #141b2d;
-  --border: #2a3546;
-  --text-main: #ffffff;
-  --text-sec: #8899a6;
-  --error: #ff4d4f;
-  --success: #00ff9d;
-}
-
-/* 2. 覆盖 el-dialog 默认的白色背景和边框，并【强制垂直居中】 */
-.cyber-dialog.el-dialog {
-  background-color: var(--card-bg) !important;
-  border: 1px solid var(--primary-dark) !important;
-  box-shadow: 0 0 20px rgba(0, 0, 0, 0.8) !important;
-  border-radius: 8px !important;
-  margin-top: 0 !important;
-  top: 50%;
-  transform: translateY(-50%);
-}
-
-/* 3. 弹窗头部样式 */
-.cyber-dialog .el-dialog__header {
-  /*
-  border-bottom: 1px solid var(--border);
-  padding: 15px 20px;
-  margin-right: 0;
-  background: rgba(0, 0, 0, 0.2);
-  */
-}
-
-.cyber-dialog .el-dialog__title {
-  color: var(--primary);
-  font-size: 16px;
-  font-weight: bold;
-}
-
-/* 4. 关闭按钮颜色 */
-.cyber-dialog .el-dialog__headerbtn .el-dialog__close {
-  color: var(--text-sec);
-  font-size: 18px;
-}
-
-.cyber-dialog .el-dialog__headerbtn:hover .el-dialog__close {
-  color: var(--error);
-}
-
-/* 5. 弹窗主体重置 */
-.cyber-dialog .el-dialog__body {
-  padding: 0 !important;
-  color: var(--text-main);
-  background: transparent !important;
-}
-
-/* 6. 针对全屏领用流程弹窗的特殊背景修正 */
-.process-dialog.el-dialog {
-  background-color: #0d121c !important;
-}
-
-/* ==========================================================
-   赛博朋克风格 ElMessageBox 样式覆盖
-   注意：此部分样式不能加 scoped，否则无法作用于 body 下的弹窗
-   ========================================================== */
-
-/* 1. 弹窗容器 */
-.cyber-message-box.el-message-box {
-  background-color: #141b2d !important;
-  border: 1px solid #0099a1 !important;
-  box-shadow:
-    0 0 30px rgba(0, 0, 0, 0.8),
-    inset 0 0 20px rgba(0, 242, 255, 0.05) !important;
-  border-radius: 8px !important;
-  padding-bottom: 50px !important;
-  /* 修改点：加大宽度，或者设置为 auto 让它自适应内容 */
-  width: 530px !important;
-  max-width: 95vw;
-}
-
-/* 红色警告模式 */
-.cyber-message-box.error-mode {
-  border-color: #ff4d4f !important;
-  box-shadow:
-    0 0 30px rgba(0, 0, 0, 0.8),
-    inset 0 0 20px rgba(255, 77, 79, 0.1) !important;
-}
-
-/* 黄色警告模式 */
-.cyber-message-box.warning-mode {
-  border-color: #e6a23c !important;
-  box-shadow:
-    0 0 30px rgba(0, 0, 0, 0.8),
-    inset 0 0 20px rgba(230, 162, 60, 0.1) !important;
-}
-
-/* 2. 标题区 */
-.cyber-message-box .el-message-box__header {
-  background: rgba(0, 0, 0, 0.2);
-  padding: 15px 20px;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
-}
-
-.cyber-message-box .el-message-box__title {
-  color: #fff !important;
-  font-weight: bold;
-  letter-spacing: 1px;
-}
-
-/* 3. 关闭按钮 */
-.cyber-message-box .el-message-box__headerbtn .el-message-box__close {
-  color: #8899a6 !important;
-}
-
-.cyber-message-box .el-message-box__headerbtn:hover .el-message-box__close {
-  color: #00f2ff !important;
-}
-
-/* 4. 内容区 */
-.cyber-message-box .el-message-box__content {
-  color: #ccdbe8 !important;
-  font-size: 14px;
-  padding: 20px 25px !important;
-  line-height: 1.6;
-}
-
-/* 5. 底部按钮区 */
-.cyber-message-box .el-message-box__btns {
-  padding: 10px 20px 0;
-  display: flex;
-  justify-content: center;
-  gap: 15px;
-}
-
-/* 覆盖默认按钮样式 - 确认按钮 */
-.cyber-message-box .el-button--primary {
-  background: linear-gradient(90deg, #0099a1 0%, #005f66 100%) !important;
-  border: 1px solid #00f2ff !important;
-  color: #fff !important;
-  border-radius: 4px;
-  transition: all 0.3s;
-  padding: 8px 20px;
-}
-
-.cyber-message-box .el-button--primary:hover {
-  box-shadow: 0 0 15px rgba(0, 242, 255, 0.4);
-  background: linear-gradient(90deg, #00b5bf 0%, #005f66 100%) !important;
-}
-
-/* 覆盖默认按钮样式 - 取消按钮 */
-.cyber-message-box .el-button:not(.el-button--primary) {
-  background: transparent !important;
-  border: 1px solid #4a5c76 !important;
-  color: #8899a6 !important;
-}
-
-.cyber-message-box .el-button:not(.el-button--primary):hover {
-  color: #fff !important;
-  border-color: #8899a6 !important;
-  background: rgba(255, 255, 255, 0.05) !important;
-}
-
-/* 针对 error-mode 的按钮特殊处理 */
-.cyber-message-box.error-mode .el-button--primary {
-  background: linear-gradient(90deg, #d32f2f 0%, #8b0000 100%) !important;
-  border-color: #ff4d4f !important;
-}
-
-.cyber-message-box.error-mode .el-button--primary:hover {
-  box-shadow: 0 0 15px rgba(255, 77, 79, 0.4);
-}
-
-/* 针对 warning-mode 的按钮特殊处理 (强制标记为已取) */
-.cyber-message-box.warning-mode .el-button--primary {
-  background: linear-gradient(90deg, #e6a23c 0%, #b88230 100%) !important;
-  border-color: #ffda8e !important;
-  color: #000 !important;
-  /* 黄底黑字更易读 */
-  font-weight: bold;
-}
-</style>
-
 <style scoped>
-/* 全局主题变量 */
+/* ==========================================================
+   1. 基础变量与全局布局
+   ========================================================== */
 .theme-dark {
   --primary: #00f2ff;
   --primary-dark: #0099a1;
   --success: #00ff9d;
   --error: #ff4d4f;
+  --warning: #e6a23c;
   --bg-dark: #0a0e17;
   --card-bg: #141b2d;
   --border: #2a3546;
-  --active-bg: #1c2538;
   --text-main: #ffffff;
   --text-sec: #8899a6;
-  --shadow-glow: 0 0 10px rgba(0, 242, 255, 0.2);
 }
 
 .page-container {
   width: 100%;
   height: 100vh;
   background-color: var(--bg-dark);
-  color: var(--text-main);
-  font-family: 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+  color: #fff;
   display: flex;
   flex-direction: column;
   overflow: hidden;
-  user-select: none;
 }
 
-/* ================= 顶部栏 ================= */
+/* ==========================================================
+   2. 顶部导航栏 (Header)
+   ========================================================== */
 .header-bar {
   height: 70px;
   background: #11151f;
@@ -1831,7 +1471,6 @@ onUnmounted(async () => {
   align-items: center;
   padding: 0 25px;
   flex-shrink: 0;
-  z-index: 10;
 }
 
 .header-left {
@@ -1848,7 +1487,7 @@ onUnmounted(async () => {
   display: flex;
   align-items: center;
   justify-content: center;
-  background: var(--active-bg);
+  background: #1c2538;
   box-shadow: 0 0 15px rgba(0, 242, 255, 0.1);
 }
 
@@ -1860,43 +1499,58 @@ onUnmounted(async () => {
   margin: 0;
   font-size: 22px;
   font-weight: 600;
-  letter-spacing: 1px;
-  text-shadow: 0 0 5px rgba(255, 255, 255, 0.3);
 }
 
 .sub-title {
   color: var(--primary-dark);
-  font-size: 11px;
-  letter-spacing: 1px;
+  font-size: 12px;
   font-weight: bold;
 }
 
 .header-right {
   display: flex;
   align-items: center;
-  gap: 15px;
+  gap: 12px;
+}
+
+/* 盘点历史按钮合并后的样式 */
+.history-link-btn {
+  background: rgba(0, 242, 255, 0.05);
+  border: 1px solid var(--primary-dark);
+  color: var(--primary);
+  padding: 0 18px;
+  height: 36px;
+  border-radius: 4px;
+  font-size: 13px;
+  font-weight: bold;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  transition: all 0.3s ease;
+}
+
+.history-link-btn:hover {
+  background: rgba(0, 242, 255, 0.15);
+  box-shadow: 0 0 10px rgba(0, 242, 255, 0.3);
+  border-color: var(--primary);
 }
 
 .btn-exit {
   background: transparent;
   border: 1px solid var(--error);
   color: var(--error);
-  padding: 6px 16px;
-  font-size: 13px;
+  padding: 8px 18px;
   border-radius: 4px;
   cursor: pointer;
   display: flex;
   align-items: center;
-  gap: 6px;
-  transition: all 0.3s;
+  gap: 8px;
 }
 
-.btn-exit:hover {
-  background: rgba(255, 77, 79, 0.1);
-  box-shadow: 0 0 8px rgba(255, 77, 79, 0.4);
-}
-
-/* ================= 主体区域 ================= */
+/* ==========================================================
+   3. 主体布局与列表展示区
+   ========================================================== */
 .main-body {
   flex: 1;
   display: flex;
@@ -1905,7 +1559,6 @@ onUnmounted(async () => {
   overflow: hidden;
 }
 
-/* --- 左侧列表 --- */
 .list-section {
   flex: 1;
   background: var(--card-bg);
@@ -1913,91 +1566,71 @@ onUnmounted(async () => {
   border-radius: 8px;
   display: flex;
   flex-direction: column;
-  min-width: 0;
+  overflow: hidden;
 }
 
 .section-title {
-  padding: 12px 20px;
-  border-bottom: 1px solid var(--border);
+  padding: 10px 20px;
   display: flex;
   justify-content: space-between;
   align-items: center;
-  background: rgba(0, 0, 0, 0.2);
+  background: rgba(0, 0, 0, 0.3);
+  border-bottom: 1px solid var(--border);
 }
 
 .title-left {
-  font-size: 16px;
-  color: #fff;
   display: flex;
   align-items: center;
-  gap: 12px;
+  gap: 15px;
 }
 
-.text-glow {
-  text-shadow: 0 0 10px rgba(0, 242, 255, 0.3);
+.select-wrapper {
+  width: 160px;
 }
 
-.selection-count {
-  font-size: 12px;
-  color: var(--bg-dark);
-  background: var(--primary);
-  padding: 1px 6px;
-  border-radius: 2px;
-  font-weight: bold;
-}
-
-.highlight-num {
-  color: #000;
-  font-size: 14px;
+.title-right-actions {
+  display: flex;
+  align-items: center;
+  gap: 15px;
 }
 
 .filter-tabs {
-  position: relative;
   display: flex;
   background: #0d121c;
   padding: 3px;
   border-radius: 4px;
   border: 1px solid var(--border);
-  z-index: 1;
-}
-
-.tab-glider {
-  position: absolute;
-  top: 3px;
-  left: 0;
-  height: calc(100% - 6px);
-  background: var(--active-bg);
-  border: 1px solid var(--border);
-  border-radius: 2px;
-  transition: all 0.3s cubic-bezier(0.25, 0.8, 0.25, 1);
-  z-index: 1;
-  pointer-events: none;
 }
 
 .tab {
-  position: relative;
-  z-index: 2;
-  padding: 5px 12px;
-  font-size: 12px;
+  padding: 6px 15px;
+  font-size: 13px;
   color: var(--text-sec);
   cursor: pointer;
-  border-radius: 2px;
-  transition: color 0.3s;
-  border: 1px solid transparent;
-  user-select: none;
-}
-
-.tab:hover {
-  color: #fff;
+  transition: 0.3s;
+  position: relative;
 }
 
 .tab.active {
   color: var(--primary);
-  text-shadow: 0 0 0.5px currentColor;
-  background: transparent;
-  border-color: transparent;
+  background: #1c2538;
+  border-radius: 2px;
 }
 
+.tab-count {
+  position: absolute;
+  top: -5px;
+  right: -5px;
+  background: var(--error);
+  color: white;
+  border-radius: 10px;
+  padding: 0 5px;
+  font-size: 10px;
+}
+
+/* ==========================================================
+   4. 装备卡片网格 (Card Grid)
+   ========================================================== */
 .scroll-area {
   flex: 1;
   padding: 15px;
@@ -2009,560 +1642,396 @@ onUnmounted(async () => {
   gap: 12px;
 }
 
-.no-data-tip {
-  grid-column: 1 / -1;
-  text-align: center;
-  color: var(--text-sec);
-  padding: 40px;
-  font-size: 14px;
-  border: 1px dashed var(--border);
-  border-radius: 8px;
-}
-
-/* === 卡片样式 === */
+/* --- 修改 .equip-card 基础样式并增加 .is-active 效果 --- */
 .equip-card {
   position: relative;
   background: rgba(255, 255, 255, 0.03);
   border: 1px solid var(--border);
   border-radius: 6px;
-  padding: 12px 12px;
-  cursor: pointer;
-  transition: all 0.2s;
+  height: auto;
   display: flex;
   flex-direction: column;
-  justify-content: space-between;
-  height: 145px;
   overflow: hidden;
+  transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+  /* 让过渡更丝滑 */
+  cursor: pointer;
+  /* 增加手型，提示可点击 */
+  box-shadow: inset 0 0 10px rgba(0, 0, 0, 0.2);
 }
 
+/* 统一的悬停效果 */
 .equip-card:hover {
-  background: var(--active-bg);
-  border-color: #4a5c76;
+  background: rgba(255, 255, 255, 0.06);
+  border-color: rgba(0, 242, 255, 0.4);
+  transform: translateY(-2px);
+  /* 悬停微动 */
 }
 
-.equip-card.active {
-  background-color: rgba(0, 242, 255, 0.05);
-  border: 1px solid var(--primary);
-  box-shadow: inset 0 0 20px rgba(0, 242, 255, 0.1);
+/* --- 统一的【选中/激活】样式 --- */
+.equip-card.is-active {
+  background: rgba(0, 242, 255, 0.08);
+  /* 整体背景微亮 */
+  border-color: var(--primary);
+  /* 青色边框 */
+  box-shadow:
+    0 0 15px rgba(0, 242, 255, 0.2),
+    inset 0 0 15px rgba(0, 242, 255, 0.1);
+  /* 内外发光 */
 }
 
-.equip-card.active .active-bar {
-  transform: scaleX(1);
+/* 选中时，让内部的柜位图标和文字也变亮 */
+.equip-card.is-active .card-footer-pos {
+  background: rgba(0, 242, 255, 0.1);
+  color: #fff;
+  text-shadow: 0 0 5px var(--primary);
 }
 
-.active-bar {
+/* 新增：图片上方状态标签 */
+/* 约 370 行附近 */
+.status-overlay-tag {
   position: absolute;
-  bottom: 0;
-  left: 0;
-  width: 100%;
-  height: 2px;
-  background: var(--primary);
-  box-shadow: 0 -2px 10px var(--primary);
-  transform: scaleX(0);
-  transition: transform 0.3s;
-}
-
-.check-ribbon {
-  position: absolute;
-  right: 0;
-  top: 0;
-  width: 0;
-  height: 0;
-  border-top: 32px solid var(--primary);
-  border-left: 32px solid transparent;
-  z-index: 2;
-}
-
-.check-ribbon .el-icon {
-  position: absolute;
-  top: -30px;
-  left: -18px;
-  color: #000;
-  font-weight: bold;
-  font-size: 14px;
-}
-
-.card-status-badge {
-  position: absolute;
-  top: 8px;
-  right: 8px;
-  padding: 2px 6px;
+  top: 6px;
+  left: 6px;
+  z-index: 10;
+  padding: 2px 8px;
   border-radius: 4px;
-  font-size: 10px;
+  font-size: 11px;
   font-weight: bold;
-  z-index: 1;
+  letter-spacing: 0.5px;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.5);
+  backdrop-filter: blur(2px);
+
+  /* --- 关键补充：强制统一高度渲染 --- */
+  line-height: 1.2;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  white-space: nowrap;
 }
 
-.st-in {
-  color: var(--success);
-  background: rgba(0, 255, 157, 0.15);
-  border: 1px solid rgba(0, 255, 157, 0.3);
+/* 正常借出：蓝色或淡灰色 */
+.tag-normal-out {
+  background: rgba(0, 153, 161, 0.85);
+  color: #fff;
 }
 
-.st-out {
-  color: var(--text-sec);
-  background: rgba(255, 255, 255, 0.05);
-  border: 1px solid #444;
+/* 异常离位：亮红色 */
+.tag-error-missing {
+  background: rgba(255, 77, 79, 0.9);
+  color: #fff;
+  /* 异常项增加呼吸闪烁 */
 }
 
-.equip-card.status-out {
-  opacity: 0.6;
+/* 异常占用：橙黄色 */
+.tag-error-occupied {
+  background: rgba(230, 162, 60, 0.9);
+  color: #000;
+  /* <--- 黄色背景配黑色文字对比度更高 */
 }
 
-.card-icon {
-  margin-bottom: 5px;
+.tag-loading {
+  background: rgba(0, 0, 0, 0.6);
+  color: #888;
 }
 
-.icon-active {
-  color: var(--primary);
-  filter: drop-shadow(0 0 5px var(--primary-dark));
+/* 约 395 行附近 */
+.equip-image-preview {
+  width: 100%;
+  height: 100px;
+  background: #000;
+  border-bottom: 1px solid var(--border);
+  position: relative;
+  /* <--- 关键补充：让标签相对于图片容器定位 */
+  overflow: hidden;
+  /* 确保圆角和边缘对齐 */
 }
 
-.icon-locked {
-  color: #444;
+.image-placeholder,
+.image-error-slot {
+  background: #0d121c;
+  width: 100%;
+  height: 100%;
+}
+
+.image-error-slot {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #334155;
+}
+
+.card-info {
+  padding: 10px 12px;
+  flex: 1;
+  display: flex;
+  flex-direction: column;
 }
 
 .equip-name {
   font-size: 14px;
   font-weight: bold;
   color: #fff;
-  margin-bottom: 4px;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-.equip-code {
-  font-size: 11px;
-  color: var(--text-sec);
-  font-family: 'Consolas', monospace;
-  margin-bottom: 6px;
-  display: -webkit-box;
-  -webkit-box-orient: vertical;
-  -webkit-line-clamp: 2;
-  overflow: hidden;
-  word-break: break-all;
-  line-height: 1.4;
-  height: 2.8em;
-}
-
-.equip-pos {
-  font-size: 12px;
-  color: var(--primary);
-  display: flex;
-  align-items: center;
-  gap: 3px;
-}
-
-/* --- 右侧操作面板 --- */
-.operation-section {
-  flex: 0 0 360px;
-  width: 360px;
-  background: var(--card-bg);
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  display: flex;
-  flex-direction: column;
-  overflow: hidden;
-  position: relative;
-}
-
-.empty-placeholder {
-  flex: 1;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  color: var(--text-sec);
-}
-
-.icon-circle {
-  width: 100px;
-  height: 100px;
-  border-radius: 50%;
-  border: 2px dashed var(--border);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  color: var(--border);
-  margin-bottom: 15px;
-}
-
-.empty-text {
-  font-size: 18px;
-  color: #fff;
-  margin-bottom: 4px;
-}
-
-.empty-sub {
-  font-size: 12px;
-  opacity: 0.5;
-}
-
-.detail-card,
-.batch-card {
-  display: flex;
-  flex-direction: column;
-  height: 100%;
-}
-
-.btn-text-action {
-  background: none;
-  border: 1px solid var(--primary-dark);
-  color: var(--primary);
-  padding: 3px 10px;
-  font-size: 12px;
-  cursor: pointer;
-  border-radius: 2px;
-  white-space: nowrap;
-}
-
-.btn-text-action:hover {
-  background: rgba(0, 242, 255, 0.1);
-}
-
-.btn-text-action.danger {
-  border-color: var(--error);
-  color: var(--error);
-}
-
-.btn-text-action.danger:hover {
-  background: rgba(255, 77, 79, 0.1);
-}
-
-.detail-header,
-.batch-header {
-  padding: 20px;
-  border-bottom: 1px solid var(--border);
-  display: flex;
-  justify-content: space-between;
-  align-items: flex-start;
-  background: rgba(0, 0, 0, 0.2);
-}
-
-.header-title-group {
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-  flex: 1;
-  margin-right: 15px;
-}
-
-.big-name {
-  font-size: 20px;
-  font-weight: bold;
-  color: var(--primary);
-  text-shadow: 0 0 10px rgba(0, 242, 255, 0.2);
-  line-height: 1.2;
-}
-
-.batch-title {
-  font-size: 16px;
-  color: #fff;
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding-top: 4px;
-}
-
-.status-tag-large {
-  font-size: 12px;
-  padding: 3px 10px;
-  border-radius: 4px;
-  font-weight: bold;
-  align-self: flex-start;
-}
-
-.info-table {
-  padding: 15px 20px;
-  background-color: transparent;
-}
-
-.info-row {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  padding: 10px 0;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.05);
-}
-
-.info-row .label {
-  color: var(--text-sec);
-  font-size: 13px;
-  min-width: 70px;
-}
-
-.info-row .value {
-  color: #fff;
-  font-size: 14px;
-  word-break: break-all;
-  white-space: normal;
-}
-
-.info-row .value.highlight {
-  color: var(--primary);
-  font-family: 'Consolas';
-}
-
-.font-mono {
-  font-family: monospace;
-  letter-spacing: 1px;
-}
-
-.remark-area {
-  flex: 1;
-  padding: 10px 20px;
-  display: flex;
-  flex-direction: column;
-  min-height: 0;
-}
-
-.area-title {
-  color: var(--text-sec);
-  font-size: 12px;
-  margin-bottom: 8px;
-}
-
-.remark-content {
-  flex: 1;
-  background: #0d121c;
-  border: 1px solid var(--border);
-  padding: 10px;
-  color: #ccc;
-  font-size: 12px;
-  line-height: 1.5;
-
-  /* --- 核心布局修正 --- */
-  overflow-y: auto;
-  /* 允许上下滚动 */
-  overflow-x: hidden;
-  /* 禁止左右滚动 */
-  word-break: break-all;
-  /* 强制长单词换行 */
-  white-space: pre-wrap;
-  /* 保留换行符并自动换行 */
-}
-
-/* === 自定义滚动条样式 === */
-.remark-content::-webkit-scrollbar {
-  width: 6px;
-  height: 6px;
-}
-
-.remark-content::-webkit-scrollbar-track {
-  background: rgba(0, 0, 0, 0.2);
-  border-radius: 3px;
-}
-
-.remark-content::-webkit-scrollbar-thumb {
-  background: var(--border);
-  border-radius: 3px;
-  transition: all 0.3s;
-}
-
-.remark-content::-webkit-scrollbar-thumb:hover {
-  background: var(--primary-dark);
-  box-shadow: 0 0 5px var(--primary);
-  cursor: pointer;
-}
-
-.batch-summary {
-  display: flex;
-  gap: 8px;
-  padding: 12px 20px;
-  background: rgba(0, 0, 0, 0.2);
-}
-
-.summary-item {
-  flex: 1;
-  background: var(--bg-dark);
-  border: 1px solid var(--border);
-  padding: 8px;
-  text-align: center;
-  display: flex;
-  flex-direction: column;
-}
-
-.summary-item .num {
-  font-size: 16px;
-  font-weight: bold;
-  color: #fff;
-}
-
-.summary-item .txt {
-  font-size: 11px;
-  color: var(--text-sec);
-  margin-top: 2px;
-}
-
-.summary-item.success .num {
-  color: var(--success);
-}
-
-.summary-item.warning .num {
-  color: #e6a23c;
-}
-
-.batch-list-scroll {
-  flex: 1;
-  background: transparent;
-}
-
-.batch-list {
-  padding: 0 20px;
-}
-
-.batch-item {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  padding: 10px 0;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.05);
-  gap: 10px;
-}
-
-.item-left {
-  flex: 1;
-  min-width: 0;
-  display: flex;
-  flex-direction: column;
-}
-
-.item-left .b-name {
-  color: #fff;
-  font-size: 14px;
   margin-bottom: 2px;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
 }
 
-.item-left .b-code {
+.equip-code {
+  font-size: 12px;
   color: var(--text-sec);
-  font-size: 12px;
-  font-family: monospace;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  min-width: 60px;
-  display: block;
+  font-family: 'Consolas', monospace;
+  margin-bottom: 8px;
+  word-break: break-all;
 }
 
-.item-right {
+.status-compare-group {
+  background: rgba(0, 0, 0, 0.25);
+  border-radius: 4px;
+  padding: 8px;
   display: flex;
-  align-items: center;
-  gap: 8px;
-  flex-shrink: 0;
+  flex-direction: column;
+  gap: 6px;
 }
 
-.btn-icon-view {
-  background: none;
-  border: none;
-  color: var(--primary-dark);
-  cursor: pointer;
-  padding: 2px;
+.compare-item {
   display: flex;
+  justify-content: space-between;
   align-items: center;
-  transition: all 0.2s;
 }
 
-.btn-icon-view:hover {
-  color: var(--primary);
-  transform: scale(1.1);
+.c-label {
+  font-size: 13px;
+  color: #66788a;
 }
 
-.b-pos {
-  color: var(--primary);
+.c-tag {
   font-size: 12px;
-}
-
-.mini-tag {
-  font-size: 10px;
-  padding: 1px 4px;
+  padding: 1px 6px;
   border-radius: 2px;
+  font-weight: bold;
 }
 
-.btn-icon-remove {
-  background: none;
-  border: none;
-  color: var(--text-sec);
-  cursor: pointer;
-  padding: 2px;
+.st-in {
+  background: rgba(0, 255, 157, 0.15);
+  color: var(--success);
+  border: 1px solid rgba(0, 255, 157, 0.2);
 }
 
-.btn-icon-remove:hover {
-  color: var(--error);
+.st-out {
+  background: rgba(255, 255, 255, 0.05);
+  color: #8899a6;
+  border: 1px solid rgba(255, 255, 255, 0.1);
 }
 
-.batch-warning {
-  background: rgba(230, 162, 60, 0.1);
-  color: #e6a23c;
-  padding: 6px;
-  font-size: 11px;
-  margin-bottom: 10px;
+.st-loading {
+  background: rgba(255, 255, 255, 0.05);
+  color: #555;
+  border: 1px solid #333;
+}
+
+.card-footer-pos {
+  padding: 8px 12px;
+  border-top: 1px solid rgba(255, 255, 255, 0.03);
   display: flex;
   align-items: center;
   gap: 5px;
-  border: 1px solid rgba(230, 162, 60, 0.3);
+  color: var(--primary);
+  font-size: 12px;
 }
 
-.action-footer {
-  padding: 15px 20px;
-  border-top: 1px solid var(--border);
-  background: rgba(0, 0, 0, 0.2);
+/* ==========================================================
+   5. 右侧报告面板 (Operation Section)
+   ========================================================== */
+.operation-section {
+  flex: 0 0 360px;
+  background: var(--card-bg);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  overflow: hidden;
 }
 
+.report-panel {
+  padding: 20px;
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+}
+
+.report-header {
+  margin-bottom: 20px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+  padding-bottom: 15px;
+}
+
+.report-main-title {
+  font-size: 19px;
+  font-weight: bold;
+  color: var(--primary);
+  letter-spacing: 1px;
+}
+
+.report-time {
+  font-size: 14px;
+  color: #6d8096;
+  margin-top: 5px;
+  font-family: monospace;
+}
+
+.stats-summary-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 10px;
+  margin-bottom: 20px;
+}
+
+.stat-card {
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid var(--border);
+  padding: 15px 5px;
+  text-align: center;
+  border-radius: 4px;
+  transition: 0.3s;
+  cursor: pointer;
+}
+
+.stat-card:hover {
+  border-color: var(--primary);
+  background: rgba(0, 242, 255, 0.05);
+}
+
+.stat-card.active {
+  border-color: var(--primary);
+  box-shadow: inset 0 0 10px rgba(0, 242, 255, 0.1);
+}
+
+.stat-card .s-num {
+  font-size: 24px;
+  font-weight: bold;
+  font-family: 'Consolas';
+}
+
+.stat-card.is-success .s-num {
+  color: var(--success);
+}
+
+.stat-card.is-danger.has-err .s-num {
+  color: var(--error);
+}
+
+.stat-card .s-text {
+  font-size: 13px;
+  color: var(--text-sec);
+  margin-top: 5px;
+}
+
+.analysis-section {
+  background: rgba(0, 0, 0, 0.1);
+  padding: 15px;
+  border-radius: 6px;
+  border: 1px solid rgba(255, 255, 255, 0.02);
+}
+
+.analysis-title {
+  font-size: 15px;
+  color: var(--primary-dark);
+  font-weight: bold;
+  padding-bottom: 10px;
+  margin-bottom: 12px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+.analysis-row {
+  display: flex;
+  justify-content: space-between;
+  margin-bottom: 15px;
+  font-size: 13px;
+}
+
+.dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  display: inline-block;
+  background: #4a5c76;
+  /* 默认灰色 */
+  margin-right: 8px;
+  vertical-align: middle;
+}
+
+/* 正常借出行的文字颜色 (统一为青蓝色) */
+.info-text {
+  color: #00c2cc;
+  /* 采用比 tag-normal-out 稍微亮一点的颜色，保证文字清晰 */
+  font-weight: bold;
+}
+
+/* 正常借出行的小圆点颜色 */
+.dot.info {
+  background: #0099a1;
+  box-shadow: 0 0 5px rgba(0, 153, 161, 0.8);
+}
+
+.dot.success {
+  background: var(--success);
+  box-shadow: 0 0 5px var(--success);
+}
+
+.dot.danger {
+  background: var(--error);
+  box-shadow: 0 0 5px var(--error);
+}
+
+.success-text {
+  color: var(--success);
+  font-weight: bold;
+}
+
+.danger-text {
+  color: var(--error);
+  font-weight: bold;
+}
+
+.flex-spacer {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  opacity: 0.1;
+}
+
+.spacer-text {
+  font-size: 12px;
+  margin-top: 10px;
+}
+
+/* ==========================================================
+   6. 按钮与交互 (Buttons & Cyber Effects)
+   ========================================================= */
 .cyber-btn {
   width: 100%;
-  height: 50px;
+  height: 45px;
   background: linear-gradient(90deg, var(--primary-dark) 0%, #005f66 100%);
   border: 1px solid var(--primary);
   color: #fff;
   cursor: pointer;
   position: relative;
   overflow: hidden;
-  transition: all 0.3s;
-}
-
-.cyber-btn:hover:not(:disabled) {
-  box-shadow: 0 0 20px rgba(0, 242, 255, 0.4);
-  text-shadow: 0 0 8px rgba(255, 255, 255, 0.8);
-}
-
-.cyber-btn.disabled {
-  background: #1f2636;
-  border-color: #444;
-  color: #666;
-  cursor: not-allowed;
 }
 
 .btn-content {
   display: flex;
   align-items: center;
   justify-content: center;
-  gap: 12px;
+  gap: 8px;
+  width: 100%;
   height: 100%;
-  position: relative;
-  z-index: 2;
-}
-
-.text-group {
-  display: flex;
-  flex-direction: column;
-  align-items: flex-start;
 }
 
 .btn-main-text {
   font-size: 16px;
   font-weight: bold;
-  letter-spacing: 1px;
-}
-
-.btn-sub-text {
-  font-size: 9px;
-  opacity: 0.7;
-  letter-spacing: 1px;
-  margin-top: 2px;
 }
 
 .scan-line {
@@ -2573,8 +2042,7 @@ onUnmounted(async () => {
   height: 100%;
   background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.3), transparent);
   transform: skewX(-20deg);
-  animation: btnScan 3s infinite;
-  z-index: 1;
+  animation: btnScan 4s infinite;
 }
 
 @keyframes btnScan {
@@ -2582,7 +2050,7 @@ onUnmounted(async () => {
     left: -100%;
   }
 
-  20% {
+  25% {
     left: 200%;
   }
 
@@ -2592,476 +2060,1534 @@ onUnmounted(async () => {
 }
 
 /* ==========================================================
-   弹窗内部的具体内容样式 (保持 Scoped)
+   7. 组件穿透覆盖 (Element Plus Scoped) - 同步系统参数页样式
    ========================================================== */
-.detail-card-modal {
-  display: flex;
-  flex-direction: column;
+
+/* 1. 下拉框本体背景与边框 (兼容新旧版 Element Plus) */
+.cyber-select :deep(.el-select__wrapper),
+.cyber-select :deep(.el-input__wrapper) {
+  background-color: rgba(20, 27, 45, 0.8) !important;
+  /* 深蓝半透明 */
+  box-shadow: 0 0 0 1px #4a5c76 inset !important;
+  /* 默认边框 */
+  transition: all 0.3s;
 }
 
-.detail-header-modal {
-  padding: 15px 20px;
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-  background: rgba(0, 0, 0, 0.2);
-  border-bottom: 1px solid #2a3546;
+/* 2. 鼠标悬停 或 聚焦时的样式 (青色微光与边框) */
+.cyber-select :deep(.el-select__wrapper:hover),
+.cyber-select :deep(.el-select__wrapper.is-focused),
+.cyber-select :deep(.el-input__wrapper:hover),
+.cyber-select :deep(.el-input__wrapper.is-focus) {
+  box-shadow: 0 0 0 1px var(--primary) inset !important;
+  /* 青色高亮边框 */
+  background-color: rgba(0, 242, 255, 0.05) !important;
+  /* 青色微光背景 */
 }
 
-.big-name-modal {
-  font-size: 18px;
+/* 3. 选中文本的颜色 */
+.cyber-select :deep(.el-select__selected-item),
+.cyber-select :deep(.el-input__inner) {
+  color: #fff !important;
+  font-family: 'Segoe UI', sans-serif;
   font-weight: bold;
-  color: #fff;
 }
 
-.remark-area-modal {
-  padding: 15px 20px;
-  background: #0a0e17;
-  border-top: 1px solid #2a3546;
-  height: 180px;
+/* 4. 占位符颜色 (提示文字) */
+.cyber-select :deep(.el-select__placeholder) {
+  color: var(--text-sec) !important;
+}
+
+/* 5. 右侧小图标颜色 */
+.cyber-select :deep(.el-icon) {
+  color: var(--primary-dark);
+}
+
+/* 处置按钮样式 */
+.action-btns {
   display: flex;
-  flex-direction: column;
+  flex-wrap: wrap;
+  gap: 8px;
 }
 
-/* 领用流程监控内容 */
-.process-container {
+.mini-action-btn {
+  background: rgba(0, 242, 255, 0.1);
+  border: 1px solid var(--primary-dark);
+  color: var(--primary);
+  /* 关键修改：强制高度和内边距 */
+  height: 32px;
+  padding: 0 15px;
+  font-size: 13px;
+  font-weight: bold;
+  /* ---------------- */
+  border-radius: 4px;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  transition: all 0.2s;
+  white-space: nowrap;
+}
+
+/* 悬停效果同步强化 */
+.mini-action-btn:hover {
+  background: var(--primary-dark);
+  color: #000;
+  box-shadow: 0 0 10px rgba(0, 242, 255, 0.3);
+}
+
+.mini-action-btn.success {
+  border-color: var(--success);
+  color: var(--success);
+  background: rgba(0, 255, 157, 0.05);
+}
+
+.mini-action-btn.warning {
+  border-color: var(--warning);
+  color: var(--warning);
+  background: rgba(230, 162, 60, 0.05);
+}
+
+/* 修正：传感已屏蔽状态标签 - 让它和按钮看起来一样大 */
+.disposal-step-group .mini-tag.st-disabled {
+  height: 32px;
+  /* 与按钮高度完全一致 */
+  padding: 0 12px;
+  /* 保持一致的水平内边距 */
+  font-size: 13px;
+  /* 字体大小一致 */
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 4px;
+  background: rgba(255, 77, 79, 0.15) !important;
+  color: #ff4d4f !important;
+  border: 1px solid rgba(255, 77, 79, 0.4) !important;
+  margin: 0;
+  /* 清除默认 margin */
+}
+
+/* 表格缩略图 */
+/* 修改后的表格缩略图：适配 4:3 比例 */
+.table-thumb {
+  width: 96px;
+  /* 宽度增加 */
+  height: 72px;
+  /* 按照 4:3 比例计算 */
+  border-radius: 4px;
+  border: 1px solid var(--border);
+  background: #000;
+  display: block;
+  /* 消除间隙 */
+}
+
+.thumb-err {
+  width: 96px;
+  height: 72px;
   background: #0d121c;
-  padding: 20px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  color: #4a5c76;
+  border: 1px dashed #2a3546;
+  gap: 2px;
+  /* 1. 缩小间距，让视觉更紧凑 */
+  font-size: 13px;
+  line-height: 1;
+  /* 2. 关键：强制行高为1，消除文字底部多余间隙 */
+}
+
+/* 3. 针对图标进行微调，确保图标本身没有额外占位 */
+.thumb-err .el-icon {
+  margin-bottom: 0;
+  /* 确保没有下边距 */
+  display: flex;
+  /* 消除行内元素的基线对齐问题 */
+}
+
+.thumb-err span {
+  letter-spacing: 1px;
+  margin-top: 22px;
+  /* 4. 手动微调文字位置，补偿视觉重心 */
+}
+
+/* 位置信息 */
+.t-pos {
+  font-size: 12px;
+  color: var(--primary);
+  margin-top: 4px;
+  display: flex;
+  align-items: center;
+  gap: 3px;
+}
+
+/* 账实对比行 */
+.compare-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  background: rgba(0, 0, 0, 0.2);
+  padding: 4px 8px;
+  border-radius: 4px;
+}
+
+.dot-label {
+  font-size: 13px;
+  color: #8899a6;
+}
+
+/* 已核实/数据已平 状态标签的高度对齐 */
+.status-resolved {
+  color: var(--success);
+  font-weight: bold;
+  font-size: 14px;
+  height: 32px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+/* 已禁用状态：深红背景，亮红文字 */
+.st-disabled {
+  background: rgba(255, 77, 79, 0.15) !important;
+  color: #ff4d4f !important;
+  border: 1px solid rgba(255, 77, 79, 0.3) !important;
+}
+
+/* 警告文字颜色（橙黄色） */
+.warning-text {
+  color: var(--warning);
+  /* 对应 #e6a23c */
+  font-weight: bold;
+}
+
+/* 警告小圆点 */
+.dot.warning {
+  background: var(--warning);
+  box-shadow: 0 0 5px var(--warning);
+}
+
+/* 正常借出标签：使用蓝色系 */
+.tag-normal-out {
+  background: rgba(0, 153, 161, 0.85);
+  /* 沉稳的青蓝色 */
   color: #fff;
-  min-height: 450px;
+}
+
+/* 正常在位标签保持明亮绿色 */
+.tag-normal-in {
+  background: rgba(0, 255, 157, 0.9);
+  color: #000;
+}
+
+/* 4. 修正监测结论在面板里的颜色显示 (防止 getDetailedStatus 的类名背景太突兀) */
+.live-monitor-panel .tag-normal-in {
+  background: rgba(0, 255, 157, 0.2);
+  color: #00ff9d;
+}
+
+.live-monitor-panel .tag-normal-out {
+  background: rgba(0, 153, 161, 0.2);
+  color: #00f2ff;
+}
+
+.live-monitor-panel .tag-error-missing {
+  background: rgba(255, 77, 79, 0.2);
+  color: #ff4d4f;
+}
+
+.live-monitor-panel .tag-error-occupied {
+  background: rgba(230, 162, 60, 0.2);
+  color: #e6a23c;
+}
+
+/* ================= 详情弹窗专项样式 ================= */
+
+/* 头部样式 */
+.detail-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  width: 100%;
+}
+
+.header-title-wrapper {
   display: flex;
   flex-direction: column;
 }
 
-.process-header {
-  text-align: center;
-  margin-bottom: 20px;
-  /*border-bottom: 1px solid #333;*/
-  padding-bottom: 15px;
-}
-
-.p-title {
+.header-title-wrapper .main-title {
   font-size: 20px;
   color: var(--primary);
   font-weight: bold;
 }
 
-.p-sub {
-  font-size: 12px;
-  color: #888;
-  margin-top: 5px;
+.header-title-wrapper .sub-code {
+  font-size: 13px;
+  color: var(--text-sec);
+  font-family: monospace;
 }
 
-/* 扫描动画条 */
-.scan-anim-box {
-  height: 2px;
+/* 内容区域 */
+.detail-container {
+  max-height: 70vh;
+  padding-right: 10px;
+}
+
+.detail-row {
+  margin-bottom: 25px;
+}
+
+.top-row {
+  display: flex;
+  gap: 20px;
+}
+
+/* 左列：影像与监控 */
+.detail-left-col {
+  flex: 0 0 320px;
+}
+
+.image-box {
   width: 100%;
-  background: #222;
-  position: relative;
+  height: 240px;
+  background: #000;
+  border: 1px solid var(--border);
+  border-radius: 8px;
   overflow: hidden;
-  margin-bottom: 15px;
+  position: relative;
 }
 
-.scanner {
-  width: 30%;
-  height: 100%;
-  background: linear-gradient(90deg, transparent, var(--primary), transparent);
+.image-label {
   position: absolute;
-  animation: scanMove 2s infinite linear;
+  bottom: 0;
+  width: 100%;
+  background: rgba(0, 0, 0, 0.6);
+  color: var(--text-sec);
+  text-align: center;
+  font-size: 12px;
+  padding: 4px 0;
 }
 
-@keyframes scanMove {
-  0% {
-    left: -30%;
-  }
-
-  100% {
-    left: 100%;
-  }
+.live-monitor-panel {
+  margin-top: 15px;
+  background: rgba(0, 242, 255, 0.05);
+  border: 1px solid var(--primary-dark);
+  border-radius: 6px;
+  padding: 12px;
 }
 
-.monitor-list {
-  flex: 1;
-  overflow-y: auto;
-  overflow-x: hidden;
-  /* 增加：防止横向滚动 */
-  margin-bottom: 20px;
-  border: 1px solid #333;
+.panel-title {
+  font-size: 13px;
+  color: var(--primary);
+  font-weight: bold;
+  margin-bottom: 10px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+/* --- 重新设计的实时感知面板样式 --- */
+.live-monitor-panel {
+  margin-top: 15px;
+  background: rgba(0, 0, 0, 0.25);
+  /* 稍微加深背景 */
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--primary);
+  /* 侧边高亮条 */
   border-radius: 4px;
-  padding: 10px;
-  background: rgba(0, 0, 0, 0.2);
-  max-height: 300px;
+  padding: 12px;
 }
 
-/* === 复用自定义滚动条样式 (monitor-list) === */
-.monitor-list::-webkit-scrollbar {
+.monitor-compare-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 12px;
+  background: rgba(255, 255, 255, 0.03);
+  padding: 8px 0;
+  border-radius: 4px;
+}
+
+.m-compare-box {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+
+.m-divider {
+  width: 1px;
+  height: 25px;
+  background: rgba(255, 255, 255, 0.1);
+}
+
+.m-label {
+  font-size: 13px;
+  color: #66788a;
+  margin-bottom: 4px;
+}
+
+.m-val {
+  font-size: 14px;
+  font-weight: bold;
+}
+
+/* 结论通栏 */
+.conclusion-bar {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 6px;
+  border-radius: 4px;
+  font-size: 13px;
+  font-weight: bold;
+  letter-spacing: 1px;
+}
+
+.c-dot {
   width: 6px;
   height: 6px;
+  border-radius: 50%;
+  margin-right: 8px;
+  background: currentColor;
+  box-shadow: 0 0 8px currentColor;
 }
 
-.monitor-list::-webkit-scrollbar-track {
-  background: rgba(0, 0, 0, 0.2);
-  border-radius: 3px;
+.c-label {
+  opacity: 0.7;
+  font-size: 12px;
+  margin-right: 4px;
 }
 
-.monitor-list::-webkit-scrollbar-thumb {
+/* 针对结论背景的颜色重定义 */
+.conclusion-bar.tag-normal-in {
+  background: rgba(0, 255, 157, 0.15);
+  color: #00ff9d;
+}
+
+.conclusion-bar.tag-normal-out {
+  background: rgba(0, 242, 255, 0.1);
+  color: #00f2ff;
+}
+
+.conclusion-bar.tag-error-missing {
+  background: rgba(255, 77, 79, 0.2);
+  color: #ff4d4f;
+}
+
+.conclusion-bar.tag-error-occupied {
+  background: rgba(230, 162, 60, 0.2);
+  color: #e6a23c;
+}
+
+/* 辅助颜色 */
+.text-success {
+  color: #00ff9d;
+}
+
+.text-error {
+  color: #ff4d4f;
+}
+
+.text-sec {
+  color: #8899a6;
+}
+
+/* 右列：参数展示 */
+.detail-right-col {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 15px;
+}
+
+.group-title {
+  font-size: 14px;
+  color: var(--primary);
+  border-left: 3px solid var(--primary);
+  padding-left: 10px;
+  margin-bottom: 12px;
+  font-weight: bold;
+}
+
+.info-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 1px;
   background: var(--border);
-  border-radius: 3px;
-  transition: all 0.3s;
+  border: 1px solid var(--border);
 }
 
-.monitor-list::-webkit-scrollbar-thumb:hover {
-  background: var(--primary-dark);
-  box-shadow: 0 0 5px var(--primary);
-  cursor: pointer;
-}
-
-.m-item {
+.grid-cell {
+  background: var(--card-bg);
+  padding: 12px;
   display: flex;
   justify-content: space-between;
-  align-items: center;
-  padding: 12px;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.05);
-  transition: all 0.3s;
 }
 
-.m-item.taken {
-  background: rgba(0, 255, 157, 0.1);
+.grid-cell .label {
+  color: var(--text-sec);
+  font-size: 14px;
 }
 
-.m-item.error-shake {
-  background: rgba(255, 77, 79, 0.1);
-  animation: shake 0.5s;
-  border: 1px solid var(--error);
+/* 优化：如果装备名称或编号过长，防止挤压 */
+.grid-cell .val {
+  color: #fff;
+  font-size: 14px;
+  font-weight: bold;
+  margin-left: 10px;
+  text-align: right;
+  word-break: break-all;
+  /* 允许长编号换行 */
 }
 
-.m-left {
+.remark-group {
+  flex: 1;
+  background: rgba(0, 0, 0, 0.2);
+  padding: 15px;
+  border-radius: 6px;
+}
+
+.remark-content {
+  font-size: 13px;
+  line-height: 1.6;
+  color: #cdd9e5;
+  white-space: pre-wrap;
+  /* 关键：保留换行 */
+}
+
+/* 找到 .img-err 并修改为以下内容 */
+.img-err {
+  width: 100%;
+  height: 100%;
   display: flex;
+  flex-direction: column;
   align-items: center;
+  justify-content: center;
+  background: #0d121c;
+  /* 统一使用最深色 */
+  color: #334155;
   gap: 10px;
 }
 
-.m-info-group {
+/* 确保 el-image 撑满父容器，否则居中参照物不对 */
+.image-box :deep(.el-image) {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+/* 如果你想让文字也带点发光感（可选） */
+.img-err span {
+  font-size: 14px;
+  letter-spacing: 1px;
+}
+
+/* 1. 强制 el-image 及其内部所有容器背景为深色 */
+.image-box :deep(.el-image) {
+  width: 100%;
+  height: 100%;
+  background-color: #0d121c !important;
+  /* 核心：防止白光闪烁 */
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+/* 2. 针对 el-image 内部图片容器的背景也进行覆盖 */
+.image-box :deep(.el-image__wrapper),
+.image-box :deep(.el-image__placeholder),
+.image-box :deep(.el-image__error) {
+  background-color: #0d121c !important;
+}
+
+/* 3. 加载中占位符样式 (仿赛博风格) */
+.img-loading-placeholder {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  background: #0d121c;
+  color: var(--primary);
+  /* 青色文字 */
+  gap: 12px;
+}
+
+/* 让加载图标转起来 */
+.img-loading-placeholder .is-loading {
+  animation: rotating 2s linear infinite;
+  filter: drop-shadow(0 0 5px var(--primary));
+}
+
+.img-loading-placeholder span {
+  font-size: 13px;
+  letter-spacing: 1px;
+  opacity: 0.8;
+}
+
+/* 4. 图片加载后的淡入效果（可选，能让过渡更平滑） */
+.image-box :deep(.el-image__inner) {
+  animation: fadeIn 0.4s ease-in-out;
+}
+
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+  }
+
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes rotating {
+  from {
+    transform: rotate(0deg);
+  }
+
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.detail-footer {
+  display: flex;
+  justify-content: flex-end;
+  align-items: center;
+  /* 关键：确保内部组件垂直居中 */
+  gap: 16px;
+  /* 稍微加大按钮间距，显得更大气 */
+  width: 100%;
+}
+
+/* 报修待核实：亮橙色边框 */
+.tag-maintenance-pending {
+  background: #e6a23c;
+  /* 橙色不透明背景 */
+  color: #000;
+  /* 黑色文字，对比度最高 */
+  font-weight: bold;
+  box-shadow: 0 0 10px rgba(230, 162, 60, 0.4);
+  /* 增加一点发光感，提醒待办 */
+}
+
+/* 同时建议修改详情弹窗里的显示逻辑（约 1139 行附近） */
+.live-monitor-panel .tag-maintenance-pending {
+  background: #e6a23c;
+  color: #000;
+  padding: 2px 8px;
+  border-radius: 4px;
+}
+
+/* 报修已核实：淡青色 */
+.tag-maintenance-ok {
+  background: rgba(0, 242, 255, 0.15);
+  color: #00f2ff;
+  border: 1px solid rgba(0, 242, 255, 0.3);
+}
+
+.text-muted {
+  opacity: 0.6;
+}
+
+/* --- 芯片卡片容器网格 --- */
+.chip-cards-container {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  /* 依然保持一行 3 个 */
+  gap: 16px;
+  padding-bottom: 20px;
+}
+
+.chip-detail-card {
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  transition: all 0.3s;
+}
+
+.chip-detail-card:hover {
+  border-color: var(--primary-dark);
+  background: rgba(0, 242, 255, 0.02);
+}
+
+/* --- 头部：仅序号 --- */
+.chip-card-header {
+  background: rgba(0, 242, 255, 0.08);
+  padding: 10px 15px;
+  border-bottom: 1px solid var(--border);
+}
+
+.chip-idx {
+  color: var(--primary);
+  font-weight: bold;
+  font-size: 14px;
+  letter-spacing: 1px;
+}
+
+/* --- 内容区布局 --- */
+.chip-card-body {
   display: flex;
   flex-direction: column;
 }
 
-.m-name {
-  font-size: 14px;
+/* --- 图片：4:3 比例适配 --- */
+.chip-image-zone {
+  padding: 15px 15px 0 15px;
 }
 
-.m-addr {
-  font-size: 11px;
-  color: #666;
+.chip-img-grid {
+  display: grid;
+  grid-template-columns: 1fr;
+  /* 详情里默认大图展示，如果有多个芯片图会自动撑开 */
+  gap: 8px;
 }
 
-.m-status {
+.standard-chip-img {
+  width: 100%;
+  aspect-ratio: 4 / 3;
+  /* 对应拍照的 640x480 */
+  border-radius: 4px;
+  border: 1px solid var(--border);
+  background: #000;
+}
+
+.chip-no-img {
+  width: 100%;
+  aspect-ratio: 4 / 3;
+  background: rgba(0, 0, 0, 0.2);
+  border: 1px dashed var(--border);
+  border-radius: 4px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  color: #334155;
   font-size: 12px;
-  color: #888;
+  gap: 8px;
 }
 
-.pulse-icon {
-  animation: pulse 1.5s infinite;
+/* --- 信息列表：模仿管理页面布局 --- */
+.chip-params-list {
+  padding: 15px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
 }
 
-@keyframes pulse {
-  0% {
-    opacity: 1;
-    transform: scale(1);
-  }
-
-  50% {
-    opacity: 0.5;
-    transform: scale(1.2);
-  }
-
-  100% {
-    opacity: 1;
-    transform: scale(1);
-  }
+.param-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 13px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.03);
+  padding-bottom: 8px;
 }
 
-@keyframes shake {
-
-  0%,
-  100% {
-    transform: translateX(0);
-  }
-
-  10%,
-  30%,
-  50%,
-  70%,
-  90% {
-    transform: translateX(-5px);
-  }
-
-  20%,
-  40%,
-  60%,
-  80% {
-    transform: translateX(5px);
-  }
+.param-item.vertical {
+  flex-direction: column;
+  align-items: flex-start;
+  border-bottom: none;
 }
 
-.process-footer {
-  text-align: center;
-  /*border-top: 1px solid #333;*/
-  padding-top: 20px;
+.p-label {
+  color: var(--text-sec);
+  flex-shrink: 0;
 }
 
-.status-summary {
-  margin-bottom: 15px;
-  font-size: 16px;
+.p-value {
+  color: #fff;
+  font-weight: 500;
+  text-align: right;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  margin-left: 10px;
+}
+
+/* 参数内容区 */
+.p-content {
+  margin-top: 6px;
+  width: 100%;
+  background: rgba(0, 0, 0, 0.2);
+  padding: 8px;
+  border-radius: 4px;
+  font-size: 12px;
+  color: #cdd9e5;
+  line-height: 1.5;
+  min-height: 50px;
+  max-height: 80px;
+  overflow-y: auto;
+  white-space: pre-wrap;
+  /* 保留参数换行 */
+}
+
+/* 人工授信/非受控状态：醒目的警告色 */
+.tag-unmonitored {
+  background: rgba(255, 170, 0, 0.2) !important;
+  color: #ffaa00 !important;
+  border: 1px solid #ffaa00;
+  box-shadow: 0 0 8px rgba(255, 170, 0, 0.3);
+}
+
+/* 在卡片上增加一个“非受控”标志 */
+.equip-card.is-unmonitored {
+  border-color: #ffaa00 !important;
+  background: rgba(255, 170, 0, 0.05) !important;
+}
+
+/* 闪烁动画提示该位置不可靠 */
+.equip-card.is-unmonitored::after {
+  content: 'UNGUARDED';
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%) rotate(-15deg);
+  font-size: 24px;
+  font-weight: 900;
+  color: rgba(255, 170, 0, 0.15);
+  pointer-events: none;
+  border: 4px solid rgba(255, 170, 0, 0.15);
+  padding: 5px 10px;
+}
+
+.disposal-step-group {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  /* 增大元素间的间距 */
+}
+
+/* 强制让“传感已屏蔽”标签在弹窗表格里显得更小巧一点 */
+.mini-tag.st-disabled {
+  border: 1px solid rgba(255, 77, 79, 0.4);
+  background: rgba(255, 77, 79, 0.1);
+}
+
+/* 针对“屏蔽但未核实”的中间状态 */
+.mini-tag.st-unreg {
+  background: #e6a23c !important;
+  /* 强制使用不透明橙色 */
+  color: #000 !important;
+  /* 强制使用黑色文字 */
+  border: none !important;
+  /* 不透明背景下通常不需要边框 */
   font-weight: bold;
 }
 
-/* 修改后：增加 Flex 布局以保证图标与文字垂直居中对齐 */
-.success-text {
-  color: var(--success);
-  display: flex;
-  align-items: center;
-  /* 垂直居中 */
-  justify-content: center;
-  /* 水平居中 (针对 footer 这种居中场景) */
-  gap: 5px;
-  /* 图标和文字的间距 */
+/* 只有真正处理完的行才变淡 */
+.is-processed-row {
+  background: rgba(0, 255, 157, 0.05) !important;
+  opacity: 0.8;
+  border-left: 4px solid var(--success);
+  /* 增加左侧绿色条，表示彻底完成 */
 }
 
-.error-text {
-  color: var(--error);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 5px;
+/* 仅针对弹窗表格中“异常类型”列的标签字体进行放大 */
+.type-cell .mini-tag {
+  font-size: 13px !important;
+  padding: 3px 8px;
+  /* 稍微增加一点内边距让文字不拥挤 */
 }
 
-.processing-text {
+/* 针对查看记录按钮的弱化样式 */
+.mini-action-btn.plain-btn {
+  background: rgba(255, 255, 255, 0.05);
+  border-color: rgba(255, 255, 255, 0.2);
+  color: #8899a6;
+}
+
+.mini-action-btn.plain-btn:hover {
+  background: rgba(0, 242, 255, 0.1);
+  border-color: var(--primary);
   color: var(--primary);
+}
+
+/* --- 找到并替换这部分代码 --- */
+.table-textarea :deep(.el-textarea__inner) {
+  background-color: rgba(0, 0, 0, 0.3) !important;
+  /* 稍微调暗背景 */
+  /* 关键修改：使用更淡的颜色，并彻底移除阴影 */
+  border: 1px solid var(--border) !important;
+  box-shadow: none !important;
+
+  color: #cdd9e5 !important;
+  font-size: 13px !important;
+  line-height: 1.5 !important;
+  padding: 2px 10px !important;
+  height: 52px !important;
+  min-height: 52px !important;
+  max-height: 52px !important;
+  overflow-y: auto !important;
+  transition: all 0.3s;
+  border-radius: 4px;
+}
+
+/* 选中后的样式保持青色，增加识别度 */
+.table-textarea :deep(.el-textarea__inner:focus) {
+  border-color: var(--primary) !important;
+  background-color: rgba(0, 242, 255, 0.05) !important;
+  /* 聚焦时稍微亮一点 */
+  box-shadow: 0 0 0 1px var(--primary) inset !important;
+  /* 使用内阴影代替外发光，更硬核 */
+}
+
+/* 占位符颜色 */
+.table-textarea :deep(.el-textarea__inner::placeholder) {
+  color: #4a5c76 !important;
+}
+
+/* 针对 Textarea 内部滚动条的赛博朋克化定制 */
+.table-textarea :deep(.el-textarea__inner)::-webkit-scrollbar {
+  width: 4px !important;
+}
+
+.table-textarea :deep(.el-textarea__inner)::-webkit-scrollbar-track {
+  background: transparent !important;
+}
+
+.table-textarea :deep(.el-textarea__inner)::-webkit-scrollbar-thumb {
+  background: #2a3546 !important;
+  border-radius: 10px !important;
+}
+
+.table-textarea :deep(.el-textarea__inner)::-webkit-scrollbar-thumb:hover {
+  background: var(--primary-dark) !important;
+}
+
+:deep(.el-dialog.inventory-dialog-unique) {
+  /* 默认状态下增加过渡动画 */
+  transition: all 0.2s cubic-bezier(0.25, 0.8, 0.25, 1) !important;
+}
+
+/* --- 修改：优化键盘唤起时弹窗的定位 --- */
+:deep(.el-dialog.inventory-dialog-unique.is-keyboard-open) {
+  /* 强制将弹窗顶部固定在距离屏幕顶部 2vh 的位置，不再使用 top:50% */
+  top: 2px !important;
+  /* 只处理水平居中，垂直方向不再偏移 */
+  transform: translate(-50%, 0) !important;
+  margin-top: 0 !important;
+}
+
+/* --- 补充：防止双重滚动条导致的布局闪烁 --- */
+:deep(.is-keyboard-open .el-dialog__body) {
+  overflow: hidden !important;
+  /* 键盘打开时，禁用弹窗外层的滚动，只允许表格内部滚动 */
+}
+
+/* 键盘容器样式 */
+.keyboard-container {
+  position: fixed !important;
+  bottom: 0 !important;
+  left: 0 !important;
+  width: 100% !important;
+  z-index: 9999 !important;
+  background-color: #141b2d !important;
+  border-top: 1px solid #00f2ff;
+  box-shadow: 0 -4px 20px rgba(0, 0, 0, 0.6);
+  padding: 5px 0 20px 0 !important;
+}
+
+/* 确保 SimpleKeyboard 样式正确渲染 */
+:deep(.show-keyboard) {
+  background-color: transparent !important;
+}
+
+:deep(.show-keyboard .hg-button) {
+  background: #2a3546 !important;
+  color: #fff !important;
+  border-bottom: 2px solid #151a23 !important;
+}
+
+:deep(.show-keyboard .hg-button:active) {
+  background: #00f2ff !important;
+  color: #000 !important;
+}
+
+/* 修改：弹窗底部布局 */
+.dialog-footer {
+  display: flex;
+  justify-content: space-between;
+  /* 左右分布 */
+  align-items: center;
+  width: 100%;
+}
+
+.footer-left-tip {
   display: flex;
   align-items: center;
-  justify-content: center;
-  gap: 5px;
-}
-
-/* 按钮样式优化 */
-.finish-btn {
-  background: linear-gradient(90deg, var(--primary-dark) 0%, #005f66 100%);
-  border: 1px solid var(--primary);
-  font-size: 22px;
-  letter-spacing: 2px;
-  font-weight: bold;
-  text-shadow: 0 0 8px rgba(0, 242, 255, 0.6);
-  height: 60px;
-  transition: all 0.3s;
-}
-
-.finish-btn:hover {
-  box-shadow: 0 0 25px rgba(0, 242, 255, 0.5);
-  background: linear-gradient(90deg, #00b5bf 0%, #005f66 100%);
-}
-
-/* [修改点] 禁用状态下的按钮样式 */
-.finish-btn.disabled-state {
-  background: #2a3546;
-  border-color: #4a5c76;
-  color: #666;
-  cursor: not-allowed;
-  box-shadow: none;
-  text-shadow: none;
-}
-
-.finish-btn.disabled-state:hover {
-  background: #2a3546;
-  box-shadow: none;
-}
-
-/* [修改点] 关门提示文字动画 */
-.door-warning-anim {
-  color: #e6a23c;
+  gap: 8px;
   font-size: 14px;
+  /* 确保文字颜色和图标对齐 */
+  line-height: 1;
+}
+
+.footer-right-btns {
+  display: flex;
+  gap: 15px;
+}
+
+/* 修改：禁用状态下的提交按钮 */
+.footer-btn.confirm.is-disabled {
+  background: #2a3546 !important;
+  border-color: #4a5c76 !important;
+  color: #666 !important;
+  cursor: not-allowed;
+  filter: grayscale(1);
+  opacity: 0.6;
+}
+
+.footer-btn.confirm.is-disabled:hover {
+  transform: none;
+  box-shadow: none;
+}
+
+/* 进度条样式 */
+.inventory-progress-bar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.p-text {
+  color: var(--text-sec);
+  font-size: 14px;
+}
+
+.p-num {
+  color: var(--primary);
+  font-family: 'Consolas';
   font-weight: bold;
-  margin-bottom: 12px;
+  font-size: 18px;
+  min-width: 60px;
+}
+
+.p-track {
+  width: 240px;
+  height: 8px;
+  background: rgba(255, 255, 255, 0.05);
+  border-radius: 4px;
+  overflow: hidden;
+  border: 1px solid rgba(0, 242, 255, 0.1);
+}
+
+.p-fill {
+  height: 100%;
+  background: linear-gradient(90deg, var(--primary-dark), var(--primary));
+  box-shadow: 0 0 10px var(--primary-dark);
+  transition: width 0.5s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+/* 之前已处理行的样式微调，让它更明显一点 */
+.is-processed-row {
+  background: rgba(0, 255, 157, 0.04) !important;
+  opacity: 0.85;
+  /* 不要太淡，保证文字清晰 */
+}
+
+/* 确保页脚右侧按钮有足够的间距 */
+.footer-right-btns {
+  display: flex;
+  gap: 15px;
+  /* 增加按钮之间的距离 */
+  align-items: center;
+}
+
+/* 调整批量核实按钮的样式，使其看起来像次级按钮 */
+.footer-btn.history-btn {
+  background: rgba(0, 242, 255, 0.05);
+  border: 1px solid rgba(0, 242, 255, 0.3);
+  color: var(--primary);
+  min-width: 160px;
+  /* 稍微宽一点，因为文字较长 */
+}
+</style>
+
+<style>
+/* ==========================================================
+   8. 全局与弹窗样式 (Non-Scoped) - 终极修复滚动条
+   ========================================================== */
+
+/* 1. 强制覆盖 Dialog 核心背景及边框 */
+.inventory-dialog-unique.el-dialog {
+  background-color: #141b2d !important;
+  background-image: linear-gradient(135deg, rgba(0, 242, 255, 0.05) 0%, transparent 100%);
+  border: 1px solid #0099a1 !important;
+  box-shadow:
+    0 0 30px rgba(0, 0, 0, 0.8),
+    inset 0 0 20px rgba(0, 242, 255, 0.05) !important;
+  border-radius: 8px !important;
+  margin: 0 auto !important;
+  position: absolute !important;
+  left: 50% !important;
+  top: 50% !important;
+  transform: translate(-50%, -50%) !important;
+  max-height: 90vh !important;
+  display: flex !important;
+  flex-direction: column !important;
+  overflow: hidden !important;
+}
+
+.inventory-dialog-unique .el-dialog__header {
+  padding: 20px 20px 10px;
+  border-bottom: 1px solid rgba(0, 242, 255, 0.1);
+}
+
+.inventory-dialog-unique .el-dialog__title {
+  color: #00f2ff !important;
+  font-weight: bold;
+  letter-spacing: 1px;
+}
+
+/* 2. 弹窗主体区 - 统一滚动条风格 */
+.inventory-dialog-unique .el-dialog__body {
+  flex: 1 !important;
+  overflow-y: auto !important;
+  background-color: transparent !important;
+  color: #ffffff !important;
+  padding: 10px 0px !important;
+}
+
+/* === 核心修复：针对弹窗 Body 和内部 custom-scroll 统一滚动条样式 === */
+.inventory-dialog-unique .el-dialog__body::-webkit-scrollbar,
+.custom-scroll::-webkit-scrollbar {
+  width: 6px !important;
+  height: 6px !important;
+}
+
+.inventory-dialog-unique .el-dialog__body::-webkit-scrollbar-track,
+.custom-scroll::-webkit-scrollbar-track {
+  background: rgba(0, 0, 0, 0.2) !important;
+  border-radius: 10px !important;
+}
+
+.inventory-dialog-unique .el-dialog__body::-webkit-scrollbar-thumb,
+.custom-scroll::-webkit-scrollbar-thumb {
+  background: #2a3546 !important;
+  /* 深灰蓝滑块 */
+  border-radius: 10px !important;
+  border: 1px solid rgba(0, 242, 255, 0.1) !important;
+}
+
+.inventory-dialog-unique .el-dialog__body::-webkit-scrollbar-thumb:hover,
+.custom-scroll::-webkit-scrollbar-thumb:hover {
+  background: #0099a1 !important;
+  /* 悬停变青色 */
+}
+
+/* 3. 其他弹窗组件适配 */
+.inventory-dialog-unique .el-dialog__footer {
+  border-top: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.inventory-dialog-unique .el-dialog__headerbtn .el-dialog__close {
+  color: #00f2ff !important;
+}
+
+/* 快捷处置表格容器（保持原有改好的部分） */
+.abnormal-table-container {
+  max-height: 50vh;
+  overflow-y: auto;
+  border: 1px solid #2a3546;
+  border-radius: 4px;
+  background: rgba(0, 0, 0, 0.2);
+}
+
+.cyber-table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.cyber-table th {
+  background: #0d121c;
+  padding: 12px;
+  font-size: 14px;
+  color: #00f2ff;
+  border-bottom: 1px solid #2a3546;
+  text-align: left;
+}
+
+.cyber-table td {
+  padding: 15px 12px;
+  /* 增加上下间距，缓解拥挤感 */
+  border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+  vertical-align: middle;
+}
+
+/* 异常标记 */
+.mini-tag {
+  padding: 2px 6px;
+  border-radius: 2px;
+  font-size: 11px;
+  font-weight: bold;
+}
+
+.st-out-warn {
+  background: #ff4d4f !important;
+  color: #0d121c !important;
+  /* 红色背景配白色字 */
+  border: none !important;
+}
+
+.st-unreg {
+  background: rgba(230, 162, 60, 0.2);
+  color: #e6a23c;
+  border: 1px solid #e6a23c;
+}
+
+.st-other {
+  background: rgba(255, 255, 255, 0.1);
+  color: #fff;
+  border: 1px solid #8899a6;
+}
+
+/* 备注输入框深度优化 */
+.table-input .el-input__wrapper {
+  background-color: rgba(0, 0, 0, 0.4) !important;
+  box-shadow: none !important;
+  border: 1px solid #2a3546 !important;
+  padding: 4px 12px !important;
+}
+
+.table-input .el-input__inner {
+  font-size: 13px !important;
+  color: #cdd9e5 !important;
+}
+
+/* 选中的行高亮，更易聚焦 */
+.cyber-table tbody tr:hover {
+  background: rgba(255, 255, 255, 0.02);
+}
+
+/* 2. 修复按钮左右 padding 缺失问题 */
+.footer-btn {
+  min-width: 130px;
+  max-width: 170px;
+  /* 稍微加宽 */
+  padding: 0 24px;
+  height: 42px;
+  /* 稍微增高 */
+  border-radius: 4px;
+  cursor: pointer;
   display: flex;
   align-items: center;
   justify-content: center;
   gap: 8px;
-  animation: pulseText 2s infinite;
-}
-
-@keyframes pulseText {
-  0% {
-    opacity: 0.6;
-  }
-
-  50% {
-    opacity: 1;
-  }
-
-  100% {
-    opacity: 0.6;
-  }
-}
-
-.btn-group {
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-}
-
-.btn-open-all {
-  background: transparent;
-  border: 1px solid var(--primary);
-  color: var(--primary);
-  padding: 6px 16px;
-  font-size: 13px;
-  border-radius: 4px;
-  cursor: pointer;
-  display: flex;
-  align-items: center;
-  gap: 6px;
+  font-size: 14px;
+  font-weight: bold;
   transition: all 0.3s;
-  margin-right: 10px;
-  /* 与退出按钮保持间距 */
+  /* 新增：轻微的投影让按钮不那么死板 */
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
 }
 
-.btn-open-all:hover {
-  background: rgba(0, 242, 255, 0.1);
-  box-shadow: 0 0 12px rgba(0, 242, 255, 0.4);
+.footer-btn:hover {
+  transform: translateY(-1px);
+  /* 悬停微动 */
+  box-shadow: 0 4px 12px rgba(0, 242, 255, 0.2);
 }
-</style>
 
-<style>
-/* ...保留你原有的非 scoped 样式... */
+/* 3. 新增的操作历史按钮样式 */
+.footer-btn.history-btn {
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid var(--border);
+  color: var(--text-sec);
+}
+
+.footer-btn.history-btn:hover {
+  background: rgba(255, 255, 255, 0.1);
+  color: var(--primary);
+  border-color: var(--primary-dark);
+}
+
+.footer-btn.cancel {
+  background: #1c2538;
+  border: 1px solid #2a3546;
+  color: #8899a6;
+}
+
+.footer-btn.confirm {
+  background: linear-gradient(90deg, #0099a1 0%, #005f66 100%);
+  border: 1px solid #00f2ff;
+  color: #fff;
+}
 
 /* ==========================================================
-   [修复] 下拉菜单赛博朋克风格覆盖
-   使用 popper-class="cyber-dropdown" 定向覆盖
+   8. 全局下拉框样式 - 终极修复版 (覆盖内部变量)
    ========================================================== */
 
-/* 1. 下拉框容器背景和边框 */
-.el-popper.cyber-dropdown {
-  background: #141b2d !important;
-  /* 深蓝背景 */
-  border: 1px solid #0099a1 !important;
-  /* 青色边框 */
-}
+.el-popper.cyber-select-popper {
+  /* 1. 必须覆盖这个变量，Element内部列表背景色引用的就是它 */
+  --el-bg-color-overlay: #141b2d !important;
 
-/* 2. 隐藏原有的小箭头或者给它改色 */
-.el-popper.cyber-dropdown .el-popper__arrow::before {
   background: #141b2d !important;
   border: 1px solid #0099a1 !important;
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.6) !important;
 }
 
-/* 3. 下拉选项的基础样式 */
-.cyber-dropdown .el-select-dropdown__item {
+/* 2. 隐藏小箭头背景 */
+.el-popper.cyber-select-popper .el-popper__arrow::before {
+  background: #141b2d !important;
+  border: 1px solid #0099a1 !important;
+}
+
+/* 3. 下拉选项基础样式 - 强制透明 */
+.cyber-select-popper .el-select-dropdown__item {
   color: #ccc !important;
-  /* 默认文字颜色 */
   background: transparent !important;
-  /* [关键] 去除默认白色背景 */
+  font-family: 'Segoe UI', sans-serif;
+  height: 40px !important;
+  line-height: 40px !important;
 }
 
-/* 4. [核心修复] 鼠标悬停 或 键盘聚焦(第一项默认) 的样式 */
-.cyber-dropdown .el-select-dropdown__item.hover,
-.cyber-dropdown .el-select-dropdown__item:hover {
+/* 4. 鼠标悬停 (Hover) */
+.cyber-select-popper .el-select-dropdown__item.hover,
+.cyber-select-popper .el-select-dropdown__item:hover {
   background-color: rgba(0, 242, 255, 0.15) !important;
-  /* 半透明青色背景 */
   color: #fff !important;
 }
 
-/* 5. 选中项的样式 */
-.cyber-dropdown .el-select-dropdown__item.selected {
+/* 5. 选中项 (Selected) */
+.cyber-select-popper .el-select-dropdown__item.selected {
   color: #00f2ff !important;
-  /* 选中文字高亮 */
-  background-color: rgba(0, 242, 255, 0.05) !important;
+  background-color: rgba(0, 242, 255, 0.1) !important;
   font-weight: bold;
 }
-</style>
 
-<style>
-/* 1. 之前是 .status-out，现在改为 .status-disabled */
-.equip-card.status-disabled {
-  opacity: 0.5;
-  /* 让在位的装备看起来不可操作 */
+/* 6. 强制清除内部 List 的背景 */
+.cyber-select-popper .el-select-dropdown__list,
+.cyber-select-popper .el-scrollbar__view {
+  background: transparent !important;
+  padding: 5px 0 !important;
+}
+
+/* ==========================================================
+   自定义深色滚动条样式 (修复白色滑动条)
+   ========================================================== */
+
+/* 1. 针对 Webkit 浏览器 (Chrome, Electron, Edge) */
+.custom-scroll::-webkit-scrollbar {
+  width: 6px;
+  /* 纵向滚动条宽度 */
+  height: 6px;
+  /* 横向滚动条高度 */
+}
+
+/* 滚动条轨道 (背景) */
+.custom-scroll::-webkit-scrollbar-track {
   background: rgba(0, 0, 0, 0.2);
-  border-color: #333;
+  /* 深色透明背景 */
+  border-radius: 10px;
 }
 
-/* 禁用/变灰状态 (在位) */
-.st-in-place-disabled {
-  color: #666;
-  background: rgba(255, 255, 255, 0.05);
-  border: 1px solid #444;
-  box-shadow: none;
-}
-
-.st-out-active {
-  color: var(--primary);
-  /* 青色 */
-  background: rgba(0, 242, 255, 0.15);
-  border: 1px solid rgba(0, 242, 255, 0.3);
-  box-shadow: 0 0 5px rgba(0, 242, 255, 0.2);
-  /* 增加一点过渡效果 */
+/* 滚动条滑块 (也就是你说的那个白色条) */
+.custom-scroll::-webkit-scrollbar-thumb {
+  background: #2a3546;
+  /* 滑块基础颜色：深灰蓝 */
+  border-radius: 10px;
+  border: 1px solid rgba(0, 242, 255, 0.1);
+  /* 淡淡的青色边框 */
   transition: all 0.3s;
 }
 
-/* 3. 选中效果保持不变，但要确保它能覆盖 disabled 样式 */
-.equip-card.active {
-  opacity: 1 !important;
-  /* 选中时恢复不透明 */
-  background-color: rgba(0, 242, 255, 0.05) !important;
-  border: 1px solid var(--primary) !important;
+/* 鼠标悬停滑块时变亮 */
+.custom-scroll::-webkit-scrollbar-thumb:hover {
+  background: #0099a1;
+  /* 悬停时变为青暗色 */
+  box-shadow: 0 0 5px rgba(0, 242, 255, 0.2);
 }
 
-/* 4. 修改 import 图标 */
-/* 确保在 script 中引入了 SoldOut 或 Upload 之类的图标用于表示归还 */
+/* 鼠标点击滑块时 */
+.custom-scroll::-webkit-scrollbar-thumb:active {
+  background: #00f2ff;
+  /* 激活时变为亮青色 */
+}
+
+/* 2. 针对 Firefox 浏览器 (兼容性补丁) */
+.custom-scroll {
+  scrollbar-width: thin;
+  scrollbar-color: #2a3546 rgba(0, 0, 0, 0.2);
+}
+
+/* 3. 针对 Element Plus el-scrollbar 的统一覆盖 (如果弹窗内使用了该组件) */
+.inventory-dialog-unique .el-scrollbar__bar.is-vertical {
+  width: 6px;
+}
+
+.inventory-dialog-unique .el-scrollbar__thumb {
+  background-color: #2a3546 !important;
+  opacity: 1;
+  /* 默认是透明的，改为常亮或半透明 */
+}
+
+/* 已处理行的背景变淡 */
+.is-processed-row {
+  background: rgba(0, 255, 157, 0.03) !important;
+  opacity: 0.8;
+}
+
+/* 已处置绿色标签 */
+.mini-tag.st-resolved {
+  background: rgba(0, 255, 157, 0.2);
+  color: #00ff9d;
+  border: 1px solid #00ff9d;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+/* ==========================================================
+   快速处置列按钮布局优化
+   ========================================================== */
+.disposal-step-group {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  /* 增大按钮间距 */
+}
+
+/* 统一处置列中所有元素的高度和字体 */
+.mini-action-btn {
+  height: 34px;
+  /* 稍微调高一点点 */
+  padding: 0 16px;
+  font-size: 13px;
+  font-weight: bold;
+  border-radius: 4px;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  transition: all 0.2s;
+  white-space: nowrap;
+}
+
+/* 确保“人工已核”等状态标签也对齐高度 */
+.status-resolved {
+  height: 34px;
+  display: inline-flex;
+  align-items: center;
+  color: var(--success);
+  font-weight: bold;
+  gap: 6px;
+}
 </style>
 
 <style>
 /* ==========================================================
-   [修复] 针对“在位”但在选中状态下的特殊样式修正
+   [同步修正版] 赛博朋克风格 ElMessageBox 全局样式覆盖
+   修复：同步领用页面的 530px 宽度及间距逻辑
    ========================================================== */
 
-/* 当卡片同时具备 active (选中) 和 status-disabled (在位/禁用) 时 */
-.equip-card.active.status-disabled {
-  /* 1. 将边框颜色改为暗淡的蓝灰色，而不是高亮的青色 */
-  border-color: #4a5c76 !important;
-
-  /* 2. 去掉选中时的发光阴影，减少视觉抢眼度 */
-  box-shadow: none !important;
-
-  /* 3. 背景色稍微调暗一点 */
-  background-color: rgba(255, 255, 255, 0.08) !important;
+/* 1. 弹窗容器 */
+.cyber-message-box.el-message-box {
+  background-color: #141b2d !important;
+  border: 1px solid #0099a1 !important;
+  box-shadow:
+    0 0 30px rgba(0, 0, 0, 0.8),
+    inset 0 0 20px rgba(0, 242, 255, 0.05) !important;
+  border-radius: 8px !important;
+  /* 同步领用页面的大留白感 */
+  padding-bottom: 40px !important;
+  /* 同步领用页面的宽度 */
+  width: 530px !important;
+  max-width: 95vw;
 }
 
-/* 同时，把右上角的“对钩”角标背景也变暗，不然角标会很亮 */
-.equip-card.active.status-disabled .check-ribbon {
-  border-top-color: #4a5c76 !important;
+/* 2. 标题区 */
+.cyber-message-box .el-message-box__header {
+  background: rgba(0, 0, 0, 0.2);
+  padding: 15px 25px;
+  /* 增加左右内边距 */
+  border-bottom: 1px solid rgba(0, 242, 255, 0.1);
 }
 
-/* 如果想让角标里的对钩图标也变暗一点（可选） */
-.equip-card.active.status-disabled .check-ribbon .el-icon {
-  color: #aaa !important;
-}
-</style>
-
-<style>
-.manual-confirm-btn {
-  background: rgba(230, 162, 60, 0.2);
-  border: 1px solid #e6a23c;
-  color: #e6a23c;
-  border-radius: 4px;
-  padding: 4px 10px;
-  cursor: pointer;
-  font-size: 12px;
-  display: flex;
-  align-items: center;
-  gap: 4px;
-  transition: all 0.2s;
+.cyber-message-box .el-message-box__title {
+  color: #fff !important;
+  /* 同步领用页纯白标题 */
+  font-weight: bold;
+  letter-spacing: 1px;
 }
 
-.manual-confirm-btn:hover {
-  background: rgba(230, 162, 60, 0.4);
-  transform: scale(1.05);
+/* 3. 内容区 */
+.cyber-message-box .el-message-box__content {
+  color: #ccdbe8 !important;
+  padding: 35px 30px !important;
+  /* 增加内边距，显得更宽敞 */
+  font-size: 14px;
+  line-height: 1.6;
+}
+
+/* 4. 底部按钮容器 */
+.cyber-message-box .el-message-box__btns {
+  padding: 10px 30px 0 !important;
+  /* 左右间距对齐内容区 */
+  display: flex !important;
+  justify-content: center !important;
+  align-items: center !important;
+  flex-direction: row-reverse !important;
+  gap: 20px !important;
+}
+
+/* 5. 统一按钮尺寸 */
+.cyber-message-box .el-message-box__btns .el-button {
+  margin: 0 !important;
+  min-width: 130px !important;
+  /* 稍微加宽按钮，适配 530px 的大框 */
+  height: 40px !important;
+  /* 稍微加高，增加点击感 */
+  font-size: 14px !important;
+  font-weight: bold !important;
+  border-radius: 4px !important;
+  display: inline-flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  transition: all 0.3s !important;
+  padding: 0 20px !important;
+}
+
+/* 6. 确认按钮 (Primary) */
+.cyber-message-box .el-button--primary {
+  background: linear-gradient(90deg, #0099a1 0%, #005f66 100%) !important;
+  border: 1px solid #00f2ff !important;
+  color: #fff !important;
+}
+
+.cyber-message-box .el-button--primary:hover {
+  box-shadow: 0 0 15px rgba(0, 242, 255, 0.4) !important;
+}
+
+/* 7. 取消按钮 (Default) */
+.cyber-message-box .el-button:not(.el-button--primary) {
+  background: transparent !important;
+  /* 同步领用页面的透明背景 */
+  border: 1px solid #4a5c76 !important;
+  color: #8899a6 !important;
+}
+
+.cyber-message-box .el-button:not(.el-button--primary):hover {
+  color: #fff !important;
+  border-color: #8899a6 !important;
+  background: rgba(255, 255, 255, 0.05) !important;
+}
+
+/* 8. 针对 Prompt 输入框样式 */
+.cyber-message-box .el-input__wrapper {
+  background-color: rgba(20, 27, 45, 0.9) !important;
+  box-shadow: 0 0 0 1px #4a5c76 inset !important;
+  height: 40px;
+}
+
+.cyber-message-box .el-input__inner {
+  color: #fff !important;
 }
 </style>
