@@ -74,7 +74,7 @@
                 <div class="status-overlay-tag" :class="item.cachedStatus?.class">
                   {{ item.cachedStatus?.text || '检测中...' }}
                 </div>
-                <el-image :src="item.group_image" lazy fit="cover" style="width: 100%; height: 100%">
+                <el-image :src="item.group_image" fit="cover" style="width: 100%; height: 100%">
                   <template #placeholder>
                     <div class="image-placeholder"></div>
                   </template>
@@ -230,9 +230,10 @@
     </div>
 
     <!-- 异常核对弹窗 -->
-    <el-dialog v-model="summaryVisible" title="装备全量盘点" destroy-on-close width="1250px" class="inventory-dialog-unique"
+    <el-dialog v-model="summaryVisible" title="装备盘点" destroy-on-close width="1250px" class="inventory-dialog-unique"
       :class="{ 'is-keyboard-open': showKeyboard }" @close="closeKeyboard" :before-close="handleBeforeClose">
-      <div class="summary-dialog-content">
+      <div class="summary-dialog-content" v-loading="isSummaryLoading" element-loading-text="正在执行账实校对..."
+        element-loading-background="rgba(10, 14, 23, 0.9)">
         <div v-if="isSummaryRendering" class="abnormal-table-container custom-scroll" ref="inventoryScrollBody"
           :style="{ maxHeight: scrollAreaHeight }">
           <table class="cyber-table">
@@ -263,7 +264,7 @@
               }">
                 <!-- 1. 装备实照 -->
                 <td>
-                  <el-image :src="item.group_image" class="table-thumb" lazy :preview-src-list="[item.group_image]"
+                  <el-image :src="item.group_image" class="table-thumb" :preview-src-list="[item.group_image]"
                     fit="cover">
                     <template #error>
                       <div class="thumb-err">
@@ -281,9 +282,7 @@
                 <td>
                   <div class="t-name">{{ item.group_name }}</div>
                   <div class="t-code">{{ item.group_code }}</div>
-                  <div class="t-pos">
-                    {{ item.self_address }}号柜位
-                  </div>
+                  <div class="t-pos">{{ item.self_address }}号柜位</div>
                 </td>
 
                 <!-- 3. 新增：流转记录按钮 -->
@@ -436,7 +435,7 @@
             </tbody>
           </table>
         </div>
-        <div v-else style="height: 400px;"></div>
+        <div v-else style="height: 500px"></div>
       </div>
       <!-- 【修改后的页脚部分】 -->
       <template #footer>
@@ -766,6 +765,7 @@ const audioStore = useAudioStore()
 
 // --- 弹窗渲染优化变量 ---
 const isSummaryRendering = ref(false) // 标志位：是否开始渲染表格内容
+const isSummaryLoading = ref(false) // 【新增】控制弹窗内部的加载动画
 
 // --- 过滤器配置 ---
 const filterOptions = [
@@ -907,63 +907,71 @@ const handleSelectCard = (item) => {
 
 // 1. 定义一个用于快速查找的 Map
 const switchConfigMap = computed(() => {
-  const map = new Map();
+  const map = new Map()
   if (config_blob.value?.switch?.details) {
-    config_blob.value.switch.details.forEach(d => {
-      map.set(String(d.self_address), d);
-    });
+    config_blob.value.switch.details.forEach((d) => {
+      map.set(String(d.self_address), d)
+    })
   }
-  return map;
-});
+  return map
+})
 
 // 新增：专门负责更新单个装备的缓存状态
 const refreshItemStatus = (item) => {
   // 1. 快速获取实际状态（不再重复执行 find）
-  const config = switchConfigMap.value.get(String(item.self_address));
-  const isDisabled = config && Number(config.admin_status) === 0;
+  const config = switchConfigMap.value.get(String(item.self_address))
+  const isDisabled = config && Number(config.admin_status) === 0
 
-  let actual = '检测中';
+  let actual = '检测中'
   if (Object.keys(realtimeSwitchMap).length > 0) {
     if (isDisabled) {
-      actual = '已禁用';
+      actual = '已禁用'
     } else {
-      const status = realtimeSwitchMap[item.self_address];
-      actual = status === undefined ? '检测中' : (status === 1 ? '在位' : '不在位');
+      const status = realtimeSwitchMap[item.self_address]
+      actual = status === undefined ? '检测中' : status === 1 ? '在位' : '不在位'
     }
   }
 
   // 2. 判定结果逻辑 ( assessResult )
-  let result = 'LOADING';
+  let result = 'LOADING'
   if (actual !== '检测中') {
+    // 修改后的代码：增加对“报失”等不在位状态的兼容
     if (!isDisabled) {
-      const shouldBe = actual === '在位' ? '在位' : '已取出';
-      result = item.group_status === shouldBe ? 'HEALTHY' : 'MISMATCH';
+      if (actual === '在位') {
+        // 物理在位时，账面必须也是“在位”才算正常
+        result = item.group_status === '在位' ? 'HEALTHY' : 'MISMATCH';
+      } else {
+        // 物理不在位时，账面只要不是“在位”就算正常（包含已取出、报失、待维修等）
+        result = item.group_status !== '在位' ? 'HEALTHY' : 'MISMATCH';
+      }
     } else {
-      result = item.manualVerified ? 'UNMONITORED' : 'SENSOR_FAULT';
+      result = item.manualVerified ? 'UNMONITORED' : 'SENSOR_FAULT'
     }
   }
 
   // 3. 构造缓存对象 ( cachedStatus )
-  let statusInfo = { text: '检测中...', class: 'tag-loading' };
+  let statusInfo = { text: '检测中...', class: 'tag-loading' }
   if (result === 'MISMATCH') {
-    statusInfo = item.group_status === '在位'
-      ? { text: '异常离位', class: 'tag-error-missing' }
-      : { text: '异常占用', class: 'tag-error-occupied' };
+    statusInfo =
+      item.group_status === '在位'
+        ? { text: '异常离位', class: 'tag-error-missing' }
+        : { text: '异常占用', class: 'tag-error-occupied' }
   } else if (result === 'SENSOR_FAULT') {
-    statusInfo = { text: '传感屏蔽/待核', class: 'tag-maintenance-pending' };
+    statusInfo = { text: '传感屏蔽/待核', class: 'tag-maintenance-pending' }
   } else if (result === 'UNMONITORED') {
-    statusInfo = { text: '人工授信', class: 'tag-unmonitored' };
+    statusInfo = { text: '人工授信', class: 'tag-unmonitored' }
   } else if (result === 'HEALTHY') {
-    statusInfo = item.group_status === '在位'
-      ? { text: '正常在位', class: 'tag-normal-in' }
-      : { text: '正常借出', class: 'tag-normal-out' };
+    statusInfo =
+      item.group_status === '在位'
+        ? { text: '正常在位', class: 'tag-normal-in' }
+        : { text: '正常借出', class: 'tag-normal-out' }
   }
 
   // 挂载到 item 上（Vue3 会自动追踪这个新属性）
-  item.cachedStatus = statusInfo;
-  item.actualStatusText = actual; // 顺便把感知文本也存了
-  item.isAbnormal = (result === 'MISMATCH' || result === 'SENSOR_FAULT');
-};
+  item.cachedStatus = statusInfo
+  item.actualStatusText = actual // 顺便把感知文本也存了
+  item.isAbnormal = result === 'MISMATCH' || result === 'SENSOR_FAULT'
+}
 
 // --- 新增：跳转历史方法 ---
 const goToHistory = () => {
@@ -1043,7 +1051,7 @@ const getRealData = async () => {
     }))
 
     // 【新增性能优化点】数据回来后立即初始化一遍状态缓存
-    equipmentList.value.forEach(item => refreshItemStatus(item))
+    equipmentList.value.forEach((item) => refreshItemStatus(item))
   } catch (error) {
     console.error('数据获取失败:', error)
   } finally {
@@ -1059,9 +1067,13 @@ const getAssessmentResult = (item) => {
   const isDisabled = isAdminDisabled(item)
 
   // 场景 A：传感器正常开启
+  // 修改后的代码
   if (!isDisabled) {
-    const shouldBeStatus = actual === '在位' ? '在位' : '已取出'
-    return item.group_status === shouldBeStatus ? 'HEALTHY' : 'MISMATCH'
+    if (actual === '在位') {
+      return item.group_status === '在位' ? 'HEALTHY' : 'MISMATCH';
+    } else {
+      return item.group_status !== '在位' ? 'HEALTHY' : 'MISMATCH';
+    }
   }
 
   // 场景 B：传感器已禁用
@@ -1087,10 +1099,14 @@ const getDetailedStatus = (item) => {
   const result = getAssessmentResult(item)
 
   if (result === 'LOADING') return { text: '检测中...', class: 'tag-loading' }
+  // 修改后的代码
   if (result === 'MISMATCH') {
-    return item.group_status === '在位'
-      ? { text: '异常离位', class: 'tag-error-missing' }
-      : { text: '异常占用', class: 'tag-error-occupied' }
+    if (item.group_status === '在位') {
+      return { text: '异常离位', class: 'tag-error-missing' };
+    } else {
+      // 账面是 报失/已取出，但柜内感应到有东西
+      return { text: '异常占用', class: 'tag-error-occupied' };
+    }
   }
   if (result === 'SENSOR_FAULT') return { text: '传感屏蔽/待核', class: 'tag-maintenance-pending' }
 
@@ -1195,9 +1211,9 @@ const startMonitorLoop = async () => {
     currentTime.value = formatTime()
 
     // 性能优化点：在 JS 循环里计算，不要在 HTML 里计算
-    equipmentList.value.forEach(item => {
-      refreshItemStatus(item);
-    });
+    equipmentList.value.forEach((item) => {
+      refreshItemStatus(item)
+    })
 
     // --- [新增：实时语音提示逻辑] ---
     const currentMismatch = stats.value.mismatch // 获取当前最新的异常总数
@@ -1314,7 +1330,7 @@ const filteredList = computed(() => {
   if (currentFilter.value === 'NORMAL') {
     list = list.filter((i) => !i.isAbnormal) // 直接读取缓存
   } else if (currentFilter.value === 'ERROR') {
-    list = list.filter(i => i.isAbnormal)   // 直接读取缓存
+    list = list.filter((i) => i.isAbnormal) // 直接读取缓存
   }
 
   // 2. 下拉框名称过滤 (如果选了特定名称，则进一步过滤)
@@ -1412,14 +1428,18 @@ const setFilter = (type) => {
 const handleOpenSummary = () => {
   audioStore.play('/audio/按钮点击声.mp3')
 
-  // 1. 立即打开弹窗（此时内部是空的，响应速度极快）
+  // 1. 立即打开弹窗
   summaryVisible.value = true
-  isSummaryRendering.value = false // 初始设为 false，不渲染表格
+  isSummaryRendering.value = false
+  isSummaryLoading.value = true // 【新增】开启加载动画
 
-  // 2. 延迟执行渲染（等待弹窗打开动画完成，约 200-300ms）
-  // 这样浏览器会先处理弹窗的位移动画，再处理表格的 DOM 构建
+  // 2. 延迟渲染表格并关闭加载动画
   setTimeout(() => {
     isSummaryRendering.value = true
+    // 稍微给一点延迟感（如 500ms），让用户看到加载过程，体验更像在“扫描数据”
+    setTimeout(() => {
+      isSummaryLoading.value = false // 【新增】关闭加载动画
+    }, 500)
   }, 300)
 }
 
@@ -1795,7 +1815,6 @@ onUnmounted(() => {
   border-radius: 4px;
   font-size: 13px;
   font-weight: bold;
-  cursor: pointer;
   display: flex;
   align-items: center;
   gap: 8px;
@@ -1814,7 +1833,6 @@ onUnmounted(() => {
   color: var(--error);
   padding: 8px 18px;
   border-radius: 4px;
-  cursor: pointer;
   display: flex;
   align-items: center;
   gap: 8px;
@@ -1879,7 +1897,6 @@ onUnmounted(() => {
   padding: 6px 15px;
   font-size: 13px;
   color: var(--text-sec);
-  cursor: pointer;
   transition: 0.3s;
   position: relative;
 }
@@ -1927,7 +1944,6 @@ onUnmounted(() => {
   overflow: hidden;
   transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
   /* 让过渡更丝滑 */
-  cursor: pointer;
   /* 增加手型，提示可点击 */
   box-shadow: inset 0 0 10px rgba(0, 0, 0, 0.2);
 }
@@ -2207,7 +2223,6 @@ onUnmounted(() => {
   text-align: center;
   border-radius: 4px;
   transition: 0.3s;
-  cursor: pointer;
 }
 
 .stat-card:hover {
@@ -2330,7 +2345,6 @@ onUnmounted(() => {
   background: linear-gradient(90deg, var(--primary-dark) 0%, #005f66 100%);
   border: 1px solid var(--primary);
   color: #fff;
-  cursor: pointer;
   position: relative;
   overflow: hidden;
 }
@@ -2439,7 +2453,6 @@ onUnmounted(() => {
   justify-content: center;
   gap: 6px;
   border-radius: 4px;
-  cursor: pointer;
   white-space: nowrap;
   transition: all 0.2s;
   box-sizing: border-box;
@@ -3550,6 +3563,19 @@ onUnmounted(() => {
   overflow: hidden !important;
 }
 
+/* 确保弹窗内的加载圆圈也是青色 */
+.summary-dialog-content :deep(.el-loading-spinner .path) {
+  stroke: #00f2ff !important;
+}
+
+/* 确保加载文字也是青色 */
+.summary-dialog-content :deep(.el-loading-text) {
+  color: #00f2ff !important;
+  font-size: 14px;
+  letter-spacing: 1px;
+  margin-top: 10px;
+}
+
 /* === 核心修复：针对弹窗 Body 和内部 custom-scroll 统一滚动条样式 === */
 .inventory-dialog-unique .el-dialog__body::-webkit-scrollbar,
 .custom-scroll::-webkit-scrollbar {
@@ -3670,7 +3696,6 @@ onUnmounted(() => {
   height: 42px;
   /* 稍微增高 */
   border-radius: 4px;
-  cursor: pointer;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -4068,7 +4093,6 @@ onUnmounted(() => {
   padding: 10px 15px;
   color: #cdd9e5;
   font-size: 13px;
-  cursor: pointer;
   transition: all 0.2s;
   font-weight: bold;
   text-align: center;

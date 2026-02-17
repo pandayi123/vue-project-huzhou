@@ -34,7 +34,8 @@
     <!-- ================= 主体内容区 ================= -->
     <div class="main-body">
       <!-- 左侧：盘点明细列表 -->
-      <div class="list-section">
+      <div class="list-section" v-loading="isLoading" element-loading-text="正在校对装备数据..."
+        element-loading-background="rgba(10, 14, 23, 0.8)">
         <div class="section-title">
           <!-- 修改后：只保留下拉筛选框 -->
           <div class="title-left">
@@ -63,17 +64,17 @@
         </div>
 
         <el-scrollbar class="scroll-area">
-          <div class="card-grid">
+          <div class="card-grid" v-if="filteredList.length > 0">
             <!-- 定位到 <div class="card-grid"> 内部 -->
             <div v-for="item in filteredList" :key="item.id" class="equip-card"
               :class="{ 'is-active': selectedId === item.id }" @click="handleSelectCard(item)">
               <!-- 顶部：装备图片 -->
               <div class="equip-image-preview">
                 <!-- 新增：状态浮层标签 -->
-                <div class="status-overlay-tag" :class="getDetailedStatus(item).class">
-                  {{ getDetailedStatus(item).text }}
+                <div class="status-overlay-tag" :class="item.cachedStatus?.class">
+                  {{ item.cachedStatus?.text || '检测中...' }}
                 </div>
-                <el-image :src="item.group_image" fit="cover" style="width: 100%; height: 100%">
+                <el-image :src="item.group_image" lazy fit="cover" style="width: 100%; height: 100%">
                   <template #placeholder>
                     <div class="image-placeholder"></div>
                   </template>
@@ -96,21 +97,22 @@
                 <!-- 定位到 status-compare-group 内部 -->
                 <div class="status-compare-group">
                   <div class="compare-item">
-                    <span class="c-label">系统账面</span>
+                    <span class="c-label1">系统账面</span>
                     <span class="c-tag" :class="item.group_status === '在位' ? 'st-in' : 'st-out'">
                       {{ item.group_status }}
                     </span>
                   </div>
                   <div class="compare-item">
-                    <span class="c-label">柜内感知</span>
+                    <span class="c-label1">柜内感知</span>
                     <!-- 修改 class 和显示逻辑 -->
+                    <!-- 2. 修改柜内感知标签 -->
                     <span class="c-tag" :class="{
-                      'st-in': getActualStatus(item) === '在位',
-                      'st-out': getActualStatus(item) === '不在位',
-                      'st-loading': getActualStatus(item) === '检测中',
-                      'st-disabled': getActualStatus(item) === '已禁用', // <--- 新增
+                      'st-in': item.actualStatusText === '在位',
+                      'st-out': item.actualStatusText === '不在位',
+                      'st-loading': item.actualStatusText === '检测中',
+                      'st-disabled': item.actualStatusText === '已禁用',
                     }">
-                      {{ getActualStatus(item) }}
+                      {{ item.actualStatusText || '检测中' }}
                     </span>
                   </div>
                 </div>
@@ -124,10 +126,13 @@
                 <span class="pos-text">{{ item.self_address }} 号柜位</span>
               </div>
             </div>
-            <!-- 无数据提示 -->
-            <div v-if="filteredList.length === 0" class="no-data-placeholder">
-              {{ currentFilter === 'ERROR' ? '当前暂无账实不符项' : '暂无装备数据' }}
-            </div>
+          </div>
+          <div v-else class="no-data-placeholder">
+            <el-icon :size="64">
+              <Search />
+              <!-- 注意：需要在 script 中引入 Search 图标 -->
+            </el-icon>
+            <p>{{ currentFilter === 'ERROR' ? '当前暂无账实不符项' : '暂无装备数据' }}</p>
           </div>
         </el-scrollbar>
       </div>
@@ -183,6 +188,14 @@
               <span class="a-label"><i class="dot warning"></i> 异常占用 (实在账不在)</span>
               <span class="a-value">{{ stats.unregistered }} 件</span>
             </div>
+            <!-- 【新增：在这里插入 传感屏蔽/待核 统计】 -->
+            <div class="analysis-row warning-text" v-if="stats.faultPending > 0" style="color: #ff9800">
+              <span class="a-label">
+                <i class="dot warning" style="background: #ff9800; box-shadow: 0 0 5px #ff9800"></i>
+                传感屏蔽 (待肉眼核实)
+              </span>
+              <span class="a-value">{{ stats.faultPending }} 件</span>
+            </div>
             <div class="analysis-row warning-text" v-if="stats.unmonitored > 0">
               <span class="a-label">
                 <i class="dot warning blink"></i>
@@ -199,16 +212,15 @@
             <div class="spacer-text">装备状态实时自动更新</div>
           </div>
 
+          <!-- 找到这一块 -->
           <div class="action-footer">
             <button class="cyber-btn" @click="handleOpenSummary">
               <div class="btn-content">
-                <el-icon :size="24">
-                  <CircleCheck />
+                <el-icon :size="20">
+                  <Monitor />
+                  <!-- 改为监控图标或盘点图标 -->
                 </el-icon>
-                <!-- 删掉了 text-group 和 sub-text，直接放文字 -->
-                <span class="btn-main-text" style="margin-left: 8px">
-                  {{ stats.mismatch > 0 ? '核对并处理异常' : '确认结果并同步' }}
-                </span>
+                <span class="btn-main-text">开始盘点 </span>
               </div>
               <div class="scan-line"></div>
             </button>
@@ -218,16 +230,11 @@
     </div>
 
     <!-- 异常核对弹窗 -->
-    <el-dialog v-model="summaryVisible" title="异常项快捷处置" width="1250px" class="inventory-dialog-unique"
-      :class="{ 'is-keyboard-open': showKeyboard }" @close="closeKeyboard">
+    <el-dialog v-model="summaryVisible" title="装备全量盘点" destroy-on-close width="1250px" class="inventory-dialog-unique"
+      :class="{ 'is-keyboard-open': showKeyboard }" @close="closeKeyboard" :before-close="handleBeforeClose">
       <div class="summary-dialog-content">
-        <div v-if="abnormalItems.length === 0" class="all-ok-tip">
-          <el-icon :size="50" color="#00ff9d">
-            <CircleCheck />
-          </el-icon>
-          <p>当前无异常项，账实百分百吻合</p>
-        </div>
-        <div v-else class="abnormal-table-container custom-scroll" :style="{ maxHeight: scrollAreaHeight }">
+        <div v-if="isSummaryRendering" class="abnormal-table-container custom-scroll" ref="inventoryScrollBody"
+          :style="{ maxHeight: scrollAreaHeight }">
           <table class="cyber-table">
             <thead>
               <tr>
@@ -239,22 +246,24 @@
                 <!-- 3. 账实对比列由 200 压缩至 160 -->
                 <th width="130">账实核对</th>
                 <!-- 4. 异常类型列保持 100 -->
-                <th width="100">异常类型</th>
-                <!-- 5. 快速处置方案列宽保持 280 (按钮变大后需要此空间) -->
-                <th width="200">快速处置方案（点击执行）</th>
-                <!-- 6. 备注列不设限，自动撑开剩余空间 -->
+                <th width="100">实时状态判定</th>
+                <!-- 5. 备注列不设限，自动撑开剩余空间 -->
                 <th>盘点备注</th>
+                <!-- 6. 快速处置方案列宽保持 280 (按钮变大后需要此空间) -->
+                <th width="200">盘点操作（请选择）</th>
               </tr>
             </thead>
             <tbody>
               <!-- 修改 <tr> 的 class -->
-              <tr v-for="item in abnormalItems" :key="item.id" :class="{
+              <tr v-for="item in inventoryWorkList" :key="item.id" :class="{
                 'is-processed-row':
-                  item.manualVerified || (item.isProcessed && !isAdminDisabled(item)),
+                  item.manual_checked ||
+                  item.manualVerified ||
+                  (item.isProcessed && !isAdminDisabled(item)),
               }">
                 <!-- 1. 装备实照 -->
                 <td>
-                  <el-image :src="item.group_image" class="table-thumb" :preview-src-list="[item.group_image]"
+                  <el-image :src="item.group_image" class="table-thumb" lazy :preview-src-list="[item.group_image]"
                     fit="cover">
                     <template #error>
                       <div class="thumb-err">
@@ -273,10 +282,7 @@
                   <div class="t-name">{{ item.group_name }}</div>
                   <div class="t-code">{{ item.group_code }}</div>
                   <div class="t-pos">
-                    <el-icon>
-                      <Location />
-                    </el-icon>
-                    {{ item.self_address }}号位
+                    {{ item.self_address }}号柜位
                   </div>
                 </td>
 
@@ -287,7 +293,7 @@
                   </button>
                 </td>
 
-                <!-- 3. 账实对比 (视觉强化版) -->
+                <!-- 4. 账实对比 (视觉强化版) -->
                 <td>
                   <div class="compare-row">
                     <span class="dot-label">系统账面:</span>
@@ -307,68 +313,11 @@
                   </div>
                 </td>
 
-                <!-- 4. 异常类型 -->
-                <td class="type-cell">
-                  <span v-if="item.manualVerified || (item.isProcessed && !isAdminDisabled(item))"
-                    class="status-resolved">
-                    <el-icon>
-                      <Check />
-                    </el-icon>
-                    已核实
-                  </span>
-                  <span v-else-if="isAdminDisabled(item)" class="mini-tag st-unreg">
-                    传感屏蔽/待核
-                  </span>
-                  <span v-else class="mini-tag" :class="getAbnormalType(item).class">
-                    {{ getAbnormalType(item).text }}
-                  </span>
-                </td>
-
-                <!-- 5. 快速处置按钮 -->
+                <!-- 5. 判定状态 -->
                 <td>
-                  <div class="action-btns">
-                    <!-- 场景1：已经完成了实物核实 (肉眼看过或数据补录平账) -->
-                    <span v-if="item.manualVerified" class="status-resolved">
-                      <el-icon>
-                        <Check />
-                      </el-icon>
-                      人工已核
-                    </span>
-
-                    <!-- 场景2：补录操作完成 (数据已平) -->
-                    <span v-else-if="item.isProcessed && !isAdminDisabled(item)" class="status-resolved">
-                      <el-icon>
-                        <Check />
-                      </el-icon>
-                      数据已平
-                    </span>
-
-                    <!-- 场景3：传感器已屏蔽，但【尚未】肉眼核实实物 -->
-                    <template v-else-if="isAdminDisabled(item)">
-                      <div class="disposal-step-group">
-                        <button class="mini-action-btn success" @click="handleManualVerify(item)">
-                          肉眼核实
-                        </button>
-                        <button class="mini-action-btn" @click="handleEnableSensor(item)">
-                          恢复感应
-                        </button>
-                      </div>
-                    </template>
-
-                    <!-- 场景4：初始异常状态 (未做任何处置) -->
-                    <template v-else>
-                      <button v-if="item.group_status === '在位'" class="mini-action-btn" @click="fixByBorrow(item)">
-                        补录领用
-                      </button>
-                      <button v-if="item.group_status === '已取出'" class="mini-action-btn success"
-                        @click="fixByReturn(item)">
-                        补录归还
-                      </button>
-                      <button class="mini-action-btn warning" @click="fixByDisableSensor(item)">
-                        屏蔽传感
-                      </button>
-                    </template>
-                  </div>
+                  <span class="mini-tag" :class="item.cachedStatus?.class" style="font-size: 13px">
+                    {{ item.cachedStatus?.text || '检测中...' }}
+                  </span>
                 </td>
 
                 <!-- 找到以下位置 -->
@@ -378,32 +327,146 @@
                     @focus="openKeyboard('default', 'inventory_remark', $event, item)" @click="updateCursorPos"
                     @keyup="updateCursorPos" />
                 </td>
+
+                <!-- 6. 重点：核实操作列 -->
+                <td>
+                  <div class="action-btns">
+                    <!-- 状态锁定：已经核实过的行 -->
+                    <span v-if="
+                      item.manual_checked ||
+                      item.manualVerified ||
+                      (item.isProcessed && !isAdminDisabled(item))
+                    " class="status-resolved">
+                      <el-icon>
+                        <CircleCheck />
+                      </el-icon>已核实
+                    </span>
+
+                    <!-- 未核实状态下的智能首选项 -->
+                    <template v-else>
+                      <!-- 1. 异常离位 (账在实不在) -->
+                      <template v-if="getDetailedStatus(item).text === '异常离位'">
+                        <button class="mini-action-btn success" @click="fixByBorrow(item)">
+                          补录领用
+                        </button>
+                        <el-popover placement="top" :width="160" trigger="click" popper-class="cyber-popover">
+                          <template #reference>
+                            <button class="mini-action-btn more-btn">更多操作</button>
+                          </template>
+                          <div class="popover-actions">
+                            <div class="pop-item danger" @click="handleReportLoss(item)">
+                              装备报失
+                            </div>
+                            <div class="pop-item" @click="fixByDisableSensor(item)">屏蔽传感</div>
+                          </div>
+                        </el-popover>
+                      </template>
+
+                      <!-- 2. 异常占用 (实在账不在) -->
+                      <template v-else-if="getDetailedStatus(item).text === '异常占用'">
+                        <button class="mini-action-btn success" @click="fixByReturn(item)">
+                          补录归还
+                        </button>
+                        <button class="mini-action-btn warning" @click="fixByDisableSensor(item)">
+                          屏蔽传感
+                        </button>
+                      </template>
+
+                      <!-- 3. 正常借出 -->
+                      <template v-else-if="getDetailedStatus(item).text === '正常借出'">
+                        <button class="mini-action-btn success" @click="handleConfirmNormal(item)">
+                          确认借出
+                        </button>
+                        <button class="mini-action-btn warning" @click="fixByDisableSensor(item)">
+                          屏蔽传感
+                        </button>
+                      </template>
+
+                      <!-- 4. 正常在位 -->
+                      <template v-else-if="getDetailedStatus(item).text === '正常在位'">
+                        <button class="mini-action-btn success" @click="handleConfirmNormal(item)">
+                          确认在位
+                        </button>
+                        <el-popover placement="top" :width="160" trigger="click" popper-class="cyber-popover">
+                          <template #reference>
+                            <button class="mini-action-btn more-btn">更多操作</button>
+                          </template>
+                          <div class="popover-actions">
+                            <div class="pop-item danger" @click="handleReportLoss(item)">
+                              装备报失
+                            </div>
+                            <div class="pop-item" @click="fixByDisableSensor(item)">屏蔽传感</div>
+                          </div>
+                        </el-popover>
+                      </template>
+
+                      <!-- 5. 传感屏蔽/待核 (isAdminDisabled) -->
+                      <template v-else-if="getDetailedStatus(item).text === '传感屏蔽/待核'">
+                        <!-- 账面在位 -->
+                        <template v-if="item.group_status === '在位'">
+                          <button class="mini-action-btn success" @click="handleManualVerify(item)">
+                            确认在位
+                          </button>
+                          <el-popover placement="top" :width="160" trigger="click" popper-class="cyber-popover">
+                            <template #reference>
+                              <button class="mini-action-btn more-btn">更多操作</button>
+                            </template>
+                            <div class="popover-actions">
+                              <div class="pop-item" @click="handleEnableSensor(item)">恢复感应</div>
+                              <div class="pop-item danger" @click="handleReportLoss(item)">
+                                装备报失
+                              </div>
+                            </div>
+                          </el-popover>
+                        </template>
+                        <!-- 账面已取出 -->
+                        <template v-else>
+                          <button class="mini-action-btn success" @click="handleManualVerify(item)">
+                            确认取出
+                          </button>
+                          <button class="mini-action-btn success" @click="handleEnableSensor(item)">
+                            恢复感应
+                          </button>
+                        </template>
+                      </template>
+                    </template>
+                  </div>
+                </td>
               </tr>
             </tbody>
           </table>
         </div>
+        <div v-else style="height: 400px;"></div>
       </div>
+      <!-- 【修改后的页脚部分】 -->
       <template #footer>
         <div class="dialog-footer">
           <div class="footer-left-tip">
-            <span v-if="stats.mismatch > 0" class="warning-text">
-              <el-icon>
-                <Warning />
-              </el-icon>
-              尚有 {{ stats.mismatch }} 项异常未处置，请先处理，再提交
-            </span>
-            <span v-else class="success-text">
-              <el-icon>
-                <CircleCheck />
-              </el-icon>
-              所有项已核对完成，可以生成报告
-            </span>
+            <!-- 进度显示保持不变 -->
+            <div class="inventory-progress-bar">
+              <span class="p-text">盘点核实进度：</span>
+              <span class="p-num">{{ verifiedCount }} / {{ equipmentList.length }}</span>
+              <div class="p-track">
+                <div class="p-fill" :style="{ width: (verifiedCount / equipmentList.length) * 100 + '%' }"></div>
+              </div>
+            </div>
           </div>
+
           <div class="footer-right-btns">
-            <!-- 关键：提交按钮。只有当异常数为0时才允许点击 -->
-            <button class="footer-btn confirm" :class="{ 'is-disabled': stats.mismatch > 0 }"
-              :disabled="stats.mismatch > 0" @click="finalSubmit">
-              提交盘点报告
+            <!-- 【新增：移到这里的批量核实按钮】 -->
+            <!-- 只有当还有未确认的正常项时才显示，或者始终显示 -->
+            <button class="footer-btn history-btn" v-if="verifiedCount < equipmentList.length"
+              @click="handleBatchVerifyHealthy">
+              <el-icon>
+                <Check />
+              </el-icon>
+              一键确认正常项
+            </button>
+
+            <!-- 提交按钮 -->
+            <button class="footer-btn confirm" :class="{ 'is-disabled': verifiedCount < equipmentList.length }"
+              :disabled="verifiedCount < equipmentList.length" @click="finalSubmit">
+              生成盘点报告
             </button>
           </div>
         </div>
@@ -411,7 +474,8 @@
     </el-dialog>
 
     <!-- ================= 装备档案详情弹窗 (新增) ================= -->
-    <el-dialog v-model="detailVisible" width="1100px" class="inventory-dialog-unique detail-dialog" :show-close="true">
+    <el-dialog v-model="detailVisible" destroy-on-close width="1100px" class="inventory-dialog-unique detail-dialog"
+      :show-close="true">
       <template #header>
         <div class="detail-header">
           <div class="header-title-wrapper">
@@ -421,7 +485,7 @@
         </div>
       </template>
 
-      <div class="detail-container custom-scroll">
+      <div class="detail-container custom-scroll" ref="detailScrollBody">
         <!-- 第一行：基础展示区 -->
         <div class="detail-row top-row">
           <!-- 左侧：装备实照与物理状态 -->
@@ -480,7 +544,7 @@
               <!-- 第二部分：通栏结论层 -->
               <div class="conclusion-bar" :class="getDetailedStatus(selectedDetail).class">
                 <span class="c-dot"></span>
-                <span class="c-label">判定结果：</span>
+                <span class="c-label">状态判定：</span>
                 <span class="c-text">{{ getDetailedStatus(selectedDetail).text }}</span>
               </div>
             </div>
@@ -611,6 +675,48 @@
       </template>
     </el-dialog>
 
+    <!-- 自定义批量核实确认弹窗 -->
+    <el-dialog v-model="batchConfirmVisible" title="批量核实确认" width="480px"
+      class="inventory-dialog-unique mini-confirm-dialog" :show-close="false">
+      <div class="batch-confirm-body">
+        <div class="confirm-icon-area">
+          <el-icon :size="50" color="#00f2ff">
+            <CircleCheck />
+          </el-icon>
+        </div>
+
+        <div class="confirm-message">
+          确定要一键核实当前
+          <span class="highlight">{{ batchConfirmStats.total }}</span> 项账实相符装备吗？
+        </div>
+
+        <div class="confirm-stats-grid">
+          <div class="stats-item">
+            <span class="s-label"><i class="dot success"></i> 正常在位装备</span>
+            <span class="s-value">{{ batchConfirmStats.inPlace }} 件</span>
+          </div>
+          <div class="stats-item">
+            <span class="s-label"><i class="dot info"></i> 正常借出装备</span>
+            <span class="s-value">{{ batchConfirmStats.outPlace }} 件</span>
+          </div>
+        </div>
+
+        <div class="confirm_tip">
+          <el-icon>
+            <Warning />
+          </el-icon>
+          请确保您已视觉确认柜内实物状态与系统一致
+        </div>
+      </div>
+
+      <template #footer>
+        <div class="confirm-footer">
+          <button class="footer-btn cancel" @click="batchConfirmVisible = false">取消</button>
+          <button class="footer-btn confirm" @click="executeBatchVerify">确定核实</button>
+        </div>
+      </template>
+    </el-dialog>
+
     <!-- 虚拟键盘组件 -->
     <div v-if="showKeyboard" class="keyboard-container" :style="keyboardPosition" @mousedown.prevent>
       <SimpleKeyboard v-model="currentInputValue" :defaultLayout="currentLayout" @onKeyPress="handleKeyPress"
@@ -640,11 +746,16 @@ import {
   Location,
   Check,
   Timer as HistoryIcon,
+  Search,
 } from '@element-plus/icons-vue'
 import { ElMessage, ElLoading, ElMessageBox } from 'element-plus'
 import { useAudioStore } from '@/stores/audioStore'
 import { useTimerStore } from '@/stores/timerStore'
 const timerStore = useTimerStore()
+
+// 1. 定义新变量
+const detailVisible = ref(false)
+const selectedDetail = ref(null)
 
 import plugins from '../assets/js/plugin'
 // --- 1. 定义选中状态变量 ---
@@ -652,6 +763,9 @@ const selectedId = ref(null)
 
 const router = useRouter()
 const audioStore = useAudioStore()
+
+// --- 弹窗渲染优化变量 ---
+const isSummaryRendering = ref(false) // 标志位：是否开始渲染表格内容
 
 // --- 过滤器配置 ---
 const filterOptions = [
@@ -665,6 +779,7 @@ const equipmentList = ref([]) // 真实装备列表
 const config_blob = ref(null) // 硬件配置信息
 const realtimeSwitchMap = reactive({}) // 硬件感知映射表 { self_address: status }
 const isPolling = ref(false) // 轮询开关
+const isLoading = ref(false) // 新增：控制列表加载状态
 const summaryVisible = ref(false)
 const currentFilter = ref('ALL')
 const selectedName = ref('ALL') // 【新增：记录选中的装备名称】
@@ -677,7 +792,7 @@ const currentInputValue = ref('')
 const activeItem = ref(null) // 关键：记录当前正在编辑的装备项
 const activeInputDom = ref(null)
 const cursorIndex = ref(0)
-const scrollAreaHeight = ref('50vh') // 对应异常表格容器的初始高度
+const scrollAreaHeight = ref('70vh') // 对应异常表格容器的初始高度
 const currentLayout = ref('default')
 
 const keyboardPosition = ref({
@@ -727,7 +842,7 @@ const openKeyboard = (layout, fieldName, event, item) => {
 // 关闭键盘
 const closeKeyboard = () => {
   showKeyboard.value = false
-  scrollAreaHeight.value = '50vh' // 恢复表格区域高度
+  scrollAreaHeight.value = '70vh' // 恢复表格区域高度
 
   // 强制让当前活跃的 DOM 失去焦点
   if (activeInputDom.value) {
@@ -783,13 +898,72 @@ const uniqueNameOptions = computed(() => {
   return ['ALL', ...uniqueNames]
 })
 
-// 3. 修改之前的 handleSelectCard 函数
 const handleSelectCard = (item) => {
   selectedId.value = item.id
-  selectedDetail.value = item // 记录当前详情
-  detailVisible.value = true // 弹出详情
+  selectedDetail.value = item
+  detailVisible.value = true
   audioStore.play('/audio/按钮点击声.mp3')
 }
+
+// 1. 定义一个用于快速查找的 Map
+const switchConfigMap = computed(() => {
+  const map = new Map();
+  if (config_blob.value?.switch?.details) {
+    config_blob.value.switch.details.forEach(d => {
+      map.set(String(d.self_address), d);
+    });
+  }
+  return map;
+});
+
+// 新增：专门负责更新单个装备的缓存状态
+const refreshItemStatus = (item) => {
+  // 1. 快速获取实际状态（不再重复执行 find）
+  const config = switchConfigMap.value.get(String(item.self_address));
+  const isDisabled = config && Number(config.admin_status) === 0;
+
+  let actual = '检测中';
+  if (Object.keys(realtimeSwitchMap).length > 0) {
+    if (isDisabled) {
+      actual = '已禁用';
+    } else {
+      const status = realtimeSwitchMap[item.self_address];
+      actual = status === undefined ? '检测中' : (status === 1 ? '在位' : '不在位');
+    }
+  }
+
+  // 2. 判定结果逻辑 ( assessResult )
+  let result = 'LOADING';
+  if (actual !== '检测中') {
+    if (!isDisabled) {
+      const shouldBe = actual === '在位' ? '在位' : '已取出';
+      result = item.group_status === shouldBe ? 'HEALTHY' : 'MISMATCH';
+    } else {
+      result = item.manualVerified ? 'UNMONITORED' : 'SENSOR_FAULT';
+    }
+  }
+
+  // 3. 构造缓存对象 ( cachedStatus )
+  let statusInfo = { text: '检测中...', class: 'tag-loading' };
+  if (result === 'MISMATCH') {
+    statusInfo = item.group_status === '在位'
+      ? { text: '异常离位', class: 'tag-error-missing' }
+      : { text: '异常占用', class: 'tag-error-occupied' };
+  } else if (result === 'SENSOR_FAULT') {
+    statusInfo = { text: '传感屏蔽/待核', class: 'tag-maintenance-pending' };
+  } else if (result === 'UNMONITORED') {
+    statusInfo = { text: '人工授信', class: 'tag-unmonitored' };
+  } else if (result === 'HEALTHY') {
+    statusInfo = item.group_status === '在位'
+      ? { text: '正常在位', class: 'tag-normal-in' }
+      : { text: '正常借出', class: 'tag-normal-out' };
+  }
+
+  // 挂载到 item 上（Vue3 会自动追踪这个新属性）
+  item.cachedStatus = statusInfo;
+  item.actualStatusText = actual; // 顺便把感知文本也存了
+  item.isAbnormal = (result === 'MISMATCH' || result === 'SENSOR_FAULT');
+};
 
 // --- 新增：跳转历史方法 ---
 const goToHistory = () => {
@@ -820,6 +994,7 @@ const fetchConfigData = async () => {
 }
 
 const getRealData = async () => {
+  isLoading.value = true
   let allData = []
   let currentPage = 1
   let hasMore = true
@@ -863,10 +1038,16 @@ const getRealData = async () => {
     equipmentList.value = allData.map((item) => ({
       ...item,
       inventory_remark: '',
-      manual_checked: false,// 新增：是否经过人工点击核实
+      manual_checked: false, // 新增：是否经过人工点击核实
+      showAdvanced: false, // <-- 新增：控制每一行的高级选项展开状态
     }))
+
+    // 【新增性能优化点】数据回来后立即初始化一遍状态缓存
+    equipmentList.value.forEach(item => refreshItemStatus(item))
   } catch (error) {
     console.error('数据获取失败:', error)
+  } finally {
+    isLoading.value = false // 结束加载
   }
 }
 
@@ -914,7 +1095,7 @@ const getDetailedStatus = (item) => {
   if (result === 'SENSOR_FAULT') return { text: '传感屏蔽/待核', class: 'tag-maintenance-pending' }
 
   // 关键修改：人工核实后的视觉表现
-  if (result === 'UNMONITORED') return { text: '人工授信/非受控', class: 'tag-unmonitored' }
+  if (result === 'UNMONITORED') return { text: '人工授信', class: 'tag-unmonitored' }
 
   return item.group_status === '在位'
     ? { text: '正常在位', class: 'tag-normal-in' }
@@ -1013,6 +1194,11 @@ const startMonitorLoop = async () => {
     await updateAllHardwareStatus()
     currentTime.value = formatTime()
 
+    // 性能优化点：在 JS 循环里计算，不要在 HTML 里计算
+    equipmentList.value.forEach(item => {
+      refreshItemStatus(item);
+    });
+
     // --- [新增：实时语音提示逻辑] ---
     const currentMismatch = stats.value.mismatch // 获取当前最新的异常总数
 
@@ -1061,10 +1247,6 @@ const isAdminDisabled = (item) => {
   )
   return detail && Number(detail.admin_status) === 0
 }
-
-// 1. 定义新变量
-const detailVisible = ref(false)
-const selectedDetail = ref(null)
 
 // 2. 解析芯片列表的计算属性
 const parsedChips = computed(() => {
@@ -1117,6 +1299,8 @@ const stats = computed(() => {
     // 异常占用：账面不在，但感应在位 (不含报修项)
     unregistered: mismatchItems.filter((i) => i.group_status === '已取出').length,
 
+    faultPending: faultPendingItems.length, // 新增：传感屏蔽但还没肉眼核实的
+
     // 安全盲区统计：传感器被屏蔽且已通过人工核实的数量
     unmonitored: unmonitoredItems.length,
   }
@@ -1128,9 +1312,9 @@ const filteredList = computed(() => {
 
   // 1. 标签状态过滤 (全部/异常/正常)
   if (currentFilter.value === 'NORMAL') {
-    list = list.filter((i) => !isItemAbnormal(i))
+    list = list.filter((i) => !i.isAbnormal) // 直接读取缓存
   } else if (currentFilter.value === 'ERROR') {
-    list = list.filter(isItemAbnormal)
+    list = list.filter(i => i.isAbnormal)   // 直接读取缓存
   }
 
   // 2. 下拉框名称过滤 (如果选了特定名称，则进一步过滤)
@@ -1141,11 +1325,73 @@ const filteredList = computed(() => {
   return list
 })
 
-// --- 修改后的计算属性 ---
-const abnormalItems = computed(() => {
-  // 筛选出：当前依然异常的项 OR 在本次盘点过程中已经点击了处置按钮的项
-  return (equipmentList.value || []).filter((item) => isItemAbnormal(item) || item.isProcessed)
+// 【新增】全量盘点工作列表：严格按物理柜位排序
+const inventoryWorkList = computed(() => {
+  return [...equipmentList.value].sort((a, b) => {
+    return (Number(a.self_address) || 0) - (Number(b.self_address) || 0)
+  })
 })
+// 【新增】已核实数量统计 (包括人工确认正常的 + 已处理平账的)
+const verifiedCount = computed(() => {
+  return equipmentList.value.filter(
+    (item) =>
+      item.manual_checked || item.manualVerified || (item.isProcessed && !isAdminDisabled(item)),
+  ).length
+})
+// 【新增】确认正常项无误
+const handleConfirmNormal = (item) => {
+  item.manual_checked = true
+  const statusLabel = item.group_status === '在位' ? '在位' : '借出'
+  item.inventory_remark = item.inventory_remark || `经实物核对，确认${statusLabel}状态无误`
+  audioStore.play('/audio/按钮点击声.mp3')
+  ElMessage.success(`${item.group_name} 核实成功`)
+}
+
+// --- 新增：批量核实二次确认弹窗控制 ---
+const batchConfirmVisible = ref(false)
+const batchConfirmStats = reactive({
+  inPlace: 0,
+  outPlace: 0,
+  total: 0,
+})
+
+// 【新增】一键核实所有账实相符项 (提高效率)
+// 修改后的 handleBatchVerifyHealthy 函数
+const handleBatchVerifyHealthy = () => {
+  // 找出所有符合条件且未核实的项
+  const healthyAndUnchecked = equipmentList.value.filter(
+    (item) => getAssessmentResult(item) === 'HEALTHY' && !item.manual_checked,
+  )
+
+  if (healthyAndUnchecked.length === 0) {
+    ElMessage.info('当前无可核实的正常项')
+    return
+  }
+
+  // 预计算统计信息
+  batchConfirmStats.total = healthyAndUnchecked.length
+  batchConfirmStats.inPlace = healthyAndUnchecked.filter((i) => i.group_status === '在位').length
+  batchConfirmStats.outPlace = healthyAndUnchecked.filter((i) => i.group_status !== '在位').length
+
+  audioStore.play('/audio/按钮点击声.mp3')
+  batchConfirmVisible.value = true // 打开自定义确认框
+}
+
+// 执行最终的批量核实
+const executeBatchVerify = () => {
+  const healthyAndUnchecked = equipmentList.value.filter(
+    (item) => getAssessmentResult(item) === 'HEALTHY' && !item.manual_checked,
+  )
+
+  healthyAndUnchecked.forEach((item) => {
+    item.manual_checked = true
+    item.inventory_remark = '系统判定相符，人工批量核对一致'
+  })
+
+  batchConfirmVisible.value = false
+  ElMessage.success(`已成功批量核实 ${healthyAndUnchecked.length} 项装备`)
+  audioStore.play('/audio/保存成功.mp3')
+}
 
 const getAbnormalType = (item) => {
   const actual = getActualStatus(item)
@@ -1165,14 +1411,26 @@ const setFilter = (type) => {
 
 const handleOpenSummary = () => {
   audioStore.play('/audio/按钮点击声.mp3')
+
+  // 1. 立即打开弹窗（此时内部是空的，响应速度极快）
   summaryVisible.value = true
+  isSummaryRendering.value = false // 初始设为 false，不渲染表格
+
+  // 2. 延迟执行渲染（等待弹窗打开动画完成，约 200-300ms）
+  // 这样浏览器会先处理弹窗的位移动画，再处理表格的 DOM 构建
+  setTimeout(() => {
+    isSummaryRendering.value = true
+  }, 300)
 }
 
 const finalSubmit = async () => {
   // 1. 再次双重校验：是否还有未处理的异常
-  if (stats.value.mismatch > 0) {
+  // 【修改】校验逻辑：必须全部核对完成（已核实数 === 总数）
+  if (verifiedCount.value < equipmentList.value.length) {
     audioStore.play('/audio/校验失败请参考红色文字提示.mp3')
-    ElMessage.error(`当前还有 ${stats.value.mismatch} 项异常未处理，无法提交报告`)
+    ElMessage.error(
+      `盘点未完成！尚有 ${equipmentList.value.length - verifiedCount.value} 项装备未核实。`,
+    )
     return
   }
 
@@ -1296,6 +1554,42 @@ const handleCheckHistory = (item) => {
 }
 
 /**
+ * 处置方案：装备报失
+ */
+const handleReportLoss = async (item) => {
+  try {
+    await ElMessageBox.confirm(
+      `确定将装备 ${item.group_name} (${item.group_code}) 标记为“报失”吗？此操作将记录入库并更新装备状态。`,
+      '装备报失确认',
+      {
+        confirmButtonText: '确定报失',
+        cancelButtonText: '取消',
+        type: 'error',
+        customClass: 'cyber-message-box',
+      },
+    )
+
+    // 更新数据库状态为报失（假设状态码或文字是 报失）
+    await window.electronAPI.el_post({
+      action: 'update',
+      payload: {
+        tableName: 'equipment',
+        setValues: { group_status: '报失' },
+        condition: `id = ${item.id}`,
+      },
+    })
+
+    item.group_status = '报失'
+    item.isProcessed = true
+    item.inventory_remark = '盘点发现异常，已执行报失处理'
+    audioStore.play('/audio/保存成功.mp3')
+    ElMessage.error(`${item.group_name} 已标记为报失状态`)
+  } catch {
+    console.log('取消报失')
+  }
+}
+
+/**
  * 处置方案2：补录归还 (针对：实物在位，但系统显示已取出/维修中)
  * 逻辑：1. 将装备状态设为“在位”
  *      2. 将借用记录表中该装备对应的“未归还”记录标记为“已归还”并记录归还时间
@@ -1342,6 +1636,9 @@ const fixByReturn = async (item) => {
     item.isProcessed = true // 新增这一行
     item.inventory_remark = '手动核对实物在位，已完成补录归还及平账处理'
 
+    // 【新增性能优化点】立即刷新该项的缓存状态，无需等待下一秒轮询
+    // refreshItemStatus(item)
+
     ElMessage.success(`${item.group_name} 已完成补录归还`)
     audioStore.play('/audio/按钮点击声.mp3')
   } catch (e) {
@@ -1349,9 +1646,18 @@ const fixByReturn = async (item) => {
   }
 }
 
-/**
- * 处置方案3：禁用故障传感器 (针对：硬件微动开关损坏)
- */
+// 【新增】优化后的关闭方法：解决关闭卡顿
+const handleBeforeClose = (done) => {
+  // 1. 关键：先让沉重的表格 DOM 消失 (v-if)
+  // 销毁一个被隐藏的 DOM 片段比销毁一个可见的 Dialog 效率高很多
+  isSummaryRendering.value = false
+
+  // 2. 等待 DOM 卸载完成后的下一帧再关闭弹窗
+  nextTick(() => {
+    summaryVisible.value = false
+    // 如果需要执行 done() 则调用，这里我们直接控变量
+  })
+}
 /**
  * 处置方案3：禁用故障传感器
  */
@@ -1533,6 +1839,7 @@ onUnmounted(() => {
   display: flex;
   flex-direction: column;
   overflow: hidden;
+  position: relative;
 }
 
 .section-title {
@@ -1652,52 +1959,89 @@ onUnmounted(() => {
   text-shadow: 0 0 5px var(--primary);
 }
 
-/* 新增：图片上方状态标签 */
-/* 约 370 行附近 */
+/* --- 1. 状态浮层基础样式（所有标签共用） --- */
 .status-overlay-tag {
   position: absolute;
   top: 6px;
   left: 6px;
   z-index: 10;
-  padding: 2px 8px;
+  padding: 2px 10px;
+  /* 稍微加宽一点，更显精致 */
   border-radius: 4px;
   font-size: 11px;
-  font-weight: bold;
-  letter-spacing: 0.5px;
-  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.5);
+  font-weight: 900;
+  /* 极粗字体，增强赛博感 */
+  letter-spacing: 1px;
+  /* 字符间距，更有科技感 */
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.4);
   backdrop-filter: blur(2px);
-
-  /* --- 关键补充：强制统一高度渲染 --- */
   line-height: 1.2;
   display: flex;
   align-items: center;
   justify-content: center;
   white-space: nowrap;
+  transition: all 0.3s ease;
 }
 
-/* 正常借出：蓝色或淡灰色 */
-.tag-normal-out {
-  background: rgba(0, 153, 161, 0.85);
-  color: #fff;
-}
+/* --- 2. 浅色背景组：统一用黑色文字 --- */
 
-/* 异常离位：亮红色 */
-.tag-error-missing {
-  background: rgba(255, 77, 79, 0.9);
-  color: #fff;
-  /* 异常项增加呼吸闪烁 */
+/* 正常在位：亮绿色 */
+.tag-normal-in {
+  background: rgba(0, 255, 157, 0.95) !important;
+  color: #000 !important;
+  text-shadow: none;
+  /* 浅色底不需要文字阴影 */
 }
 
 /* 异常占用：橙黄色 */
 .tag-error-occupied {
-  background: rgba(230, 162, 60, 0.9);
-  color: #000;
-  /* <--- 黄色背景配黑色文字对比度更高 */
+  background: rgba(230, 162, 60, 0.95) !important;
+  color: #000 !important;
 }
 
+/* 传感屏蔽/待核实：警告橙 */
+.tag-maintenance-pending {
+  background: #ff9800 !important;
+  color: #000 !important;
+  box-shadow: 0 0 12px rgba(255, 152, 0, 0.3);
+}
+
+/* --- 3. 深色背景组：统一用白色文字 --- */
+
+/* 正常借出：青蓝色 */
+.tag-normal-out {
+  background: rgba(0, 153, 161, 0.9) !important;
+  color: #fff !important;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.5);
+  /* 深色底加微弱阴影托出文字 */
+}
+
+/* 异常离位：亮红色 */
+.tag-error-missing {
+  background: rgba(255, 77, 79, 0.9) !important;
+  color: #fff !important;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.5);
+}
+
+/* 异常项呼吸动画 */
+@keyframes tagPulse {
+  0% {
+    box-shadow: 0 0 0px rgba(255, 77, 79, 0);
+  }
+
+  50% {
+    box-shadow: 0 0 10px rgba(255, 77, 79, 0.5);
+  }
+
+  100% {
+    box-shadow: 0 0 0px rgba(255, 77, 79, 0);
+  }
+}
+
+/* 检测中 */
 .tag-loading {
-  background: rgba(0, 0, 0, 0.6);
-  color: #888;
+  background: rgba(0, 0, 0, 0.7) !important;
+  color: #aaa !important;
 }
 
 /* 约 395 行附近 */
@@ -1767,6 +2111,11 @@ onUnmounted(() => {
 }
 
 .c-label {
+  font-size: 13px;
+  color: #292e32;
+}
+
+.c-label1 {
   font-size: 13px;
   color: #66788a;
 }
@@ -1990,7 +2339,7 @@ onUnmounted(() => {
   display: flex;
   align-items: center;
   justify-content: center;
-  gap: 12px;
+  gap: 8px;
   width: 100%;
   height: 100%;
 }
@@ -2075,24 +2424,26 @@ onUnmounted(() => {
   gap: 8px;
 }
 
+/* 统一所有按钮的基础尺寸和文字 */
 .mini-action-btn {
-  background: rgba(0, 242, 255, 0.1);
-  border: 1px solid var(--primary-dark);
-  color: var(--primary);
-  /* 关键修改：强制高度和内边距 */
-  height: 32px;
-  padding: 0 15px;
-  font-size: 13px;
-  font-weight: bold;
-  /* ---------------- */
-  border-radius: 4px;
-  cursor: pointer;
+  /* 关键：固定高度 */
+  height: 32px !important;
+  /* 关键：统一内边距 */
+  padding: 0 15px !important;
+  font-size: 13px !important;
+  font-weight: bold !important;
+
+  /* 基础布局 */
   display: inline-flex;
   align-items: center;
   justify-content: center;
   gap: 6px;
-  transition: all 0.2s;
+  border-radius: 4px;
+  cursor: pointer;
   white-space: nowrap;
+  transition: all 0.2s;
+  box-sizing: border-box;
+  /* 确保边框不撑开高度 */
 }
 
 /* 悬停效果同步强化 */
@@ -2234,40 +2585,6 @@ onUnmounted(() => {
   box-shadow: 0 0 5px var(--warning);
 }
 
-/* 正常借出标签：使用蓝色系 */
-.tag-normal-out {
-  background: rgba(0, 153, 161, 0.85);
-  /* 沉稳的青蓝色 */
-  color: #fff;
-}
-
-/* 正常在位标签保持明亮绿色 */
-.tag-normal-in {
-  background: rgba(0, 255, 157, 0.9);
-  color: #000;
-}
-
-/* 4. 修正监测结论在面板里的颜色显示 (防止 getDetailedStatus 的类名背景太突兀) */
-.live-monitor-panel .tag-normal-in {
-  background: rgba(0, 255, 157, 0.2);
-  color: #00ff9d;
-}
-
-.live-monitor-panel .tag-normal-out {
-  background: rgba(0, 153, 161, 0.2);
-  color: #00f2ff;
-}
-
-.live-monitor-panel .tag-error-missing {
-  background: rgba(255, 77, 79, 0.2);
-  color: #ff4d4f;
-}
-
-.live-monitor-panel .tag-error-occupied {
-  background: rgba(230, 162, 60, 0.2);
-  color: #e6a23c;
-}
-
 /* ================= 详情弹窗专项样式 ================= */
 
 /* 头部样式 */
@@ -2401,16 +2718,6 @@ onUnmounted(() => {
 }
 
 /* 结论通栏 */
-.conclusion-bar {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  padding: 6px;
-  border-radius: 4px;
-  font-size: 13px;
-  font-weight: bold;
-  letter-spacing: 1px;
-}
 
 .c-dot {
   width: 6px;
@@ -2427,25 +2734,90 @@ onUnmounted(() => {
   margin-right: 4px;
 }
 
-/* 针对结论背景的颜色重定义 */
+/* --- 1. 强化结论通栏的基础样式 --- */
+.conclusion-bar {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  /* 统一高度的关键：固定内边距和行高 */
+  padding: 12px 10px !important;
+  height: 46px;
+  /* 强制所有结论栏高度一致 */
+  box-sizing: border-box;
+
+  border-radius: 4px;
+  font-size: 15px;
+  font-weight: 900;
+  letter-spacing: 2px;
+  margin-top: 15px;
+  box-shadow: 0 4px 10px rgba(0, 0, 0, 0.3);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  transition: all 0.3s ease;
+}
+
+/* --- 2. 统一各状态的色彩 (确保与左侧逻辑一致) --- */
+
+/* 正常在位：亮绿色 + 黑色字 */
 .conclusion-bar.tag-normal-in {
-  background: rgba(0, 255, 157, 0.15);
-  color: #00ff9d;
+  background: #00ff9d !important;
+  color: #000 !important;
 }
 
+/* 正常借出：修复蓝色为灰蓝色，与左侧 st-out 逻辑统一 */
 .conclusion-bar.tag-normal-out {
-  background: rgba(0, 242, 255, 0.1);
-  color: #00f2ff;
+  background: rgba(0, 153, 161, 0.9) !important;
+  /* 深灰蓝，表示正常但不在位 */
+  color: #fff !important;
 }
 
+/* 异常离位：亮红色 + 白色字 */
 .conclusion-bar.tag-error-missing {
-  background: rgba(255, 77, 79, 0.2);
-  color: #ff4d4f;
+  background: rgba(255, 77, 79, 0.9) !important;
+  color: #fff !important;
 }
 
+/* 异常占用：橙黄色 + 黑色字 */
 .conclusion-bar.tag-error-occupied {
-  background: rgba(230, 162, 60, 0.2);
-  color: #e6a23c;
+  background: rgba(230, 162, 60, 0.95) !important;
+  color: #000 !important;
+}
+
+/* 传感屏蔽/待核：修正高度坍塌 + 统一橙色 */
+/* 使用具体类名组合，确保优先级高于 .mini-tag 的定义 */
+.conclusion-bar.tag-maintenance-pending {
+  background: #ff9800 !important;
+  color: #000 !important;
+  padding: 12px 10px !important;
+  /* 强制恢复内边距 */
+  display: flex !important;
+  align-items: center !important;
+  height: 46px !important;
+}
+
+/* 人工授信：淡橙色 */
+.conclusion-bar.tag-unmonitored {
+  background: rgba(255, 170, 0, 0.2) !important;
+  color: #ffaa00 !important;
+  border: 1px solid #ffaa00 !important;
+}
+
+/* --- 3. 内部元素微调 --- */
+.conclusion-bar .c-label {
+  opacity: 0.8;
+  font-size: 13px;
+  margin-right: 4px;
+  font-weight: normal;
+}
+
+.conclusion-bar .c-text {
+  /* 确保文字垂直居中 */
+  line-height: 1;
+}
+
+/* 结论栏内部的小点同步隐藏或改色（因为背景已经是实色了） */
+.c-dot {
+  display: none;
+  /* 实色背景下不需要小圆点 */
 }
 
 /* 辅助颜色 */
@@ -2630,17 +3002,6 @@ onUnmounted(() => {
   gap: 16px;
   /* 稍微加大按钮间距，显得更大气 */
   width: 100%;
-}
-
-/* 报修待核实：亮橙色边框 */
-.tag-maintenance-pending {
-  background: #e6a23c;
-  /* 橙色不透明背景 */
-  color: #000;
-  /* 黑色文字，对比度最高 */
-  font-weight: bold;
-  box-shadow: 0 0 10px rgba(230, 162, 60, 0.4);
-  /* 增加一点发光感，提醒待办 */
 }
 
 /* 同时建议修改详情弹窗里的显示逻辑（约 1139 行附近） */
@@ -3016,6 +3377,96 @@ onUnmounted(() => {
   transform: none;
   box-shadow: none;
 }
+
+/* 进度条样式 */
+.inventory-progress-bar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.p-text {
+  color: var(--text-sec);
+  font-size: 14px;
+}
+
+.p-num {
+  color: var(--primary);
+  font-family: 'Consolas';
+  font-weight: bold;
+  font-size: 18px;
+  min-width: 60px;
+}
+
+.p-track {
+  width: 240px;
+  height: 8px;
+  background: rgba(255, 255, 255, 0.05);
+  border-radius: 4px;
+  overflow: hidden;
+  border: 1px solid rgba(0, 242, 255, 0.1);
+}
+
+.p-fill {
+  height: 100%;
+  background: linear-gradient(90deg, var(--primary-dark), var(--primary));
+  box-shadow: 0 0 10px var(--primary-dark);
+  transition: width 0.5s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+/* 之前已处理行的样式微调，让它更明显一点 */
+.is-processed-row {
+  background: rgba(0, 255, 157, 0.04) !important;
+  opacity: 0.85;
+  /* 不要太淡，保证文字清晰 */
+}
+
+/* 确保页脚右侧按钮有足够的间距 */
+.footer-right-btns {
+  display: flex;
+  gap: 15px;
+  /* 增加按钮之间的距离 */
+  align-items: center;
+}
+
+/* 调整批量核实按钮的样式，使其看起来像次级按钮 */
+.footer-btn.history-btn {
+  background: rgba(0, 242, 255, 0.05);
+  border: 1px solid rgba(0, 242, 255, 0.3);
+  color: var(--primary);
+  min-width: 180px;
+  /* 稍微宽一点，因为文字较长 */
+}
+
+/* 修改或添加以下样式 */
+.no-data-placeholder {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  min-height: 400px;
+  /* 给一个最小高度，确保在中间 */
+  color: var(--text-sec);
+  width: 100%;
+}
+
+.no-data-placeholder .el-icon {
+  margin-bottom: 20px;
+  opacity: 0.2;
+  /* 图标半透明，显得更高级 */
+}
+
+.no-data-placeholder p {
+  font-size: 16px;
+  opacity: 0.6;
+}
+
+/* 确保 scroll-area 内部是 Flex 布局，支持子元素垂直居中 */
+.scroll-area :deep(.el-scrollbar__view) {
+  display: flex;
+  flex-direction: column;
+  min-height: 100%;
+}
 </style>
 
 <style>
@@ -3055,12 +3506,48 @@ onUnmounted(() => {
 }
 
 /* 2. 弹窗主体区 - 统一滚动条风格 */
+/* ==========================================================
+   8. 弹窗滚动条精准控制
+   ========================================================== */
+
+/* 1. 基础设置：两个弹窗共用的 Body 样式 */
 .inventory-dialog-unique .el-dialog__body {
   flex: 1 !important;
-  overflow-y: auto !important;
   background-color: transparent !important;
   color: #ffffff !important;
-  padding: 10px 0px !important;
+  padding: 15px 20px !important;
+  display: flex !important;
+  flex-direction: column !important;
+}
+
+/* 2. 【核心修改】针对“盘点全量表格”弹窗（无 detail-dialog 类名时） */
+/* 逻辑：禁用 Body 滚动，强制使用内部表格滚动，消除双滚动条 */
+.inventory-dialog-unique:not(.detail-dialog) .el-dialog__body {
+  overflow: hidden !important;
+}
+
+/* 3. 【核心修改】针对“装备详情”弹窗（有 detail-dialog 类名时） */
+/* 逻辑：允许 Body 滚动，确保档案内容（基本信息、芯片列表）能完整显示 */
+.inventory-dialog-unique.detail-dialog .el-dialog__body {
+  overflow-y: auto !important;
+}
+
+/* 针对详情弹窗内部滚动条的美化（可选） */
+.inventory-dialog-unique.detail-dialog .el-dialog__body::-webkit-scrollbar {
+  width: 6px !important;
+}
+
+.inventory-dialog-unique.detail-dialog .el-dialog__body::-webkit-scrollbar-thumb {
+  background: #2a3546 !important;
+  border-radius: 10px !important;
+}
+
+/* 确保内部容器能自适应剩余空间 */
+.summary-dialog-content {
+  flex: 1 !important;
+  display: flex !important;
+  flex-direction: column !important;
+  overflow: hidden !important;
 }
 
 /* === 核心修复：针对弹窗 Body 和内部 custom-scroll 统一滚动条样式 === */
@@ -3101,8 +3588,8 @@ onUnmounted(() => {
 
 /* 快捷处置表格容器（保持原有改好的部分） */
 .abnormal-table-container {
-  max-height: 50vh;
-  overflow-y: auto;
+  max-height: 70vh;
+  overflow-y: auto !important;
   border: 1px solid #2a3546;
   border-radius: 4px;
   background: rgba(0, 0, 0, 0.2);
@@ -3360,31 +3847,74 @@ onUnmounted(() => {
   /* 增大按钮间距 */
 }
 
-/* 统一处置列中所有元素的高度和字体 */
-.mini-action-btn {
-  height: 34px;
-  /* 稍微调高一点点 */
-  padding: 0 16px;
-  font-size: 13px;
+/* --- 2. 批量确认弹窗专属样式 --- */
+.batch-confirm-body {
+  text-align: center;
+  padding: 10px 20px;
+}
+
+.confirm-icon-area {
+  margin-bottom: 20px;
+  filter: drop-shadow(0 0 10px rgba(0, 242, 255, 0.4));
+}
+
+.confirm-message {
+  font-size: 16px;
+  color: #fff;
+  margin-bottom: 25px;
+  line-height: 1.5;
+}
+
+.confirm-message .highlight {
+  color: var(--primary);
+  font-size: 24px;
   font-weight: bold;
-  border-radius: 4px;
-  cursor: pointer;
-  display: inline-flex;
+  font-family: 'Consolas';
+  margin: 0 5px;
+}
+
+.confirm-stats-grid {
+  background: rgba(0, 0, 0, 0.2);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 15px;
+  margin-bottom: 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.stats-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.stats-item .s-label {
+  font-size: 14px;
+  color: var(--text-sec);
+}
+
+.stats-item .s-value {
+  font-weight: bold;
+  color: #fff;
+}
+
+.confirm_tip {
+  display: flex;
   align-items: center;
   justify-content: center;
   gap: 6px;
-  transition: all 0.2s;
-  white-space: nowrap;
+  font-size: 13px;
+  color: #ffaa00;
+  opacity: 0.8;
 }
 
-/* 确保“人工已核”等状态标签也对齐高度 */
-.status-resolved {
-  height: 34px;
-  display: inline-flex;
-  align-items: center;
-  color: var(--success);
-  font-weight: bold;
-  gap: 6px;
+.confirm-footer {
+  display: flex;
+  justify-content: center;
+  gap: 20px;
+  padding-bottom: 10px;
 }
 </style>
 
@@ -3495,5 +4025,103 @@ onUnmounted(() => {
 
 .cyber-message-box .el-input__inner {
   color: #fff !important;
+}
+</style>
+
+<style>
+/* 更多操作按钮样式 */
+.more-btn {
+  /* 移除这里的 padding 和高度设置 */
+  background: rgba(255, 255, 255, 0.05) !important;
+  color: #8899a6 !important;
+  /* 宽度可以稍微固定，显得稳重 */
+}
+
+/* 气泡浮窗深度定制 */
+/* 气泡浮窗深度定制 */
+.el-popper.cyber-popover {
+  background: #1a2234 !important;
+  border: 1px solid #00f2ff !important;
+  padding: 4px 0 !important;
+  /* 减小内边距，让菜单更紧凑 */
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.8) !important;
+}
+
+/* 气泡内部选项高度也统一 */
+.pop-item {
+  padding: 8px 15px;
+  /* 稍微减小一点，适配整体紧凑感 */
+  line-height: 1.4;
+}
+
+.el-popper.cyber-popover .el-popper__arrow::before {
+  background: #1a2234 !important;
+  border: 1px solid #00f2ff !important;
+}
+
+.popover-actions {
+  display: flex;
+  flex-direction: column;
+}
+
+.pop-item {
+  padding: 10px 15px;
+  color: #cdd9e5;
+  font-size: 13px;
+  cursor: pointer;
+  transition: all 0.2s;
+  font-weight: bold;
+  text-align: center;
+}
+
+.pop-item:hover {
+  background: rgba(0, 242, 255, 0.1);
+  color: #00f2ff;
+}
+
+.pop-item.danger {
+  color: #ff4d4f;
+}
+
+.pop-item.danger:hover {
+  background: rgba(255, 77, 79, 0.1);
+  color: #ff7875;
+}
+</style>
+
+<style>
+/* 让旋转的圆圈变成你的主题青色 */
+.list-section .el-loading-spinner .path {
+  stroke: #00f2ff !important;
+}
+
+/* 让加载文字也变成青色 */
+.list-section .el-loading-text {
+  color: #00f2ff !important;
+  font-size: 16px;
+  letter-spacing: 2px;
+}
+</style>
+
+<style>
+/* 解决图片加载前后的闪白问题 */
+.equip-image-preview,
+.table-thumb,
+.image-box,
+.el-image {
+  background-color: #0d121c !important;
+  /* 强制所有图片容器背景为深黑色 */
+}
+
+/* 深度穿透 Element Plus 内部占位符 */
+.el-image__placeholder,
+.el-image__wrapper,
+.el-image__error {
+  background-color: #0d121c !important;
+}
+
+/* 修改图片加载中的占位背景 */
+.image-placeholder {
+  background: #0d121c !important;
 }
 </style>
