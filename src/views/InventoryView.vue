@@ -180,6 +180,12 @@
               <span class="a-label"><i class="dot info"></i> 正常借出</span>
               <span class="a-value">{{ stats.outPlace }} 件</span>
             </div>
+            <!-- 【新增：账面报失行】 -->
+            <!-- 使用特殊的淡红色，区别于异常离位的亮红色 -->
+            <div class="analysis-row" v-if="stats.lostCount > 0" style="color: #ff7875; font-weight: bold;">
+              <span class="a-label"><i class="dot danger" style="background: #ff7875;"></i> 账面报失</span>
+              <span class="a-value">{{ stats.lostCount }} 件</span>
+            </div>
             <div class="analysis-row danger-text" v-if="stats.missing > 0">
               <span class="a-label"><i class="dot danger"></i> 异常离位 (账在实不在)</span>
               <span class="a-value">{{ stats.missing }} 件</span>
@@ -251,7 +257,7 @@
                 <!-- 5. 备注列不设限，自动撑开剩余空间 -->
                 <th>盘点备注</th>
                 <!-- 6. 快速处置方案列宽保持 280 (按钮变大后需要此空间) -->
-                <th width="200">盘点操作（请选择）</th>
+                <th width="200">操作选择</th>
               </tr>
             </thead>
             <tbody>
@@ -371,6 +377,35 @@
                         </button>
                       </template>
 
+                      <!-- 找到这一块并替换：针对报失状态的统一精准处理 -->
+                      <template v-else-if="item.group_status === '报失'">
+                        <!-- 统一逻辑：无论是 在位、不在位 还是 已禁用，操作选项都保持一致 -->
+                        <template v-if="getActualStatus(item) === '在位' || getActualStatus(item) === '不在位'">
+                          <button class="mini-action-btn success" @click="handleConfirmNormal(item)">
+                            确认报失
+                          </button>
+                          <button class="mini-action-btn warning" @click="fixByCancelLoss(item)">
+                            恢复在位
+                          </button>
+                        </template>
+
+                        <!-- 情况 C：传感器已被禁用 -->
+                        <template v-else-if="getActualStatus(item) === '已禁用'">
+                          <button class="mini-action-btn success" @click="handleManualVerifyLost(item)">
+                            核实报失
+                          </button>
+                          <el-popover placement="top" :width="160" trigger="click" popper-class="cyber-popover">
+                            <template #reference>
+                              <button class="mini-action-btn more-btn">更多操作</button>
+                            </template>
+                            <div class="popover-actions">
+                              <div class="pop-item" @click="fixByCancelLoss(item)">恢复在位</div>
+                              <div class="pop-item" @click="handleEnableSensor(item)">恢复感应</div>
+                            </div>
+                          </el-popover>
+                        </template>
+                      </template>
+
                       <!-- 3. 正常借出 -->
                       <template v-else-if="getDetailedStatus(item).text === '正常借出'">
                         <button class="mini-action-btn success" @click="handleConfirmNormal(item)">
@@ -452,6 +487,14 @@
           </div>
 
           <div class="footer-right-btns">
+            <!-- 【新增：重新盘点按钮】 -->
+            <!-- 只有当已有核实项时才显示，样式使用 cancel 以示区别 -->
+            <button class="footer-btn cancel" v-if="verifiedCount > 0" @click="handleResetInventory">
+              <el-icon>
+                <Refresh />
+              </el-icon>
+              重新盘点
+            </button>
             <!-- 【新增：移到这里的批量核实按钮】 -->
             <!-- 只有当还有未确认的正常项时才显示，或者始终显示 -->
             <button class="footer-btn history-btn" v-if="verifiedCount < equipmentList.length"
@@ -746,8 +789,9 @@ import {
   Check,
   Timer as HistoryIcon,
   Search,
+  Refresh,
 } from '@element-plus/icons-vue'
-import { ElMessage, ElLoading, ElMessageBox } from 'element-plus'
+import { /*ElMessage,*/ ElLoading, ElMessageBox } from 'element-plus'
 import { useAudioStore } from '@/stores/audioStore'
 import { useTimerStore } from '@/stores/timerStore'
 const timerStore = useTimerStore()
@@ -756,7 +800,7 @@ const timerStore = useTimerStore()
 const detailVisible = ref(false)
 const selectedDetail = ref(null)
 
-import plugins from '../assets/js/plugin'
+// import plugins from '../assets/js/plugin'
 // --- 1. 定义选中状态变量 ---
 const selectedId = ref(null)
 
@@ -870,6 +914,50 @@ const handleKeyPress = (button) => {
   })
 }
 
+/**
+ * 处置方案：取消报失并恢复在位 (针对：账面报失，但现在找回了或补录)
+ */
+const fixByCancelLoss = async (item) => {
+  try {
+    await ElMessageBox.confirm(
+      `确定要取消装备 ${item.group_name} 的报失状态并恢复为“在位”吗？`,
+      '纠正平账', // 修改标题，使其更符合“纠错”语义
+      {
+        confirmButtonText: '确定恢复',
+        cancelButtonText: '取消',
+        type: 'success',
+        customClass: 'cyber-message-box',
+      },
+    )
+
+    // 1. 更新数据库状态为 在位
+    await window.electronAPI.el_post({
+      action: 'update',
+      payload: {
+        tableName: 'equipment',
+        setValues: { group_status: '在位' },
+        condition: `id = ${item.id}`,
+      },
+    })
+
+    // 2. 更新前端视图：仅修改状态，不标记为已处置完成
+    item.group_status = '在位'
+
+    // 【关键修改点】
+    // item.isProcessed = true  <-- 删掉这一行！
+
+    item.inventory_remark = '系统账面已由“报失”调整为“在位”。'
+
+    // 【新增】立即触发一次状态判定刷新
+    refreshItemStatus(item)
+
+    audioStore.play('/audio/保存成功.mp3')
+    // ElMessage.success(`${item.group_name} 账务已恢复，请进行最终确认`)
+  } catch (e) {
+    console.log('取消恢复操作', e)
+  }
+}
+
 // 监听键盘输入并回填到对应的列表项
 watch(currentInputValue, (newValue, oldValue) => {
   if (showKeyboard.value && activeItem.value && activeField.value) {
@@ -918,7 +1006,7 @@ const switchConfigMap = computed(() => {
 
 // 新增：专门负责更新单个装备的缓存状态
 const refreshItemStatus = (item) => {
-  // 1. 快速获取实际状态（不再重复执行 find）
+  // 1. 快速获取实际状态
   const config = switchConfigMap.value.get(String(item.self_address))
   const isDisabled = config && Number(config.admin_status) === 0
 
@@ -952,19 +1040,29 @@ const refreshItemStatus = (item) => {
   // 3. 构造缓存对象 ( cachedStatus )
   let statusInfo = { text: '检测中...', class: 'tag-loading' }
   if (result === 'MISMATCH') {
-    statusInfo =
-      item.group_status === '在位'
-        ? { text: '异常离位', class: 'tag-error-missing' }
-        : { text: '异常占用', class: 'tag-error-occupied' }
+    if (item.group_status === '在位') {
+      statusInfo = { text: '异常离位', class: 'tag-error-missing' }
+    }
+    // 【新增/修改点】
+    else if (item.group_status === '报失') {
+      statusInfo = { text: '报失', class: 'tag-normal-out' } // 统一为青色
+    }
+    else {
+      statusInfo = { text: '异常占用', class: 'tag-error-occupied' }
+    }
   } else if (result === 'SENSOR_FAULT') {
     statusInfo = { text: '传感屏蔽/待核', class: 'tag-maintenance-pending' }
   } else if (result === 'UNMONITORED') {
     statusInfo = { text: '人工授信', class: 'tag-unmonitored' }
   } else if (result === 'HEALTHY') {
-    statusInfo =
-      item.group_status === '在位'
-        ? { text: '正常在位', class: 'tag-normal-in' }
-        : { text: '正常借出', class: 'tag-normal-out' }
+    if (item.group_status === '在位') {
+      statusInfo = { text: '正常在位', class: 'tag-normal-in' }
+    } else if (item.group_status === '已取出') {
+      statusInfo = { text: '正常借出', class: 'tag-normal-out' }
+    } else {
+      // 如果是报失、待维修等其他不在位状态
+      statusInfo = { text: item.group_status, class: 'tag-normal-out' }
+    }
   }
 
   // 挂载到 item 上（Vue3 会自动追踪这个新属性）
@@ -1085,15 +1183,6 @@ const getAssessmentResult = (item) => {
   }
 }
 
-// 修正后的异常判断（用于拦截“确认结果”按钮）
-const isItemAbnormal = (item) => {
-  const result = getAssessmentResult(item)
-  // 1. 账实不符项 (MISMATCH)
-  // 2. 传感器坏了且管理员还没肉眼核实过 (SENSOR_FAULT)
-  // 这两种情况都必须停留在“异常/待处置”列表中
-  return result === 'MISMATCH' || result === 'SENSOR_FAULT'
-}
-
 // 新增：获取详细盘点结论
 const getDetailedStatus = (item) => {
   const result = getAssessmentResult(item)
@@ -1103,8 +1192,12 @@ const getDetailedStatus = (item) => {
   if (result === 'MISMATCH') {
     if (item.group_status === '在位') {
       return { text: '异常离位', class: 'tag-error-missing' };
-    } else {
-      // 账面是 报失/已取出，但柜内感应到有东西
+    }
+    // 【新增/修改点】如果账面是报失，物理却在位，不要叫异常占用
+    else if (item.group_status === '报失') {
+      return { text: '报失', class: 'tag-normal-out' }; // 赋予一个独特的文本
+    }
+    else {
       return { text: '异常占用', class: 'tag-error-occupied' };
     }
   }
@@ -1113,9 +1206,14 @@ const getDetailedStatus = (item) => {
   // 关键修改：人工核实后的视觉表现
   if (result === 'UNMONITORED') return { text: '人工授信', class: 'tag-unmonitored' }
 
-  return item.group_status === '在位'
-    ? { text: '正常在位', class: 'tag-normal-in' }
-    : { text: '正常借出', class: 'tag-normal-out' }
+  if (item.group_status === '在位') {
+    return { text: '正常在位', class: 'tag-normal-in' };
+  } else if (item.group_status === '已取出') {
+    return { text: '正常借出', class: 'tag-normal-out' };
+  } else {
+    // 关键：直接返回账面实际状态（如“报失”），确保后续逻辑能精准匹配
+    return { text: item.group_status, class: 'tag-normal-out' };
+  }
 }
 
 // --- 2. 硬件感知轮询 ---
@@ -1152,7 +1250,18 @@ const handleManualVerify = (item) => {
   item.isProcessed = true
   item.inventory_remark = '传感器故障，肉眼核实实物在位'
   audioStore.play('/audio/核实成功.mp3')
-  ElMessage.success(`${item.group_name} 已通过人工核实`)
+  // ElMessage.success(`${item.group_name} 已通过人工核实`)
+}
+/**
+ * 处置方案：人工核实报失项确实不在位 (针对：传感器屏蔽中，肉眼确认没东西)
+ */
+const handleManualVerifyLost = (item) => {
+  item.manualVerified = true;
+  item.isProcessed = true;
+  // 自动填充备注，减轻管理员输入负担
+  item.inventory_remark = '传感器已屏蔽，经肉眼视觉核对，实物确实不在位，与报失账面一致。';
+  audioStore.play('/audio/核实成功.mp3');
+  // ElMessage.success(`${item.group_name} 报失状态已人工核实一致`);
 }
 
 /**
@@ -1195,7 +1304,7 @@ const handleEnableSensor = async (item) => {
       item.inventory_remark = '' // 可选：清除备注
       // ------------------
 
-      ElMessage.success('传感器感应已恢复，系统将重新实时判定状态')
+      // ElMessage.success('传感器感应已恢复，系统将重新实时判定状态')
 
       // 如果恢复后账实相符，abnormalItems 计算属性会自动将其从弹窗列表中移除
     }
@@ -1223,11 +1332,11 @@ const startMonitorLoop = async () => {
       if (currentMismatch > lastMismatchCount.value) {
         // 场景：异常增加了（比如有人私自拿走了装备）
         audioStore.play('/audio/拿错提示音.mp3') // 建议使用急促、警示性的音效
-        ElMessage.warning('检测到新的账务不符项！')
+        // ElMessage.warning('检测到新的账务不符项！')
       } else if (currentMismatch < lastMismatchCount.value) {
         // 场景：异常减少了（比如错拿的放回去了，或者缺失的补回来了）
         audioStore.play('/audio/拿对提示音.mp3') // 建议使用清脆、正向的音效
-        ElMessage.success('异常项已消除，状态恢复正常')
+        // ElMessage.success('异常项已消除，状态恢复正常')
       }
     }
 
@@ -1309,6 +1418,9 @@ const stats = computed(() => {
     // 正常借出：账面已取 且 物理感应不在 且 监控正常
     outPlace: healthyItems.filter((i) => i.group_status === '已取出').length,
 
+    // 【新增】账面报失统计 (无论物理感应如何，只要账面是报失)
+    lostCount: list.filter((i) => i.group_status === '报失').length,
+
     // 异常离位：账面在位，但感应不在 (不含报修项)
     missing: mismatchItems.filter((i) => i.group_status === '在位').length,
 
@@ -1357,10 +1469,18 @@ const verifiedCount = computed(() => {
 // 【新增】确认正常项无误
 const handleConfirmNormal = (item) => {
   item.manual_checked = true
-  const statusLabel = item.group_status === '在位' ? '在位' : '借出'
-  item.inventory_remark = item.inventory_remark || `经实物核对，确认${statusLabel}状态无误`
+  let statusLabel = item.group_status // 可能是 '在位', '已取出', '报失'
+
+  // 智能备注逻辑
+  if (statusLabel === '报失') {
+    item.inventory_remark = item.inventory_remark || `经核对，实物状态与账面“报失”一致`
+  } else {
+    const label = statusLabel === '在位' ? '在位' : '借出'
+    item.inventory_remark = item.inventory_remark || `经实物核对，确认${label}状态无误`
+  }
+
   audioStore.play('/audio/按钮点击声.mp3')
-  ElMessage.success(`${item.group_name} 核实成功`)
+  // ElMessage.success(`${item.group_name} 核实成功`)
 }
 
 // --- 新增：批量核实二次确认弹窗控制 ---
@@ -1380,7 +1500,7 @@ const handleBatchVerifyHealthy = () => {
   )
 
   if (healthyAndUnchecked.length === 0) {
-    ElMessage.info('当前无可核实的正常项')
+    // ElMessage.info('当前无可核实的正常项')
     return
   }
 
@@ -1405,17 +1525,44 @@ const executeBatchVerify = () => {
   })
 
   batchConfirmVisible.value = false
-  ElMessage.success(`已成功批量核实 ${healthyAndUnchecked.length} 项装备`)
+  // ElMessage.success(`已成功批量核实 ${healthyAndUnchecked.length} 项装备`)
   audioStore.play('/audio/保存成功.mp3')
 }
+/**
+ * 核心功能：重新盘点 (清空当前所有核实状态)
+ */
+const handleResetInventory = async () => {
+  try {
+    await ElMessageBox.confirm(
+      '确定要清空当前所有已核实的记录并重新盘点吗？此操作将重置备注并撤销人工核实状态。',
+      '重新盘点确认',
+      {
+        confirmButtonText: '确定重置',
+        cancelButtonText: '取消',
+        type: 'warning',
+        customClass: 'cyber-message-box',
+      }
+    )
 
-const getAbnormalType = (item) => {
-  const actual = getActualStatus(item)
-  if (item.group_status === '在位' && actual === '不在位')
-    return { text: '异常离位', class: 'st-out-warn' }
-  if (item.group_status === '已取出' && actual === '在位')
-    return { text: '异常占用', class: 'st-unreg' }
-  return { text: '未知异常', class: 'st-other' }
+    equipmentList.value.forEach((item) => {
+      // 1. 清空人工点击的核实标记
+      item.manual_checked = false
+
+      // 2. 清空针对传感器故障的肉眼核实标记
+      item.manualVerified = false
+
+      // 3. 清空处置完成标记 (针对 补录领用/归还/纠错 后的锁定状态)
+      item.isProcessed = false
+
+      // 4. 清空备注
+      item.inventory_remark = ''
+    })
+
+    audioStore.play('/audio/按钮点击声.mp3')
+    // ElMessage.success('已清空核实记录，请重新开始盘点')
+  } catch {
+    console.log('取消重置')
+  }
 }
 
 //在过滤器切换时重置选中项：
@@ -1448,9 +1595,11 @@ const finalSubmit = async () => {
   // 【修改】校验逻辑：必须全部核对完成（已核实数 === 总数）
   if (verifiedCount.value < equipmentList.value.length) {
     audioStore.play('/audio/校验失败请参考红色文字提示.mp3')
+    /*
     ElMessage.error(
       `盘点未完成！尚有 ${equipmentList.value.length - verifiedCount.value} 项装备未核实。`,
     )
+    */
     return
   }
 
@@ -1489,11 +1638,13 @@ const finalSubmit = async () => {
 
     if (response.success) {
       audioStore.play('/audio/保存成功.mp3')
+      /*
       ElMessage({
         type: 'success',
         message: '盘点报告已生成并成功存入盘点历史记录。',
         duration: 3000,
       })
+      */
 
       // 4. 清理状态并关闭
       summaryVisible.value = false
@@ -1504,7 +1655,7 @@ const finalSubmit = async () => {
     }
   } catch (error) {
     console.error('提交盘点失败:', error)
-    ElMessage.error('报告同步失败，请检查网络或数据库连接')
+    // ElMessage.error('报告同步失败，请检查网络或数据库连接')
   } finally {
     loading.close()
   }
@@ -1559,18 +1710,18 @@ const fixByBorrow = async (item) => {
       item.isProcessed = true // 新增这一行
       item.inventory_remark = '已完成补录登记'
       audioStore.play('/audio/领用完成数据已保存.mp3')
-      ElMessage.success(`${item.group_name} 领用记录已补齐`)
+      // ElMessage.success(`${item.group_name} 领用记录已补齐`)
     }
   } catch {
     console.log('取消补录')
   }
 }
 
-const handleCheckHistory = (item) => {
+const handleCheckHistory = (/*item*/) => {
   audioStore.play('/audio/按钮点击声.mp3')
   // 这里可以跳转到历史页面并带上参数，或者弹出另一个记录弹窗
   // router.push({ path: '/borrow-history', query: { code: item.group_code } })
-  ElMessage.info(`正在查询 ${item.group_name} 的流转记录...`)
+  // ElMessage.info(`正在查询 ${item.group_name} 的流转记录...`)
 }
 
 /**
@@ -1603,7 +1754,7 @@ const handleReportLoss = async (item) => {
     item.isProcessed = true
     item.inventory_remark = '盘点发现异常，已执行报失处理'
     audioStore.play('/audio/保存成功.mp3')
-    ElMessage.error(`${item.group_name} 已标记为报失状态`)
+    // ElMessage.error(`${item.group_name} 已标记为报失状态`)
   } catch {
     console.log('取消报失')
   }
@@ -1659,7 +1810,7 @@ const fixByReturn = async (item) => {
     // 【新增性能优化点】立即刷新该项的缓存状态，无需等待下一秒轮询
     // refreshItemStatus(item)
 
-    ElMessage.success(`${item.group_name} 已完成补录归还`)
+    // ElMessage.success(`${item.group_name} 已完成补录归还`)
     audioStore.play('/audio/按钮点击声.mp3')
   } catch (e) {
     console.log('取消归还补录', e)
@@ -1667,7 +1818,7 @@ const fixByReturn = async (item) => {
 }
 
 // 【新增】优化后的关闭方法：解决关闭卡顿
-const handleBeforeClose = (done) => {
+const handleBeforeClose = (/*done*/) => {
   // 1. 关键：先让沉重的表格 DOM 消失 (v-if)
   // 销毁一个被隐藏的 DOM 片段比销毁一个可见的 Dialog 效率高很多
   isSummaryRendering.value = false
@@ -1706,7 +1857,7 @@ const fixByDisableSensor = async (item) => {
     item.isProcessed = true
     // 修改备注，明确这只是硬件层面的操作
     item.inventory_remark = '传感器故障，已执行物理屏蔽'
-    ElMessage.warning('传感器已禁用，请继续执行肉眼核实以完成盘点')
+    // ElMessage.warning('传感器已禁用，请继续执行肉眼核实以完成盘点')
   }
 }
 
