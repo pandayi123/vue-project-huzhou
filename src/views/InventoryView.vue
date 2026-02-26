@@ -182,8 +182,8 @@
             </div>
             <!-- 【新增：账面报失行】 -->
             <!-- 使用特殊的淡红色，区别于异常离位的亮红色 -->
-            <div class="analysis-row" v-if="stats.lostCount > 0" style="color: #ff7875; font-weight: bold;">
-              <span class="a-label"><i class="dot danger" style="background: #ff7875;"></i> 账面报失</span>
+            <div class="analysis-row" v-if="stats.lostCount > 0" style="color: #ff7875; font-weight: bold">
+              <span class="a-label"><i class="dot danger" style="background: #ff7875"></i> 账面报失</span>
               <span class="a-value">{{ stats.lostCount }} 件</span>
             </div>
             <div class="analysis-row danger-text" v-if="stats.missing > 0">
@@ -380,7 +380,9 @@
                       <!-- 找到这一块并替换：针对报失状态的统一精准处理 -->
                       <template v-else-if="item.group_status === '报失'">
                         <!-- 统一逻辑：无论是 在位、不在位 还是 已禁用，操作选项都保持一致 -->
-                        <template v-if="getActualStatus(item) === '在位' || getActualStatus(item) === '不在位'">
+                        <template v-if="
+                          getActualStatus(item) === '在位' || getActualStatus(item) === '不在位'
+                        ">
                           <button class="mini-action-btn success" @click="handleConfirmNormal(item)">
                             确认报失
                           </button>
@@ -759,6 +761,53 @@
       </template>
     </el-dialog>
 
+    <!-- ================= 补录领用用途确认弹窗 (优化版) ================= -->
+    <el-dialog v-model="borrowReasonDialogVisible" title="补录领用：请选择或输入用途" width="550px"
+      class="inventory-dialog-unique cyber-dialog-reason" :class="{ 'is-keyboard-open': showKeyboard }"
+      :close-on-click-modal="false" destroy-on-close>
+      <div class="inv-reason-content">
+        <!-- 1. 快捷选项卡片网格 -->
+        <div class="inv-reason-grid">
+          <div v-for="opt in quickBorrowReasons" :key="opt.value" class="inv-reason-card"
+            :class="{ active: borrowReason === opt.value }" @click="borrowReason = opt.value">
+            <el-icon class="inv-card-icon" :size="28">
+              <component :is="opt.icon" />
+            </el-icon>
+            <span class="inv-card-label">{{ opt.label }}</span>
+            <div class="inv-active-dot"></div>
+          </div>
+        </div>
+
+        <!-- 2. 自定义输入区 -->
+        <div class="inv-input-section">
+          <div class="inv-section-divider">
+            <span>或者输入自定义详细用途</span>
+          </div>
+          <el-input v-model="borrowReason" placeholder="在此输入自定义详细用途..." class="cyber-custom-input"
+            @focus="openKeyboard('default', 'borrowReason', $event, activeBorrowItem)">
+            <template #prefix>
+              <el-icon>
+                <EditPen />
+              </el-icon>
+            </template>
+          </el-input>
+        </div>
+      </div>
+
+      <template #footer>
+        <div class="inv-reason-footer">
+          <button class="footer-btn cancel" @click="borrowReasonDialogVisible = false">取消</button>
+          <button class="footer-btn confirm" :class="{ disabled: !borrowReason }" :disabled="!borrowReason"
+            @click="confirmBorrowAndFix">
+            <el-icon>
+              <Check />
+            </el-icon>
+            确认补录领用
+          </button>
+        </div>
+      </template>
+    </el-dialog>
+
     <!-- 虚拟键盘组件 -->
     <div v-if="showKeyboard" class="keyboard-container" :style="keyboardPosition" @mousedown.prevent>
       <SimpleKeyboard v-model="currentInputValue" :defaultLayout="currentLayout" @onKeyPress="handleKeyPress"
@@ -790,6 +839,13 @@ import {
   Timer as HistoryIcon,
   Search,
   Refresh,
+  Aim,
+  Tools,
+  Promotion,
+  Memo,
+  Checked,
+  EditPen,
+  Unlock,
 } from '@element-plus/icons-vue'
 import { /*ElMessage,*/ ElLoading, ElMessageBox } from 'element-plus'
 import { useAudioStore } from '@/stores/audioStore'
@@ -1027,10 +1083,10 @@ const refreshItemStatus = (item) => {
     if (!isDisabled) {
       if (actual === '在位') {
         // 物理在位时，账面必须也是“在位”才算正常
-        result = item.group_status === '在位' ? 'HEALTHY' : 'MISMATCH';
+        result = item.group_status === '在位' ? 'HEALTHY' : 'MISMATCH'
       } else {
         // 物理不在位时，账面只要不是“在位”就算正常（包含已取出、报失、待维修等）
-        result = item.group_status !== '在位' ? 'HEALTHY' : 'MISMATCH';
+        result = item.group_status !== '在位' ? 'HEALTHY' : 'MISMATCH'
       }
     } else {
       result = item.manualVerified ? 'UNMONITORED' : 'SENSOR_FAULT'
@@ -1046,8 +1102,7 @@ const refreshItemStatus = (item) => {
     // 【新增/修改点】
     else if (item.group_status === '报失') {
       statusInfo = { text: '报失', class: 'tag-normal-out' } // 统一为青色
-    }
-    else {
+    } else {
       statusInfo = { text: '异常占用', class: 'tag-error-occupied' }
     }
   } else if (result === 'SENSOR_FAULT') {
@@ -1168,9 +1223,9 @@ const getAssessmentResult = (item) => {
   // 修改后的代码
   if (!isDisabled) {
     if (actual === '在位') {
-      return item.group_status === '在位' ? 'HEALTHY' : 'MISMATCH';
+      return item.group_status === '在位' ? 'HEALTHY' : 'MISMATCH'
     } else {
-      return item.group_status !== '在位' ? 'HEALTHY' : 'MISMATCH';
+      return item.group_status !== '在位' ? 'HEALTHY' : 'MISMATCH'
     }
   }
 
@@ -1191,14 +1246,13 @@ const getDetailedStatus = (item) => {
   // 修改后的代码
   if (result === 'MISMATCH') {
     if (item.group_status === '在位') {
-      return { text: '异常离位', class: 'tag-error-missing' };
+      return { text: '异常离位', class: 'tag-error-missing' }
     }
     // 【新增/修改点】如果账面是报失，物理却在位，不要叫异常占用
     else if (item.group_status === '报失') {
-      return { text: '报失', class: 'tag-normal-out' }; // 赋予一个独特的文本
-    }
-    else {
-      return { text: '异常占用', class: 'tag-error-occupied' };
+      return { text: '报失', class: 'tag-normal-out' } // 赋予一个独特的文本
+    } else {
+      return { text: '异常占用', class: 'tag-error-occupied' }
     }
   }
   if (result === 'SENSOR_FAULT') return { text: '传感屏蔽/待核', class: 'tag-maintenance-pending' }
@@ -1207,12 +1261,12 @@ const getDetailedStatus = (item) => {
   if (result === 'UNMONITORED') return { text: '人工授信', class: 'tag-unmonitored' }
 
   if (item.group_status === '在位') {
-    return { text: '正常在位', class: 'tag-normal-in' };
+    return { text: '正常在位', class: 'tag-normal-in' }
   } else if (item.group_status === '已取出') {
-    return { text: '正常借出', class: 'tag-normal-out' };
+    return { text: '正常借出', class: 'tag-normal-out' }
   } else {
     // 关键：直接返回账面实际状态（如“报失”），确保后续逻辑能精准匹配
-    return { text: item.group_status, class: 'tag-normal-out' };
+    return { text: item.group_status, class: 'tag-normal-out' }
   }
 }
 
@@ -1256,11 +1310,11 @@ const handleManualVerify = (item) => {
  * 处置方案：人工核实报失项确实不在位 (针对：传感器屏蔽中，肉眼确认没东西)
  */
 const handleManualVerifyLost = (item) => {
-  item.manualVerified = true;
-  item.isProcessed = true;
+  item.manualVerified = true
+  item.isProcessed = true
   // 自动填充备注，减轻管理员输入负担
-  item.inventory_remark = '传感器已屏蔽，经肉眼视觉核对，实物确实不在位，与报失账面一致。';
-  audioStore.play('/audio/核实成功.mp3');
+  item.inventory_remark = '传感器已屏蔽，经肉眼视觉核对，实物确实不在位，与报失账面一致。'
+  audioStore.play('/audio/核实成功.mp3')
   // ElMessage.success(`${item.group_name} 报失状态已人工核实一致`);
 }
 
@@ -1541,7 +1595,7 @@ const handleResetInventory = async () => {
         cancelButtonText: '取消',
         type: 'warning',
         customClass: 'cyber-message-box',
-      }
+      },
     )
 
     equipmentList.value.forEach((item) => {
@@ -1666,54 +1720,84 @@ const finalSubmit = async () => {
 /**
  * 处置方案1：补录领用 (针对：账面在，实物不在)
  */
-const fixByBorrow = async (item) => {
+// --- [新增] 补录领用相关变量 ---
+const borrowReasonDialogVisible = ref(false)
+const borrowReason = ref('')
+const activeBorrowItem = ref(null) // 记录当前操作的装备
+// 快捷用途配置 (直接复用领用页面的配置)
+// 修改 quickBorrowReasons 的定义，去掉引号，直接引用导入的对象
+const quickBorrowReasons = [
+  { label: '作战演训', value: '作战演训', icon: Aim }, // 注意这里没有引号
+  { label: '检修保养', value: '检修保养', icon: Tools },
+  { label: '日常勤务', value: '日常勤务', icon: Promotion },
+  { label: '公差外带', value: '公差外带', icon: Memo },
+  { label: '调拨轮换', value: '调拨轮换', icon: Checked },
+  { label: '巡检抽查', value: '巡检抽查', icon: Monitor },
+]
+/**
+ * 1. 触发补录领用弹窗
+ */
+const fixByBorrow = (item) => {
+  activeBorrowItem.value = item
+  borrowReason.value = ''
+  borrowReasonDialogVisible.value = true
+  audioStore.play('/audio/请选择装备领用用途.mp3')
+}
+
+/**
+ * 2. 确认提交补录
+ */
+const confirmBorrowAndFix = async () => {
+  if (!borrowReason.value || !activeBorrowItem.value) return
+
+  const item = activeBorrowItem.value
+  const loading = ElLoading.service({
+    text: '正在同步领用账务...',
+    background: 'rgba(0,0,0,0.8)'
+  })
+
   try {
-    const { value: reason } = await ElMessageBox.prompt(
-      '检测到紧急领用，请输入领用用途',
-      '补录领用登记',
-      {
-        confirmButtonText: '确认补录',
-        cancelButtonText: '取消',
-        inputPlaceholder: '例如：紧急领用、演训调拨...',
-        customClass: 'cyber-message-box',
+    // A. 插入领用记录 (增加“盘点补录”标识)
+    await window.electronAPI.el_post({
+      action: 'insert',
+      payload: {
+        tableName: 'borrow_records',
+        setValues: {
+          equipment_id: item.id,
+          group_code: item.group_code,
+          group_name: item.group_name,
+          username: '系统核对补录',
+          borrow_time: formatTime(),
+          status: 0, // 未归还
+          remark: `【盘点补录】${borrowReason.value}`,
+        },
       },
-    )
+    })
 
-    if (reason) {
-      // 1. 插入领用记录
-      await window.electronAPI.el_post({
-        action: 'insert',
-        payload: {
-          tableName: 'borrow_records',
-          setValues: {
-            equipment_id: item.id,
-            group_code: item.group_code,
-            group_name: item.group_name,
-            username: '系统核对补录',
-            borrow_time: formatTime(),
-            status: 0,
-            remark: `盘点补录：${reason}`,
-          },
-        },
-      })
-      // 2. 更新装备状态
-      await window.electronAPI.el_post({
-        action: 'update',
-        payload: {
-          tableName: 'equipment',
-          setValues: { group_status: '已取出' },
-          condition: `id = ${item.id}`,
-        },
-      })
+    // B. 更新装备状态为“已取出”
+    await window.electronAPI.el_post({
+      action: 'update',
+      payload: {
+        tableName: 'equipment',
+        setValues: { group_status: '已取出' },
+        condition: `id = ${item.id}`,
+      },
+    })
 
-      item.group_status = '已取出' // 同步前端视图
-      item.isProcessed = true // 新增这一行
-      item.inventory_remark = '已完成补录登记'
-      audioStore.play('/audio/领用完成数据已保存.mp3')
-      // ElMessage.success(`${item.group_name} 领用记录已补齐`)
-    }
-  } catch {
-    console.log('取消补录')
+    // C. 更新前端 UI 状态
+    item.group_status = '已取出'
+    item.isProcessed = true
+    item.inventory_remark = `补录领用：${borrowReason.value}`
+
+    // 刷新该项的判定缓存
+    refreshItemStatus(item)
+
+    borrowReasonDialogVisible.value = false
+    audioStore.play('/audio/领用完成数据已保存.mp3')
+  } catch (e) {
+    console.error('补录失败:', e)
+  } finally {
+    loading.close()
   }
 }
 
@@ -3631,6 +3715,152 @@ onUnmounted(() => {
   flex-direction: column;
   min-height: 100%;
 }
+
+/* ================= 补录领用弹窗专项样式 (前缀 inv-) ================= */
+.inv-reason-content {
+  padding: 10px 20px;
+}
+
+/* 卡片网格 */
+.inv-reason-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 12px;
+  margin-bottom: 15px;
+}
+
+.inv-reason-card {
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid #2a3546;
+  border-radius: 6px;
+  padding: 12px 10px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  cursor: pointer;
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  position: relative;
+  overflow: hidden;
+}
+
+.inv-reason-card:hover {
+  background: rgba(0, 242, 255, 0.05);
+  border-color: #4a5c76;
+}
+
+.inv-reason-card.active {
+  background: rgba(0, 242, 255, 0.1);
+  border-color: var(--primary);
+  box-shadow: 0 0 15px rgba(0, 242, 255, 0.2);
+}
+
+.inv-reason-card.active .card-icon {
+  color: var(--primary);
+  transform: scale(1.1);
+}
+
+.inv-reason-card .card-label {
+  font-size: 14px;
+  color: #ccc;
+}
+
+.inv-reason-card.active .card-label {
+  color: #fff;
+  font-weight: bold;
+}
+
+.inv-active-dot {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--primary);
+  opacity: 0;
+  transition: opacity 0.3s;
+}
+
+.inv-reason-card.active .inv-active-dot {
+  opacity: 1;
+  box-shadow: 0 0 5px var(--primary);
+}
+
+/* 分隔线 */
+.inv-section-divider {
+  display: flex;
+  align-items: center;
+  margin-bottom: 15px;
+}
+
+.inv-section-divider::before,
+.inv-section-divider::after {
+  content: '';
+  flex: 1;
+  height: 1px;
+  background: rgba(255, 255, 255, 0.05);
+}
+
+.inv-section-divider span {
+  padding: 0 15px;
+  font-size: 13px;
+  color: #8899a6;
+  letter-spacing: 2px;
+  text-transform: uppercase;
+}
+
+/* 底部按钮 */
+.inv-reason-footer {
+  display: flex;
+  gap: 15px;
+  justify-content: center;
+  padding: 0 15px 15px;
+  padding-bottom: 0px;
+}
+
+/* 兼容键盘打开时缩小间距 */
+.is-keyboard-open .inv-reason-footer {
+  padding-bottom: 5px !important;
+  padding-top: 5px !important;
+}
+
+.inv-input-section {
+  margin-bottom: 0px;
+}
+
+/* --- 统一后的输入框样式 --- */
+.cyber-custom-input {
+  width: 100%;
+}
+
+.cyber-custom-input :deep(.el-input__wrapper) {
+  background-color: rgba(20, 27, 45, 0.9) !important;
+  /* 确保边框颜色和领用页一致 */
+  box-shadow: 0 0 0 1px #4a5c76 inset !important;
+  border-radius: 4px !important;
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  height: 45px;
+  padding: 0 15px;
+}
+
+/* 统一聚焦和悬停效果 */
+.cyber-custom-input :deep(.el-input__wrapper:hover),
+.cyber-custom-input :deep(.el-input__wrapper.is-focus) {
+  box-shadow: 0 0 0 1px #00f2ff inset !important;
+  /* 使用变量或具体颜色 */
+  background-color: rgba(0, 242, 255, 0.05) !important;
+}
+
+.cyber-custom-input :deep(.el-input__inner) {
+  color: #ffffff !important;
+  font-size: 14px;
+}
+
+.cyber-custom-input :deep(.el-input__prefix) {
+  color: #00f2ff !important;
+}
 </style>
 
 <style>
@@ -4092,6 +4322,53 @@ onUnmounted(() => {
   gap: 20px;
   padding-bottom: 10px;
 }
+
+/* 1. 核心修复：防止补录弹窗主体过度撑开 */
+.inventory-dialog-unique.cyber-dialog-reason .el-dialog__body {
+  flex: none !important;
+  /* 关键：取消 flex: 1，让它高度自适应内容 */
+  display: block !important;
+  /* 取消 flex 布局 */
+  overflow: visible !important;
+  padding: 10px 20px !important;
+}
+
+/* 2. 修复弹窗位置逻辑 */
+.inventory-dialog-unique.cyber-dialog-reason.el-dialog {
+  height: auto !important;
+  /* 强制高度自适应，不随父级容器拉伸 */
+  min-height: auto !important;
+
+  /* 默认居中逻辑 */
+  top: 50% !important;
+  left: 50% !important;
+  transform: translate(-50%, -50%) !important;
+}
+
+/* 3. 键盘打开时的样式优化 */
+:deep(.el-dialog.inventory-dialog-unique.cyber-dialog-reason.is-keyboard-open) {
+  top: 5% !important;
+  /* 键盘打开时移动到顶部附近 */
+  transform: translate(-50%, 0) !important;
+  margin-top: 0 !important;
+  /* 确保此时高度依然是 auto */
+  height: auto !important;
+}
+
+/* 4. 统一输入框样式 (同步领用页) */
+.cyber-custom-input :deep(.el-input__wrapper) {
+  background-color: rgba(20, 27, 45, 0.9) !important;
+  box-shadow: 0 0 0 1px #4a5c76 inset !important;
+  /* 确保是这个深灰色边框 */
+  border-radius: 4px !important;
+  height: 45px;
+}
+
+.cyber-custom-input :deep(.el-input__wrapper.is-focus) {
+  box-shadow: 0 0 0 1px #00f2ff inset !important;
+  /* 聚焦时青色 */
+  background-color: rgba(0, 242, 255, 0.05) !important;
+}
 </style>
 
 <style>
@@ -4298,5 +4575,31 @@ onUnmounted(() => {
 /* 修改图片加载中的占位背景 */
 .image-placeholder {
   background: #0d121c !important;
+}
+</style>
+
+<style>
+/* --- 在全局 style 块中找到或添加以下代码 --- */
+
+/* 1. 如果你想让所有盘点相关的弹窗标题都变大/变小 */
+.inventory-dialog-unique .el-dialog__title {
+  color: #00f2ff !important;
+  font-weight: bold;
+  letter-spacing: 1px;
+  font-size: 15px;
+  /* 这里可以统一调整基础大小 */
+}
+
+/* 2. 【重点】专门针对“补录领用”弹窗标题进行调整 */
+.inventory-dialog-unique.cyber-dialog-reason .el-dialog__title {
+  font-size: 16px !important;
+  /* 将 22px 修改为你目标的大小 */
+  /* 如果想让标题更紧凑，可以微调头部内边距 */
+}
+
+/* 3. 顺便微调一下头部的间距，让它看起来更精致 */
+.inventory-dialog-unique.cyber-dialog-reason .el-dialog__header {
+  padding: 5px 20px 5px !important;
+  /* 压缩头部的上下内边距 */
 }
 </style>
