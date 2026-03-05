@@ -517,7 +517,7 @@
 
             <!-- 提交按钮 -->
             <button class="footer-btn confirm" :class="{ 'is-disabled': verifiedCount < equipmentList.length }"
-              :disabled="verifiedCount < equipmentList.length" @click="finalSubmit">
+              @click="finalSubmit">
               生成盘点报告
             </button>
           </div>
@@ -1701,81 +1701,108 @@ const handleOpenSummary = () => {
   }, 300)
 }
 
+// 1. 新增一个生成格式化编号的辅助函数
+const generateReadableReportNo = () => {
+  const now = new Date();
+  const Y = now.getFullYear();
+  const M = String(now.getMonth() + 1).padStart(2, '0');
+  const D = String(now.getDate()).padStart(2, '0');
+  const h = String(now.getHours()).padStart(2, '0');
+  const m = String(now.getMinutes()).padStart(2, '0');
+  const s = String(now.getSeconds()).padStart(2, '0');
+  return `PD${Y}${M}${D}${h}${m}${s}`; // 结果如: PD20260212013941
+};
+
+// 2. 修改后的 finalSubmit 函数
 const finalSubmit = async () => {
-  // 1. 再次双重校验：是否还有未处理的异常
-  // 【修改】校验逻辑：必须全部核对完成（已核实数 === 总数）
+  // 1. 校验是否全部核实
   if (verifiedCount.value < equipmentList.value.length) {
-    audioStore.play('/audio/校验失败请参考红色文字提示.mp3')
-    /*
-    ElMessage.error(
-      `盘点未完成！尚有 ${equipmentList.value.length - verifiedCount.value} 项装备未核实。`,
-    )
-    */
-    return
+    console.log('未全部核实');
+    audioStore.play('/audio/请核实全部装备后再提交.mp3');
+    return;
   }
 
   const loading = ElLoading.service({
-    text: '正在加密并同步盘点报告...',
+    text: '正在生成结构化盘点报告...',
     background: 'rgba(0,0,0,0.8)',
-  })
+  });
 
   try {
-    // 2. 构造盘点报告详单 (全量数据快照)
-    const reportDetails = equipmentList.value.map((item) => ({
-      group_name: item.group_name,
-      group_code: item.group_code,
-      self_address: item.self_address,
-      system_status: item.group_status, // 账面
-      actual_status: getActualStatus(item), // 实物
-      assessment: getDetailedStatus(item).text, // 判定结论
-      remark: item.inventory_remark || '系统自动核对一致',
-      operator: '管理员', // 如果有登录信息请替换
-    }))
+    const timeNow = formatTime();
+    const reportNo = generateReadableReportNo();
 
-    // 3. 写入盘点日志表 (inventory_logs)
-    // 找到 finalSubmit 函数内部写入 inventory_logs 的位置
-    const response = await window.electronAPI.el_post({
+    // --- 【修改点 1：提取姓名和身份证号】 ---
+    const operators = authStore.verifiedUsers.length > 0
+      ? authStore.verifiedUsers.map((u) => u.real_name).join(', ')
+      : '终端管理员';
+
+    const operatorIds = authStore.verifiedUsers.length > 0
+      ? authStore.verifiedUsers.map((u) => u.id_card).join(', ')
+      : 'SYSTEM_ADMIN';
+
+    // --- 第二步：插入主表 ---
+    const masterResponse = await window.electronAPI.el_post({
       action: 'insert',
       payload: {
-        tableName: 'inventory_logs',
+        tableName: 'inventory_reports',
         setValues: {
-          inventory_time: formatTime(),
+          report_no: reportNo,
+          terminal_id: configStore.terminal?.terminal_id || 'UNKNOWN',
+          operator_names: operators,
+          // --- 【修改点 2：存入身份证号列】 ---
+          operator_id_cards: operatorIds,
+          start_time: timeNow,
           total_count: equipmentList.value.length,
-          abnormal_count: 0,
-          details_json: JSON.stringify(reportDetails),
-          // 修改：显示“姓名(身份证)”格式，或单纯显示姓名
-          operator:
-            authStore.verifiedUsers.length > 0
-              ? authStore.verifiedUsers.map((u) => u.real_name).join(', ')
-              : '终端管理员',
+          match_count: stats.value.match,
+          mismatch_count: stats.value.mismatch,
+          is_synced: 0
         },
       },
-    })
+    });
 
-    if (response.success) {
-      audioStore.play('/audio/保存成功.mp3')
-      /*
-      ElMessage({
-        type: 'success',
-        message: '盘点报告已生成并成功存入盘点历史记录。',
-        duration: 3000,
+    if (!masterResponse.success) throw new Error("主表保存失败");
+
+    const reportId = masterResponse.data.id;
+
+    // --- 第三步：循环插入从表 ---
+    for (const item of equipmentList.value) {
+      await window.electronAPI.el_post({
+        action: 'insert',
+        payload: {
+          tableName: 'inventory_details',
+          setValues: {
+            terminal_id: configStore.terminal?.terminal_id || 'UNKNOWN',
+            report_id: reportId,
+            equipment_id: item.id,
+            group_name_snapshot: item.group_name,
+            group_code_snapshot: item.group_code,
+            self_address_snapshot: item.self_address,
+            system_status: item.group_status,
+            physical_status: getActualStatus(item),
+            assessment_result: getDetailedStatus(item).text,
+            remark: item.inventory_remark || '系统自动核对一致'
+          }
+        }
       })
-      */
-
-      // 4. 清理状态并关闭
-      summaryVisible.value = false
-      // 可选：盘点结束后跳转回首页或刷新数据
-      await getRealData()
-    } else {
-      throw new Error(response.message)
     }
+
+    // --- 【修改点 3：记录系统日志】 ---
+    // 假设你引入了日志插件，记录盘点完成事件
+    // plugins.logUserAction('装备盘点', `完成了盘点报告: ${reportNo}, 异常数: ${stats.value.mismatch}`, { reportId });
+
+    audioStore.play('/audio/保存成功.mp3');
+    summaryVisible.value = false;
+
+    // 提示用户跳转或刷新
+    await getRealData();
+
   } catch (error) {
-    console.error('提交盘点失败:', error)
-    // ElMessage.error('报告同步失败，请检查网络或数据库连接')
+    console.error('盘点提交失败:', error);
+    // 可选：播放保存失败音效
   } finally {
-    loading.close()
+    loading.close();
   }
-}
+};
 
 // --- [核心功能：快速处置逻辑] ---
 
