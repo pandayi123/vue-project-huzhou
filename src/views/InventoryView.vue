@@ -1542,6 +1542,17 @@ const stats = computed(() => {
 
     // 安全盲区统计：传感器被屏蔽且已通过人工核实的数量
     unmonitored: unmonitoredItems.length,
+
+    // --- 【新增：专门用于 finalSubmit 入库主表的字段】 ---
+    // 自动判定：传感监控正常且账实相符
+    autoIn: healthyItems.filter((i) => i.group_status === '在位').length,
+    autoOut: healthyItems.filter((i) => i.group_status === '已取出').length,
+
+    // 人工授信：传感屏蔽，但人工已点“核实”按钮
+    manualIn: unmonitoredItems.filter((i) => i.group_status === '在位').length,
+    manualOut: unmonitoredItems.filter((i) =>
+      i.group_status !== '在位' && i.group_status !== '报失'
+    ).length
   }
 })
 
@@ -1715,90 +1726,103 @@ const generateReadableReportNo = () => {
 
 // 2. 修改后的 finalSubmit 函数
 const finalSubmit = async () => {
-  // 1. 校验是否全部核实
+  // --- 1. 统一卡点：检查核实进度 ---
+  // 只有当所有装备都经过人工核实或系统判定后，verifiedCount 才等于 equipmentList.length
   if (verifiedCount.value < equipmentList.value.length) {
-    console.log('未全部核实');
-    audioStore.play('/audio/请核实全部装备后再提交.mp3');
-    return;
+    audioStore.play('/audio/请核实全部装备后再提交.mp3')
+    return
   }
 
-  const loading = ElLoading.service({
-    text: '正在生成结构化盘点报告...',
-    background: 'rgba(0,0,0,0.8)',
-  });
+  // 开启全屏加载动画
+  const loading = ElLoading.service({ text: '正在生成盘点报告...', background: 'rgba(0,0,0,0.8)' });
 
   try {
     const timeNow = formatTime();
-    const reportNo = generateReadableReportNo();
+    const reportNo = generateReadableReportNo(); // 生成 PD2026... 格式编号
+    const operatorNames = authStore.verifiedUsers.map(u => u.real_name).join(', ') || '终端管理员';
+    const operatorIds = authStore.verifiedUsers.map(u => u.id_card).join(', ') || 'SYSTEM';
 
-    // --- 【修改点 1：提取姓名和身份证号】 ---
-    const operators = authStore.verifiedUsers.length > 0
-      ? authStore.verifiedUsers.map((u) => u.real_name).join(', ')
-      : '终端管理员';
-
-    const operatorIds = authStore.verifiedUsers.length > 0
-      ? authStore.verifiedUsers.map((u) => u.id_card).join(', ')
-      : 'SYSTEM_ADMIN';
-
-    // --- 第二步：插入主表 ---
+    // --- 2. 插入盘点报告主表 (inventory_reports) ---
     const masterResponse = await window.electronAPI.el_post({
       action: 'insert',
       payload: {
         tableName: 'inventory_reports',
         setValues: {
           report_no: reportNo,
+          table_name: 'inventory_reports',
           terminal_id: configStore.terminal?.terminal_id || 'UNKNOWN',
-          operator_names: operators,
-          // --- 【修改点 2：存入身份证号列】 ---
-          operator_id_cards: operatorIds,
+          operator_names: operatorNames,
+          operator_id_cards: operatorIds, // 注意：根据最新表结构，这里是复数形式
           start_time: timeNow,
-          total_count: equipmentList.value.length,
-          match_count: stats.value.match,
-          mismatch_count: stats.value.mismatch,
+          total_count: stats.value.total,
+
+          // 统计分类对应最新表结构
+          auto_in_count: stats.value.autoIn,
+          auto_out_count: stats.value.autoOut,
+          manual_in_count: stats.value.manualIn,
+          manual_out_count: stats.value.manualOut,
+          lost_count: stats.value.lostCount,
+
           is_synced: 0
         },
       },
     });
 
-    if (!masterResponse.success) throw new Error("主表保存失败");
+    console.log('masterResponse:', masterResponse);
 
-    const reportId = masterResponse.data.id;
+    // ================= [调试代码 - 已按要求注释保留] =================
+    // isPolling.value = false; // 暂停轮询
+    // debugger;                // 进入断点
+    // =========================================================
 
-    // --- 第三步：循环插入从表 ---
+    // 关键安全检查：必须拿到 lastID 才能继续插入从表
+    if (!masterResponse.success || !masterResponse.data?.lastID) {
+      throw new Error("主表保存失败，未能生成有效的关联ID");
+    }
+
+    const reportId = masterResponse.data.lastID;
+
+    // --- 3. 循环插入盘点明细表 (inventory_details) ---
     for (const item of equipmentList.value) {
       await window.electronAPI.el_post({
         action: 'insert',
         payload: {
           tableName: 'inventory_details',
           setValues: {
+            table_name: 'inventory_details', // 显式插入表名，适配通用同步模块
+            report_no: reportNo,             // 新增：业务编号快照
             terminal_id: configStore.terminal?.terminal_id || 'UNKNOWN',
-            report_id: reportId,
+            report_id: reportId,             // 物理关联 ID
             equipment_id: item.id,
-            group_name_snapshot: item.group_name,
-            group_code_snapshot: item.group_code,
-            self_address_snapshot: item.self_address,
-            system_status: item.group_status,
-            physical_status: getActualStatus(item),
-            assessment_result: getDetailedStatus(item).text,
-            remark: item.inventory_remark || '系统自动核对一致'
+
+            // 根据最新表结构，移除 _snapshot 后缀
+            group_name: item.group_name,
+            group_code: item.group_code,
+            self_address: item.self_address,
+
+            system_status: item.group_status,        // 账面状态
+            physical_status: getActualStatus(item),  // 物理感应状态
+            assessment_result: getDetailedStatus(item).text, // 判定结论文本
+
+            remark: item.inventory_remark || (item.manual_checked ? '人工核对一致' : '系统自动校对'),
+            is_synced: 0
           }
         }
-      })
+      });
     }
 
-    // --- 【修改点 3：记录系统日志】 ---
-    // 假设你引入了日志插件，记录盘点完成事件
-    // plugins.logUserAction('装备盘点', `完成了盘点报告: ${reportNo}, 异常数: ${stats.value.mismatch}`, { reportId });
+    // --- 4. 提交完成后的处理 ---
+    audioStore.play('/audio/盘点报告已完成.mp3');
 
-    audioStore.play('/audio/保存成功.mp3');
+    // 关闭盘点弹窗
     summaryVisible.value = false;
 
-    // 提示用户跳转或刷新
+    // 重新获取数据以重置本地状态（如 manual_checked 等）
     await getRealData();
 
   } catch (error) {
-    console.error('盘点提交失败:', error);
-    // 可选：播放保存失败音效
+    console.error('盘点报告生成失败:', error);
+    // 可选：ElMessage.error('报告保存失败，请检查数据库连接');
   } finally {
     loading.close();
   }

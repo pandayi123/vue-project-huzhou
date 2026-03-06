@@ -1701,10 +1701,23 @@ const handleOpenSummary = () => {
   }, 300)
 }
 
+// 1. 新增一个生成格式化编号的辅助函数
+const generateReadableReportNo = () => {
+  const now = new Date();
+  const Y = now.getFullYear();
+  const M = String(now.getMonth() + 1).padStart(2, '0');
+  const D = String(now.getDate()).padStart(2, '0');
+  const h = String(now.getHours()).padStart(2, '0');
+  const m = String(now.getMinutes()).padStart(2, '0');
+  const s = String(now.getSeconds()).padStart(2, '0');
+  return `PD${Y}${M}${D}${h}${m}${s}`; // 结果如: PD20260212013941
+};
+
+// 2. 修改后的 finalSubmit 函数
 const finalSubmit = async () => {
-  // 1. 校验是否全部核核实
+  // 1. 校验是否全部核实
   if (verifiedCount.value < equipmentList.value.length) {
-    console.log('未全部核实')
+    console.log('未全部核实');
     audioStore.play('/audio/请核实全部装备后再提交.mp3');
     return;
   }
@@ -1716,12 +1729,18 @@ const finalSubmit = async () => {
 
   try {
     const timeNow = formatTime();
-    const reportNo = 'PD' + Date.now(); // 生成唯一编号
+    const reportNo = generateReadableReportNo();
+
+    // --- 【修改点 1：提取姓名和身份证号】 ---
     const operators = authStore.verifiedUsers.length > 0
       ? authStore.verifiedUsers.map((u) => u.real_name).join(', ')
       : '终端管理员';
 
-    // --- 第一步：插入主表 ---
+    const operatorIds = authStore.verifiedUsers.length > 0
+      ? authStore.verifiedUsers.map((u) => u.id_card).join(', ')
+      : 'SYSTEM_ADMIN';
+
+    // --- 第二步：插入主表 ---
     const masterResponse = await window.electronAPI.el_post({
       action: 'insert',
       payload: {
@@ -1730,6 +1749,8 @@ const finalSubmit = async () => {
           report_no: reportNo,
           terminal_id: configStore.terminal?.terminal_id || 'UNKNOWN',
           operator_names: operators,
+          // --- 【修改点 2：存入身份证号列】 ---
+          operator_id_cards: operatorIds,
           start_time: timeNow,
           total_count: equipmentList.value.length,
           match_count: stats.value.match,
@@ -1741,17 +1762,16 @@ const finalSubmit = async () => {
 
     if (!masterResponse.success) throw new Error("主表保存失败");
 
-    // 获取刚刚插入的主表 ID
     const reportId = masterResponse.data.id;
 
-    // --- 第二步：构造并批量插入从表 ---
-    // 注意：这里需要循环插入或使用你封装的批量插入方法
+    // --- 第三步：循环插入从表 ---
     for (const item of equipmentList.value) {
       await window.electronAPI.el_post({
         action: 'insert',
         payload: {
           tableName: 'inventory_details',
           setValues: {
+            terminal_id: configStore.terminal?.terminal_id || 'UNKNOWN',
             report_id: reportId,
             equipment_id: item.id,
             group_name_snapshot: item.group_name,
@@ -1763,16 +1783,22 @@ const finalSubmit = async () => {
             remark: item.inventory_remark || '系统自动核对一致'
           }
         }
-      });
+      })
     }
 
-    // --- 第三步：后续处理 ---
+    // --- 【修改点 3：记录系统日志】 ---
+    // 假设你引入了日志插件，记录盘点完成事件
+    // plugins.logUserAction('装备盘点', `完成了盘点报告: ${reportNo}, 异常数: ${stats.value.mismatch}`, { reportId });
+
     audioStore.play('/audio/保存成功.mp3');
     summaryVisible.value = false;
-    await getRealData(); // 刷新页面数据
+
+    // 提示用户跳转或刷新
+    await getRealData();
 
   } catch (error) {
     console.error('盘点提交失败:', error);
+    // 可选：播放保存失败音效
   } finally {
     loading.close();
   }
