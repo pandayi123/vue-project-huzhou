@@ -813,6 +813,179 @@
       </template>
     </el-dialog>
 
+    <!-- ================= 弹窗 A：盘点历史记录列表 ================= -->
+    <el-dialog v-model="historyVisible" title="装备盘点历史记录" width="1250px" class="inventory-dialog-unique">
+      <div class="history-table-container custom-scroll" v-loading="historyLoading" element-loading-text="正在检索历史数据..."
+        element-loading-background="rgba(10, 14, 23, 0.9)">
+        <table class="cyber-table">
+          <thead>
+            <tr>
+              <th width="160">报告编号</th>
+              <th width="180">盘点时间</th>
+              <th width="150">盘点人</th>
+              <th width="90">装备总数</th>
+              <th width="200">盘点结果 (在位 / 取出 / 报失)</th>
+              <th width="90">同步状态</th>
+              <th width="100">操作</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr v-for="report in historyList" :key="report.id">
+              <!-- 报告编号 -->
+              <td class="t-code" style="color: #00f2ff;">{{ report.report_no }}</td>
+              <!-- 时间 -->
+              <td style="font-family: monospace; ">{{ report.start_time }}</td>
+              <!-- 盘点人 -->
+              <td style="color: #cdd9e5;">{{ report.operator_names }}</td>
+              <!-- 总数 -->
+              <td style="font-weight: bold;">{{ report.total_count }}</td>
+              <!-- 统计对比：计算(自动在位+人工在位) / (自动取出+人工取出) / 报失 -->
+              <td>
+                <div style="display: flex; gap: 8px; align-items: center;">
+                  <span class="success-text" title="总在位">{{ report.auto_in_count + report.manual_in_count }}</span>
+                  <span style="color: #4a5c76;">/</span>
+                  <span class="info-text" title="总取出">{{ report.auto_out_count + report.manual_out_count }}</span>
+                  <span style="color: #4a5c76;">/</span>
+                  <span style="color: #ff7875;" title="报失">{{ report.lost_count }}</span>
+                </div>
+              </td>
+              <!-- 同步状态 -->
+              <td>
+                <span :class="report.is_synced === 1 ? 'success-text' : 'warning-text'">
+                  {{ report.is_synced === 1 ? ' 已同步' : ' 待上传' }}
+                </span>
+              </td>
+              <!-- 操作 -->
+              <td>
+                <button class="mini-action-btn success" @click="viewHistoryDetail(report)">
+                  查看明细
+                </button>
+              </td>
+            </tr>
+          </tbody>
+        </table>
+
+        <!-- 空状态 -->
+        <div v-if="historyList.length === 0 && !historyLoading" class="no-data-placeholder">
+          <el-icon :size="48" style="margin-bottom: 10px; opacity: 0.2;">
+            <Files />
+          </el-icon>
+          <p>暂无已生成的盘点报告</p>
+        </div>
+      </div>
+
+      <!-- 【新增：使用 footer 插槽固定分页】 -->
+      <template #footer>
+        <div class="history-pagination-box">
+          <el-pagination size="large" background layout="total, prev, pager, next" :total="historyTotal" :page-size="historyPageSize"
+            v-model:current-page="historyCurrentPage" @current-change="fetchHistoryReports" />
+        </div>
+      </template>
+    </el-dialog>
+
+    <!-- ================= 弹窗 B：盘点历史明细详情 ================= -->
+    <el-dialog v-model="historyDetailVisible" :title="`盘点明细详情 - 报告单号: ${selectedHistoryReport?.report_no}`"
+      width="1200px" class="inventory-dialog-unique">
+      <!-- 顶部简报条 -->
+      <div class="history-detail-summary-bar">
+        <div class="summary-item">
+          <span class="s-label">盘点时间：</span>
+          <span class="s-value">{{ selectedHistoryReport?.start_time }}</span>
+        </div>
+        <div class="summary-item">
+          <span class="s-label">盘点人员：</span>
+          <span class="s-value">{{ selectedHistoryReport?.operator_names }}</span>
+        </div>
+        <div class="summary-item">
+          <span class="s-label">统计概览：</span>
+          <span class="s-value">
+            共 <b style="color:#fff">{{ selectedHistoryReport?.total_count }}</b> 件 /
+            在位 <b class="success-text">{{ selectedHistoryReport?.auto_in_count + selectedHistoryReport?.manual_in_count
+              }}</b> /
+            借出 <b class="info-text">{{ selectedHistoryReport?.auto_out_count + selectedHistoryReport?.manual_out_count
+              }}</b> /
+            报失 <b style="color:#ff7875">{{ selectedHistoryReport?.lost_count }}</b>
+          </span>
+        </div>
+      </div>
+
+      <!-- 明细表格容器 -->
+      <div class="abnormal-table-container custom-scroll" style="margin-top: 15px;">
+        <table class="cyber-table">
+          <thead>
+            <tr>
+              <th width="80">柜位</th>
+              <th width="220">装备名称 / 编号</th>
+              <th width="120">系统账面</th>
+              <th width="120">物理感知</th>
+              <th width="140">判定结论</th>
+              <th>盘点备注说明</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr v-for="detail in historyDetailList" :key="detail.id">
+              <!-- 1. 柜位 -->
+              <td style="color: #00f2ff; font-weight: bold; font-family: Consolas;">
+                {{ detail.self_address }}号
+              </td>
+
+              <!-- 2. 装备基本信息 -->
+              <td>
+                <div class="t-name" style="font-size: 14px; color: #fff;">{{ detail.group_name }}</div>
+                <div class="t-code" style="font-size: 12px; color: #8899a6; font-family: Consolas;">
+                  {{ detail.group_code }}
+                </div>
+              </td>
+
+              <!-- 3. 账面状态快照 -->
+              <td>
+                <span class="mini-tag" :class="detail.system_status === '在位' ? 'st-in' : 'st-out'"
+                  style="font-size: 14px;font-weight: normal;">
+                  {{ detail.system_status }}
+                </span>
+              </td>
+
+              <!-- 4. 物理感知快照 -->
+              <td>
+                <span class="mini-tag" :class="{
+                  'st-in': detail.physical_status === '在位',
+                  'st-out': detail.physical_status === '不在位',
+                  'st-disabled': detail.physical_status === '已禁用'
+                }" style="font-size: 14px;font-weight: normal;">
+                  {{ detail.physical_status }}
+                </span>
+              </td>
+
+              <!-- 5. 判定结论 (基于 assessment_result) -->
+              <td>
+                <span class="mini-tag" :class="{
+                  'tag-normal-in': detail.assessment_result === '正常在位',
+                  'tag-normal-out': ['正常借出', '报失', '已取出'].includes(detail.assessment_result),
+                  'tag-error-missing': detail.assessment_result === '异常离位',
+                  'tag-error-occupied': detail.assessment_result === '异常占用',
+                  'tag-unmonitored': ['人工授信', '传感屏蔽/待核'].includes(detail.assessment_result)
+                }" style="font-size: 14px;font-weight: normal;">
+                  {{ detail.assessment_result }}
+                </span>
+              </td>
+
+              <!-- 6. 备注 -->
+              <td style="color: #8899a6; font-size: 13px; line-height: 1.4;">
+                {{ detail.remark || '--' }}
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <template #footer>
+        <div class="detail-footer">
+          <div style="font-size: 12px; color: #4a5c76;">* 此列表展示盘点时刻的静态数据快照</div>
+          <button class="footer-btn confirm" @click="historyDetailVisible = false">关闭详情</button>
+        </div>
+      </template>
+    </el-dialog>
+
     <!-- 虚拟键盘组件 -->
     <div v-if="showKeyboard" class="keyboard-container" :style="keyboardPosition" @mousedown.prevent>
       <SimpleKeyboard v-model="currentInputValue" :defaultLayout="currentLayout" @onKeyPress="handleKeyPress"
@@ -832,7 +1005,6 @@ import {
   nextTick,
   watch,
 } from 'vue'
-import { useRouter } from 'vue-router'
 import {
   Files,
   Box,
@@ -868,7 +1040,6 @@ const selectedDetail = ref(null)
 // --- 1. 定义选中状态变量 ---
 const selectedId = ref(null)
 
-const router = useRouter()
 const audioStore = useAudioStore()
 
 // 1. 找到 import 区域，添加 useAuthStore
@@ -907,6 +1078,19 @@ const activeInputDom = ref(null)
 const cursorIndex = ref(0)
 const scrollAreaHeight = ref('70vh') // 对应异常表格容器的初始高度
 const currentLayout = ref('default')
+
+// --- 盘点历史相关变量 ---
+const historyVisible = ref(false)         // 控制历史列表弹窗
+const historyLoading = ref(false)         // 列表加载状态
+const historyList = ref([])               // 历史报告数据
+const historyDetailVisible = ref(false)   // 控制历史明细弹窗
+const historyDetailList = ref([])         // 某次报告的明细数据
+const selectedHistoryReport = ref(null)   // 当前选中的历史报告
+
+// --- 1. 新增分页相关变量 ---
+const historyCurrentPage = ref(1)
+const historyTotal = ref(0)
+const historyPageSize = ref(8) // 每页显示 8条，适配大弹窗高度
 
 const keyboardPosition = ref({
   bottom: '0px',
@@ -1168,9 +1352,70 @@ const refreshItemStatus = (item) => {
 }
 
 // --- 新增：跳转历史方法 ---
-const goToHistory = () => {
+const goToHistory = async () => {
   audioStore.play('/audio/按钮点击声.mp3')
-  router.push('/inventory-history') // 请确保你的路由中有这个路径
+  historyVisible.value = true
+  historyCurrentPage.value = 1 // 每次打开重置为第一页
+  fetchHistoryReports()
+}
+
+// 获取历史报告列表
+const fetchHistoryReports = async () => {
+  historyLoading.value = true
+  historyList.value = []
+
+  try {
+    const res = await window.electronAPI.el_post({
+      action: 'queryPagination',
+      payload: {
+        tableName: 'inventory_reports',
+        page: historyCurrentPage.value, // 使用响应式页码
+        pageSize: historyPageSize.value, // 使用响应式每页数量
+        condition: '',
+        orderBy: 'start_time DESC'
+      },
+    })
+
+    if (res.success && res.data?.data) {
+      historyList.value = res.data.data
+      historyTotal.value = res.data.total // [关键] 记录总条数
+    }
+  } catch (error) {
+    console.error('获取历史记录失败:', error)
+  } finally {
+    historyLoading.value = false
+  }
+}
+
+// 查看某次盘点的详细明细
+const viewHistoryDetail = async (report) => {
+  audioStore.play('/audio/按钮点击声.mp3')
+  selectedHistoryReport.value = report // 存储当前选中的主表行
+  historyDetailVisible.value = true    // 打开明细弹窗
+  historyDetailList.value = []         // 清空上次旧数据
+
+  try {
+    const res = await window.electronAPI.el_post({
+      action: 'queryPagination',
+      payload: {
+        tableName: 'inventory_details',
+        page: 1,
+        pageSize: 500, // 设置足够大的页码以覆盖单次盘点的所有装备（通常一个柜子不会超过500件）
+        condition: `report_id = ${report.id}`,
+        // 按照柜位物理顺序排列，CAST(self_address AS UNSIGNED) 确保字符串 2 小于 10
+        orderBy: 'CAST(self_address AS UNSIGNED) ASC'
+      },
+    })
+
+    // 分页接口的数据存放在 res.data.data 中
+    if (res.success && res.data?.data) {
+      historyDetailList.value = res.data.data
+    } else {
+      console.warn('未查询到相关盘点明细')
+    }
+  } catch (error) {
+    console.error('获取盘点明细失败:', error)
+  }
 }
 
 // --- 时间格式化 ---
@@ -1817,8 +2062,8 @@ const finalSubmit = async () => {
     // 关闭盘点弹窗
     summaryVisible.value = false;
 
-    // 重新获取数据以重置本地状态（如 manual_checked 等）
-    await getRealData();
+    // 【删除以下这行】：不要在生成报告后立即重置
+    // await getRealData();
 
   } catch (error) {
     console.error('盘点报告生成失败:', error);
@@ -4025,6 +4270,120 @@ onUnmounted(() => {
 .cyber-custom-input :deep(.el-input__prefix) {
   color: #00f2ff !important;
 }
+
+/* 历史详情顶部的简报条 */
+.history-detail-summary-bar {
+  display: flex;
+  background: rgba(0, 0, 0, 0.3);
+  padding: 12px 20px;
+  border-radius: 4px;
+  border: 1px solid var(--border);
+  gap: 40px;
+  align-items: center;
+}
+
+.summary-item {
+  display: flex;
+  align-items: center;
+  font-size: 14px;
+}
+
+.summary-item .s-label {
+  color: var(--text-sec);
+  margin-right: 8px;
+}
+
+.summary-item .s-value {
+  color: var(--primary);
+  font-weight: 500;
+}
+
+/* 标签颜色增强（针对详情表） */
+.tag-normal-in {
+  background: rgba(0, 255, 157, 0.15) !important;
+  color: #00ff9d !important;
+  border: 1px solid rgba(0, 255, 157, 0.3);
+}
+
+.tag-normal-out {
+  background: rgba(0, 242, 255, 0.1) !important;
+  color: #00f2ff !important;
+  border: 1px solid rgba(0, 242, 255, 0.3);
+}
+
+.tag-error-missing {
+  background: rgba(255, 77, 79, 0.15) !important;
+  color: #ff4d4f !important;
+  border: 1px solid rgba(255, 77, 79, 0.3);
+}
+
+.tag-unmonitored {
+  background: rgba(255, 152, 0, 0.1) !important;
+  color: #ff9800 !important;
+  border: 1px solid rgba(255, 152, 0, 0.3);
+}
+
+/* ================= 历史记录弹窗分页样式 ================= */
+.history-pagination-box {
+  padding: 10px 0;
+  display: flex;
+  justify-content: flex-end;
+}
+
+/* 深度覆盖 Element Plus 分页样式 */
+.history-pagination-box :deep(.el-pagination) {
+  --el-pagination-bg-color: transparent !important;
+  --el-pagination-button-bg-color: rgba(20, 27, 45, 0.8) !important;
+}
+
+.history-pagination-box :deep(.el-pagination__total) {
+  color: #8899a6 !important;
+}
+
+.history-pagination-box :deep(.el-pagination.is-background .el-pager li),
+.history-pagination-box :deep(.el-pagination.is-background .btn-prev),
+.history-pagination-box :deep(.el-pagination.is-background .btn-next) {
+  background-color: rgba(20, 27, 45, 0.8) !important;
+  border: 1px solid #2a3546 !important;
+  color: #8899a6 !important;
+}
+
+.history-pagination-box :deep(.el-pagination.is-background .el-pager li:hover) {
+  color: #00f2ff !important;
+  border-color: #00f2ff !important;
+}
+
+.history-pagination-box :deep(.el-pagination.is-background .el-pager li.is-active) {
+  background-color: rgba(0, 242, 255, 0.15) !important;
+  border-color: #00f2ff !important;
+  color: #00f2ff !important;
+  box-shadow: 0 0 10px rgba(0, 242, 255, 0.2);
+}
+
+/* 1. 针对历史报告表格容器的精准高度控制 */
+.history-table-container {
+  /* 计算公式：表头高度(约50px) + (行高约55px * 7条) + 边距 */
+  /* 这里建议设置一个固定的高度值，例如 450px */
+  height: 750px;
+  min-height: 750px;
+  /* 强制不塌陷 */
+
+  display: flex;
+  flex-direction: column;
+  border: 1px solid #2a3546;
+  border-radius: 4px;
+  background: rgba(0, 0, 0, 0.2);
+  overflow: hidden;
+  /* 内部表格滚动，容器不产生双滚动条 */
+}
+
+/* 2. 让表格撑满容器 */
+.history-table-container .cyber-table {
+  width: 100%;
+  height: auto !important;
+  /* 关键：取消 100%，让它不再强制填满容器 */
+  border-collapse: collapse;
+}
 </style>
 
 <style>
@@ -4073,7 +4432,7 @@ onUnmounted(() => {
   flex: 1 !important;
   background-color: transparent !important;
   color: #ffffff !important;
-  padding: 15px 20px !important;
+  padding: 0px !important;
   display: flex !important;
   flex-direction: column !important;
 }

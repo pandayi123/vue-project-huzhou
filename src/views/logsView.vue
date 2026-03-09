@@ -200,8 +200,10 @@
                 </el-table-column>
 
                 <!-- 4. 备注/用途 -->
-                <el-table-column label="用途/备注">
+                <!-- 添加 show-overflow-tooltip 属性 -->
+                <el-table-column label="用途/备注" show-overflow-tooltip>
                   <template #default="scope">
+                    <!-- 这里的类名建议改为和操作轨迹一样的 desc-text，或者保持原样但修改 CSS -->
                     <span class="remark-text">
                       {{
                         activeCategory === 'RETURN'
@@ -1236,11 +1238,17 @@ pre {
 .remark-text {
   font-size: 14px;
   color: #ccdbe8;
-  display: -webkit-box;
-  -webkit-box-orient: vertical;
-  line-clamp: 2;
-  -webkit-line-clamp: 2;
+  /* 必须确保是单行溢出，气泡才能正常触发 */
+  display: block;
+  white-space: nowrap;
   overflow: hidden;
+  text-overflow: ellipsis;
+
+  /* 删除以下原来的多行截断代码 */
+  /* display: -webkit-box; */
+  /* -webkit-box-orient: vertical; */
+  /* line-clamp: 2; */
+  /* -webkit-line-clamp: 2; */
 }
 
 /* 装备实照列图片样式 */
