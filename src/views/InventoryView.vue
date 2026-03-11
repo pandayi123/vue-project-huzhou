@@ -22,7 +22,14 @@
           </el-icon>
           盘点记录
         </button>
-        <button class="btn-exit" @click="$router.push('/')">
+        <!-- [新增] 开启柜门按钮 -->
+        <button class="btn-open-door header-btn" @click="handleDirectOpenDoor">
+          <el-icon>
+            <Unlock />
+          </el-icon>
+          开启柜门
+        </button>
+        <button class="btn-exit" @click="handleSafeExit">
           <el-icon>
             <SwitchButton />
           </el-icon>
@@ -820,7 +827,7 @@
         <table class="cyber-table">
           <thead>
             <tr>
-              <th width="160">报告编号</th>
+              <th width="160">盘点报告编号</th>
               <th width="180">盘点时间</th>
               <th width="150">盘点人</th>
               <th width="90">装备总数</th>
@@ -877,8 +884,9 @@
       <!-- 【新增：使用 footer 插槽固定分页】 -->
       <template #footer>
         <div class="history-pagination-box">
-          <el-pagination size="large" background layout="total, prev, pager, next" :total="historyTotal" :page-size="historyPageSize"
-            v-model:current-page="historyCurrentPage" @current-change="fetchHistoryReports" />
+          <el-pagination size="large" background layout="total, prev, pager, next" :total="historyTotal"
+            :page-size="historyPageSize" v-model:current-page="historyCurrentPage"
+            @current-change="fetchHistoryReports" />
         </div>
       </template>
     </el-dialog>
@@ -986,6 +994,77 @@
       </template>
     </el-dialog>
 
+    <!-- ================= 弹窗 C：单件装备流转记录 (优化版) ================= -->
+    <el-dialog v-model="flowVisible"
+      :title="`流转记录 - ${activeFlowEquipment?.group_name} (${activeFlowEquipment?.group_code})`" width="1250px"
+      class="inventory-dialog-unique">
+      <div class="history-table-container custom-scroll" v-loading="flowLoading" element-loading-text="正在检索流转数据..."
+        element-loading-background="rgba(10, 14, 23, 0.9)">
+        <table class="cyber-table">
+          <thead>
+            <tr>
+              <!-- 领用板块 -->
+              <th width="170">领用时间</th>
+              <th width="110">领用人</th>
+              <th width="220">领用用途/备注</th>
+
+              <!-- 分隔装饰列 (可选，增加视觉区分度) -->
+              <th width="20" style="padding:0; text-align:center; ">|</th>
+
+              <!-- 归还板块 -->
+              <th width="170">归还时间</th>
+              <th width="110">归还人</th>
+              <th>归还状态/备注</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr v-for="record in flowList" :key="record.id" :class="{ 'is-ongoing': !record.return_time }">
+              <!-- 领用信息 -->
+              <td style="font-family: monospace; color: #8899a6;">{{ record.borrow_time }}</td>
+              <td style="color: #00f2ff; font-weight: bold;">{{ record.username }}</td>
+              <td style="font-size: 13px; color: #cdd9e5; line-height: 1.4;">{{ record.remark || '--' }}</td>
+
+              <!-- 分隔线 -->
+              <td style="padding:0; text-align:center; opacity: 0.1;">|</td>
+
+              <!-- 归还信息 -->
+              <template v-if="record.return_time">
+                <td style="font-family: monospace; color: #8899a6;">{{ record.return_time }}</td>
+                <td style="color: #00ff9d; font-weight: bold;">{{ record.return_username }}</td>
+                <td style="font-size: 13px; color: #00ff9d; line-height: 1.4;">{{ record.return_remark || '正常归还' }}</td>
+              </template>
+
+              <!-- 未归还时的占位显示 -->
+              <template v-else>
+                <td colspan="3" style="text-align: center;">
+                  <span class="ongoing-label">
+                    <el-icon class="is-loading">
+                      <Loading />
+                    </el-icon> 装备领用中 · 尚未归还
+                  </span>
+                </td>
+              </template>
+            </tr>
+          </tbody>
+        </table>
+
+        <!-- 空状态 -->
+        <div v-if="flowList.length === 0 && !flowLoading" class="no-data-placeholder">
+          <el-icon :size="48" style="margin-bottom: 10px; opacity: 0.2;">
+            <Memo />
+          </el-icon>
+          <p>该装备暂无流转历史数据</p>
+        </div>
+      </div>
+
+      <template #footer>
+        <div class="history-pagination-box">
+          <el-pagination size="large" background layout="total, prev, pager, next" :total="flowTotal"
+            :page-size="flowPageSize" v-model:current-page="flowCurrentPage" @current-change="fetchEquipmentFlow" />
+        </div>
+      </template>
+    </el-dialog>
+
     <!-- 虚拟键盘组件 -->
     <div v-if="showKeyboard" class="keyboard-container" :style="keyboardPosition" @mousedown.prevent>
       <SimpleKeyboard v-model="currentInputValue" :defaultLayout="currentLayout" @onKeyPress="handleKeyPress"
@@ -1022,6 +1101,7 @@ import {
   Memo,
   Checked,
   EditPen,
+  Unlock,
 } from '@element-plus/icons-vue'
 import { /*ElMessage,*/ ElLoading, ElMessageBox } from 'element-plus'
 import { useAudioStore } from '@/stores/audioStore'
@@ -1092,6 +1172,15 @@ const historyCurrentPage = ref(1)
 const historyTotal = ref(0)
 const historyPageSize = ref(8) // 每页显示 8条，适配大弹窗高度
 
+// --- 装备流转记录相关变量 (新增) ---
+const flowVisible = ref(false)
+const flowLoading = ref(false)
+const flowList = ref([])
+const flowTotal = ref(0)
+const flowPageSize = ref(10) // 流转记录每页显示10条
+const flowCurrentPage = ref(1)
+const activeFlowEquipment = ref(null) // 当前查看流转记录的装备对象
+
 const keyboardPosition = ref({
   bottom: '0px',
   width: '100%',
@@ -1099,6 +1188,9 @@ const keyboardPosition = ref({
   position: 'fixed',
   'z-index': 9999,
 })
+
+import { useRouter } from 'vue-router'
+const router = useRouter()
 
 // 更新光标位置
 const updateCursorPos = (event) => {
@@ -1182,6 +1274,65 @@ const handleKeyPress = (button) => {
   nextTick(() => {
     if (activeInputDom.value) activeInputDom.value.focus()
   })
+}
+
+/**
+ * [新增] 直接开启所有柜门 (用于盘点现场核对)
+ */
+const handleDirectOpenDoor = async () => {
+  // 1. 播放音效反馈
+  audioStore.play('/audio/按钮点击声.mp3')
+
+  // 2. 开启全屏加载遮罩，防止重复点击
+  const loading = ElLoading.service({
+    text: '正在开启所有柜门...',
+    background: 'rgba(0, 0, 0, 0.7)',
+  })
+
+  try {
+    // 3. 获取配置中所有的锁地址 (去重)
+    const uniqueLockAddresses = new Set()
+    if (config_blob.value?.lock?.details) {
+      config_blob.value.lock.details.forEach((l) => {
+        if (l.open_lock_register_address) {
+          uniqueLockAddresses.add(l.open_lock_register_address)
+        }
+      })
+    }
+
+    // 5. 循环发送开锁指令 (Device 201)
+    for (const lockRegister of uniqueLockAddresses) {
+      await window.electronAPI.el_post({
+        action: 'control_register',
+        payload: {
+          deviceAddress: 201,
+          registerAddress: lockRegister,
+          value: 100, // 脉冲宽度
+          isWrite: true,
+        },
+      })
+      // 稍微延迟，避免指令拥堵
+      await new Promise((r) => setTimeout(r, 200))
+    }
+
+    // 6. 统一亮灯 (寄存器 12)
+    await window.electronAPI.el_post({
+      action: 'control_register',
+      payload: {
+        deviceAddress: 201,
+        registerAddress: 12,
+        value: 900000,
+        isWrite: true,
+      },
+    })
+
+    // ElMessage.success('所有柜门已开启')
+  } catch (error) {
+    console.error('开门失败:', error)
+    // ElMessage.error('硬件通信异常，开门失败')
+  } finally {
+    loading.close()
+  }
 }
 
 /**
@@ -1561,6 +1712,150 @@ const getDetailedStatus = (item) => {
   } else {
     // 关键：直接返回账面实际状态（如“报失”），确保后续逻辑能精准匹配
     return { text: item.group_status, class: 'tag-normal-out' }
+  }
+}
+
+/**
+ * [新增] 全局检测所有柜门状态 (Device 201)
+ */
+const checkGlobalDoorStatus = async () => {
+  if (!config_blob.value?.lock?.details) return true
+
+  const usedChannels = new Set()
+  config_blob.value.lock.details.forEach((lock) => {
+    if (lock.channel_address) usedChannels.add(lock.channel_address)
+  })
+
+  try {
+    const res = await window.electronAPI.el_post({
+      action: 'read_all_inputs',
+      payload: {
+        deviceAddress: 201,
+        startAddress: 0x0000,
+        registerCount: 10,
+      },
+    })
+
+    if (res && res.success && res.data && res.data.length >= 8) {
+      for (const channel of usedChannels) {
+        let dataIndex = -1
+        if (channel === 1) dataIndex = 6
+        if (channel === 2) dataIndex = 7
+        // 如果读取值为 0 (假设 0=开, 1=关)，则返回 false
+        if (dataIndex !== -1 && res.data[dataIndex] === 0) {
+          return false
+        }
+      }
+      return true // 全部关闭
+    }
+    return false
+  } catch (e) {
+    console.error('全局门锁状态读取失败', e)
+    return false
+  }
+}
+
+/**
+ * [新增] 安全退出流程：检查柜门 -> 提示/轮询 -> 跳转
+ */
+/**
+ * [优化版] 安全退出流程：释放线路 -> 检查柜门 -> 提示/轮询 -> 跳转
+ */
+const handleSafeExit = async () => {
+  // 1. 【核心修改】立即停止原本的装备状态轮询，释放通信带宽
+  isPolling.value = false;
+
+  // 稍微等待 300ms，确保当前的最后一次硬件请求已经处理完毕
+  await new Promise(r => setTimeout(r, 300));
+
+  // 2. 检查是否正在盘点中
+  if (summaryVisible.value) {
+    // 如果弹窗开着，可以提示或者直接允许退出，根据业务定
+  }
+
+  const loading = ElLoading.service({
+    lock: true,
+    text: '正在扫描所有柜门状态...',
+    background: 'rgba(0, 0, 0, 0.7)',
+  })
+
+  let isAllClosed = false
+  try {
+    // 3. 此时线路已经清空，执行门状态检测非常安全稳定
+    isAllClosed = await checkGlobalDoorStatus()
+  } catch (e) {
+    console.error('Exit check failed:', e)
+    isAllClosed = true // 硬件彻底报错时允许通行
+  }
+  loading.close()
+
+  // 场景 A: 门是关着的 -> 安全退出
+  if (isAllClosed) {
+    router.push('/')
+    return
+  }
+
+  // 场景 B: 门没关 -> 启动“智能等待”
+  audioStore.play('/audio/安全警告检测到柜门未关闭.mp3')
+
+  let stopPolling = false // 此变量仅控制下面的临时检测循环
+  let isAutoAction = false
+
+  // 启动一个临时的、单一任务的快速轮询（专门查门）
+  const startPollingLoop = async () => {
+    while (!stopPolling) {
+      try {
+        await new Promise((resolve) => setTimeout(resolve, 1000))
+        if (stopPolling) break
+        const closedNow = await checkGlobalDoorStatus()
+        if (closedNow) {
+          isAutoAction = true
+          stopPolling = true
+          ElMessageBox.close()
+          router.push('/')
+          break
+        }
+      } catch (e) { console.error(e) }
+    }
+  }
+  startPollingLoop()
+
+  try {
+    const htmlContent = `
+      <div style="display: flex; flex-direction: column; align-items: center; text-align: center; padding: 10px 0;">
+        <div style="margin-bottom: 20px;">
+          <svg viewBox="0 0 1024 1024" width="60" height="60" style="color: #ff4d4f;"><path fill="currentColor" d="M512 64a448 448 0 1 1 0 896 448 448 0 0 1 0-896zm0 192a58.432 58.432 0 0 0-58.24 63.744l23.36 256.384a35.072 35.072 0 0 0 69.76 0l23.296-256.384A58.432 58.432 0 0 0 512 256zm0 512a51.2 51.2 0 1 0 0-102.4 51.2 51.2 0 0 0 0 102.4z"></path></svg>
+        </div>
+        <div style="color: #ff4d4f; font-weight: bold; font-size: 20px; margin-bottom: 15px;">检测到柜门未关闭</div>
+        <div style="background: rgba(0, 242, 255, 0.08); border: 1px solid rgba(0, 242, 255, 0.2); padding: 15px 25px; border-radius: 6px; margin-bottom: 20px;">
+           <span style="color: #00f2ff; font-size: 14px; font-weight: bold;">请关闭柜门，系统检测后将自动退出...</span>
+        </div>
+      </div>
+    `
+
+    await ElMessageBox.confirm(htmlContent, '安全阻断', {
+      dangerouslyUseHTMLString: true,
+      confirmButtonText: '忽视风险，强制退出',
+      showCancelButton: true, // 改为 true
+      cancelButtonText: '返回盘点', // 增加取消选项
+      showClose: false,
+      closeOnClickModal: false,
+      confirmButtonClass: 'el-button--danger',
+      customClass: 'cyber-message-box error-mode',
+      center: true,
+    })
+
+    // 用户点击“强制退出”
+    stopPolling = true
+    router.push('/')
+  } catch (action) {
+    stopPolling = true
+    if (isAutoAction) return
+
+    // 【关键补丁】如果用户点击“返回盘点”（即 catch 了弹窗），由于前面关了轮询，这里需要重启它
+    if (action === 'cancel') {
+      startMonitorLoop()
+    }
   }
 }
 
@@ -2174,11 +2469,52 @@ const confirmBorrowAndFix = async () => {
   }
 }
 
-const handleCheckHistory = (/*item*/) => {
+/**
+ * 核心逻辑：获取单体装备的流转记录
+ */
+const fetchEquipmentFlow = async () => {
+  if (!activeFlowEquipment.value) return
+  flowLoading.value = true
+
+  try {
+    const res = await window.electronAPI.el_post({
+      action: 'queryPagination',
+      payload: {
+        tableName: 'borrow_records',
+        page: flowCurrentPage.value,
+        pageSize: flowPageSize.value,
+        // 根据数据结构表，使用 equipment_id 进行关联查询
+        condition: `equipment_id = ${activeFlowEquipment.value.id}`,
+        orderBy: 'borrow_time DESC' // 按领用时间倒序排列
+      },
+    })
+
+    if (res.success && res.data?.data) {
+      flowList.value = res.data.data
+      flowTotal.value = res.data.total
+    }
+  } catch (error) {
+    console.error('获取流转记录失败:', error)
+  } finally {
+    flowLoading.value = false
+  }
+}
+
+/**
+ * 修改：点击“查看记录”或“装备流转记录”按钮的触发函数
+ */
+const handleCheckHistory = (item) => {
+  if (!item) return
   audioStore.play('/audio/按钮点击声.mp3')
-  // 这里可以跳转到历史页面并带上参数，或者弹出另一个记录弹窗
-  // router.push({ path: '/borrow-history', query: { code: item.group_code } })
-  // ElMessage.info(`正在查询 ${item.group_name} 的流转记录...`)
+
+  // 1. 初始化参数
+  activeFlowEquipment.value = item
+  flowCurrentPage.value = 1
+  flowList.value = []
+
+  // 2. 打开弹窗并查询
+  flowVisible.value = true
+  fetchEquipmentFlow()
 }
 
 /**
@@ -4383,6 +4719,66 @@ onUnmounted(() => {
   height: auto !important;
   /* 关键：取消 100%，让它不再强制填满容器 */
   border-collapse: collapse;
+}
+
+/* 正在领用中的行背景微调 */
+.is-ongoing {
+  background: rgba(0, 242, 255, 0.03) !important;
+}
+
+/* 正在领用中的文字标签 */
+.ongoing-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  background: rgba(255, 77, 79, 0.1);
+  color: #ff4d4f;
+  padding: 4px 15px;
+  border-radius: 20px;
+  font-size: 12px;
+  font-weight: bold;
+  border: 1px solid rgba(255, 77, 79, 0.2);
+  letter-spacing: 1px;
+}
+
+/* 强制让归还备注列的文字呈现淡绿色，区分领用的青色 */
+.cyber-table td:last-child {
+  color: #00ff9d;
+}
+
+/* 针对此弹窗加宽到 1280px 适配双备注 */
+.inventory-dialog-unique.flow-dialog {
+  max-width: 95vw;
+}
+
+/* 顶部开门按钮特殊样式 */
+.btn-open-door {
+  background: rgba(230, 162, 60, 0.05) !important;
+  /* 橙色调，表示维护/警告 */
+  border: 1px solid var(--warning) !important;
+  color: var(--warning) !important;
+  padding: 0 18px;
+  height: 36px;
+  border-radius: 4px;
+  font-size: 13px;
+  font-weight: bold;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  transition: all 0.3s;
+  margin-right: 5px;
+}
+
+.btn-open-door:hover {
+  background: rgba(230, 162, 60, 0.15) !important;
+  box-shadow: 0 0 12px rgba(230, 162, 60, 0.4);
+  border-color: #ffaa00 !important;
+}
+
+/* 复用领用页的确认弹窗上移逻辑 */
+.cyber-dialog-reason.is-keyboard-open {
+  top: 5% !important;
+  transform: translate(-50%, 0) !important;
 }
 </style>
 
