@@ -133,7 +133,7 @@
                   </el-icon> 批量注册
                 </button>
                 <!-- [新增] 手动注册按钮 -->
-                <button class="sys-minor-action-btn" @click="openManualRegDialog">
+                <button class="sys-minor-action-btn" @click="openInductionSetup">
                   <el-icon>
                     <EditPen />
                   </el-icon> 感应注册
@@ -164,14 +164,13 @@
     </div>
 
     <!-- 对码状态弹窗 -->
-    <el-dialog v-model="isApplying" :show-close="false" class="sys-config-message-box warning-mode" width="460px"
-      center>
+    <el-dialog v-model="isApplying" :show-close="false" class="sys-config-dialog-unique" width="460px" center>
       <div class="hw-loading-dialog">
         <div class="hw-loading-spinner"></div>
         <div class="hw-loading-text">系统侦听中...</div>
         <div class="hw-loading-sub">请按照顺序物理触发对应开关</div>
         <div class="hw-loading-current">当前等待编号：<span>{{ currentId }}</span></div>
-        <button class="sys-btn-text danger sys-mt-20" @click="isApplying = false">中断当前任务</button>
+        <button class="sys-btn-text danger sys-mt-20" @click="handleAbortInduction">中断当前任务</button>
       </div>
     </el-dialog>
 
@@ -209,8 +208,8 @@
     </el-dialog>
 
     <!-- 修改点 2：新增“开关实时检测”弹窗 (参考盘点页风格) -->
-    <el-dialog v-model="testVisible" title="传感器物理信号实时监测" width="800px" class="sys-config-dialog-unique" destroy-on-close
-      @close="stopTestPolling">
+    <el-dialog v-model="testVisible" align-center title="传感器物理信号实时监测" width="1250px" class="sys-config-dialog-unique"
+      destroy-on-close @close="stopTestPolling">
       <div class="test-dialog-content">
         <div class="test-header-tip">
           <el-icon class="is-loading">
@@ -221,13 +220,25 @@
 
         <!-- 信号矩阵网格 -->
         <div class="test-signal-grid custom-scroll">
+          <!-- 找到这一段并替换 -->
           <div v-for="item in form_switch.details" :key="item.self_address" class="test-signal-card"
             :class="{ 'is-active': realtimeSignals[item.self_address] === 1 }">
+
+            <!-- 1. 逻辑编号 -->
             <div class="s-node-id">#{{ item.self_address }}</div>
-            <div class="s-status-text">
-              {{ realtimeSignals[item.self_address] === 1 ? '已触发 (通)' : '未触发 (断)' }}
+
+            <!-- 2. 物理映射 (新增) -->
+            <div class="s-phys-info">
+              板{{ item.expansion_board_address }} - 路{{ item.channel_address }}
             </div>
-            <!-- 装饰性光圈，仅在激活时显示 -->
+
+            <!-- 3. 状态标签 (优化) -->
+            <div class="s-status-badge">
+              <span class="s-status-dot"></span>
+              {{ realtimeSignals[item.self_address] === 1 ? '已连通' : '断开' }}
+            </div>
+
+            <!-- 装饰性光圈 -->
             <div class="s-glow-ring"></div>
           </div>
         </div>
@@ -269,6 +280,38 @@
         <div class="reg-footer">
           <button class="footer-btn cancel" @click="manualRegVisible = false">取消</button>
           <button class="footer-btn confirm" @click="submitManualReg">保存录入</button>
+        </div>
+      </template>
+    </el-dialog>
+
+    <!-- [新增] 感应注册参数设置弹窗 -->
+    <el-dialog v-model="inductionVisible" title="感应注册传感器" width="420px" class="sys-config-dialog-unique"
+      destroy-on-close>
+      <div class="reg-dialog-content">
+        <el-form label-position="top" :model="inductionForm" :rules="inductionRules" ref="inductionFormRef">
+          <el-form-item label="起始映射编号 (自定 ID)" prop="startId">
+            <el-input v-model="inductionForm.startId" class="sys-config-input"
+              @focus="openKeyboard('startId', inductionForm, $event)" />
+          </el-form-item>
+
+          <el-form-item label="计划连续注册数量" prop="count">
+            <el-input v-model="inductionForm.count" class="sys-config-input"
+              @focus="openKeyboard('count', inductionForm, $event)" />
+          </el-form-item>
+        </el-form>
+
+        <div class="reg-preview">
+          <el-icon>
+            <InfoFilled />
+          </el-icon>
+          点击确认后，请依次物理触发柜内开关完成对码
+        </div>
+      </div>
+
+      <template #footer>
+        <div class="reg-footer">
+          <button class="footer-btn cancel" @click="inductionVisible = false">取消</button>
+          <button class="footer-btn confirm" @click="startInductionSequence">开始侦听</button>
         </div>
       </template>
     </el-dialog>
@@ -355,7 +398,7 @@ import {
 import { useConfigStore } from '@/stores/configStore'
 import { useTimerStore } from '@/stores/timerStore'
 import { useAudioStore } from '@/stores/audioStore'
-import { ElMessageBox, ElMessage } from 'element-plus'
+import { ElMessage } from 'element-plus'
 // 1. 引入虚拟键盘组件
 const SimpleKeyboard = defineAsyncComponent(() => import('@/components/SimpleKeyboard_black.vue'))
 
@@ -383,6 +426,20 @@ const form_switch = reactive({
   details: []
 })
 
+// --- [新增] 校验逻辑 (参考旧代码) ---
+const validateNumber = (min, max, label) => {
+  return (rule, value, callback) => {
+    const num = Number(value)
+    if (value === '' || value === null || value === undefined) {
+      callback(new Error(`请输入${label}`))
+    } else if (num < min || num > max) {
+      callback(new Error(`${label}范围: ${min}-${max}`))
+    } else {
+      callback()
+    }
+  }
+}
+
 
 // 2. 定义新变量
 const regVisible = ref(false)
@@ -396,7 +453,14 @@ const testVisible = ref(false)
 const isPollingSignals = ref(false)
 const realtimeSignals = reactive({}) // 存储实时信号状态 { self_address: 0/1 }
 
+// 新增感应注册表单引用
+const inductionFormRef = ref(null)
 
+// 定义感应注册校验规则 (复用已有的 validateNumber)
+const inductionRules = {
+  startId: [{ validator: validateNumber(1, 9999, '起始编号'), trigger: 'change' }],
+  count: [{ validator: validateNumber(1, 100, '注册数量'), trigger: 'change' }] // 限制一次感应注册最多100个
+}
 
 // 2. 键盘相关状态
 const showKeyboard = ref(false)
@@ -415,32 +479,95 @@ const activeInputDom = ref(null)
 
 // --- [新增] 表单校验引用 ---
 const batchFormRef = ref(null)
-const manualFormRef = ref(null)
-const lockFormRef = ref(null)
 
-// --- [新增] 校验逻辑 (参考旧代码) ---
-const validateNumber = (min, max, label) => {
-  return (rule, value, callback) => {
-    const num = Number(value)
-    if (value === '' || value === null || value === undefined) {
-      callback(new Error(`请输入${label}`))
-    } else if (num < min || num > max) {
-      callback(new Error(`${label}范围: ${min}-${max}`))
-    } else {
-      callback()
+// --- [新增] 感应注册设置相关 ---
+const inductionVisible = ref(false) // 控制感应设置弹窗
+const inductionForm = reactive({
+  startId: 1,
+  count: 5
+})
+// 侦听逻辑需要的辅助变量
+const remainingCount = ref(0) // 剩余需要触发的次数
+/**
+ * [修改] 点击“感应注册”按钮，先打开参数设置弹窗
+ */
+const openInductionSetup = () => {
+  // 自动预测起始 ID
+  if (form_switch.details.length > 0) {
+    const maxId = Math.max(...form_switch.details.map(d => d.self_address))
+    inductionForm.startId = maxId + 1
+  } else {
+    inductionForm.startId = 1
+  }
+  inductionVisible.value = true
+}
+
+/**
+ * [新增] 确认设置，正式开始物理侦听
+ */
+/**
+ * [修改版] 确认设置，执行多重校验并正式开始物理侦听
+ */
+const startInductionSequence = async () => {
+  if (!inductionFormRef.value) return;
+
+  try {
+    // 1. 基础表单校验 (起始 ID 是否合法, 输入是否为空)
+    await inductionFormRef.value.validate();
+
+    // 2. 物理上限校验
+    // 计算逻辑：总物理槽位 = 在线板卡数 * 10路
+    const totalPhysicalSlots = form_switch.expansion_board_addresses.length * 10;
+    // 当前已注册的数量
+    const currentRegisteredCount = form_switch.details.length;
+    // 剩余可用槽位
+    const remainingSlots = totalPhysicalSlots - currentRegisteredCount;
+
+    const targetCount = Number(inductionForm.count);
+
+    // 如果没有在线板卡
+    if (totalPhysicalSlots === 0) {
+      audioStore.play(`/audio/未检测到扩展板.mp3`);
+      // ElMessage.warning('未检测到在线扩展板，无法进行注册');
+      return
     }
+
+    // 如果申请注册的数量超过了剩余物理槽位
+    if (targetCount > remainingSlots) {
+      audioStore.play(`/audio/已达注册上限.mp3`); // 播放你在批量注册里用的那个音频
+      /*
+      ElMessage.error({
+        message: `硬件空间不足！当前仅剩 ${remainingSlots} 个空余物理通道，无法注册 ${targetCount} 个。`,
+        duration: 5000
+      });
+      */
+      return;
+    }
+
+    // 3. 校验通过，初始化侦听参数
+    inductionVisible.value = false; // 关闭设置弹窗
+    isApplying.value = true;        // 打开蓝色“系统侦听中”状态弹窗
+
+    remainingCount.value = targetCount;
+    currentId.value = Number(inductionForm.startId);
+
+    // 4. 执行核心侦听循环 (注意：请确保你代码中已定义 runInductionLoop)
+    if (typeof runInductionLoop === 'function') {
+      runInductionLoop();
+    } else {
+      console.error("未找到 runInductionLoop 函数实现");
+    }
+
+  } catch (error) {
+    // 校验失败（如输入了负数或非数字）
+    console.error('校验未通过:', error);
+    audioStore.play(`/audio/校验失败请参考红色文字提示.mp3`);
   }
 }
 
 const batchRules = {
   startId: [{ validator: validateNumber(1, 9999, '起始编号'), trigger: 'change' }],
   count: [{ validator: validateNumber(1, 300, '注册数量'), trigger: 'change' }]
-}
-
-const manualRules = {
-  self_address: [{ validator: validateNumber(1, 9999, '映射编号'), trigger: 'change' }],
-  expansion_board_address: [{ validator: validateNumber(1, 7, '扩展板ID'), trigger: 'change' }],
-  channel_address: [{ validator: validateNumber(1, 10, '物理通道'), trigger: 'change' }]
 }
 
 const lockRules = {
@@ -452,7 +579,8 @@ const lockRules = {
 // 3. 键盘按键处理
 const handleKeyPress = (button) => {
   if (button === '{close}') {
-    showKeyboard.value = false
+    // 防止虚拟键盘的点击意外触发背景页面（父组件）的交互,所以延迟100毫秒关闭.这样手已经离开屏幕，父组件就不会误判成点击事件
+    setTimeout(() => { showKeyboard.value = false }, 100)
   }
 }
 
@@ -599,25 +727,60 @@ const openTestDialog = () => {
 }
 
 // 开启轮询（模拟硬件读取）
+/**
+ * [新增] 核心硬件读取函数 (参考自 Inventory.vue)
+ * 遍历所有已识别的扩展板，读取开关寄存器状态并映射到逻辑编号上
+ */
+const updateHardwareSignals = async () => {
+  // 只有配置了扩展板地址才执行
+  if (!form_switch.expansion_board_addresses || form_switch.expansion_board_addresses.length === 0) return
+
+  for (const address of form_switch.expansion_board_addresses) {
+    try {
+      const result = await window.electronAPI.el_post({
+        action: 'read_all_inputs',
+        payload: {
+          deviceAddress: address,
+          startAddress: 0x0001, // 传感器通常从寄存器1开始
+          registerCount: 10      // 每块板读取10路信号
+        },
+      })
+
+      if (result?.success && result.data) {
+        // 硬件返回的是 [0, 1, 0...] 形式的数组
+        result.data.forEach((state, index) => {
+          // 根据【板地址】和【通道索引(index+1)】寻找对应的逻辑编号(self_address)
+          const detail = form_switch.details.find(
+            (d) => Number(d.expansion_board_address) === Number(address) &&
+              Number(d.channel_address) === index + 1
+          )
+
+          if (detail) {
+            // 将状态存入实时信号 Map 中供 UI 渲染
+            // state 通常 1 代表连通(有装备/门关), 0 代表断开
+            realtimeSignals[detail.self_address] = state
+          }
+        })
+      }
+    } catch (e) {
+      console.error(`读取扩展板 ${address} 失败:`, e)
+    }
+  }
+}
+
+/**
+ * [修改] 完善后的启动轮询函数
+ */
 const startTestPolling = async () => {
+  if (isPollingSignals.value) return // 防止重复启动
   isPollingSignals.value = true
+
   while (isPollingSignals.value) {
-    // 这里调用您的硬件 API 读取接口
-    // 模拟逻辑：随机让一些传感器变绿（实际开发时替换为读取 expansion_board_addresses 的逻辑）
-    /*
-    const res = await window.electronAPI.el_post({
-      action: 'read_all_inputs',
-      payload: { ... }
-    })
-    */
+    // 执行真实的硬件读取
+    await updateHardwareSignals()
 
-    // 模拟演示数据更新
-    form_switch.details.forEach(d => {
-      // 实际开发中，这里应根据硬件返回的 binary 数组匹配到对应的 self_address
-      // realtimeSignals[d.self_address] = 硬件返回的值
-    })
-
-    await new Promise(r => setTimeout(r, 500)) // 500ms 刷新一次
+    // 每 500ms 刷新一次信号，保证灵敏度
+    await new Promise((r) => setTimeout(r, 500))
   }
 }
 
@@ -625,58 +788,6 @@ const startTestPolling = async () => {
 const stopTestPolling = () => {
   isPollingSignals.value = false
 }
-
-// 2. 新增手动录入相关变量
-const manualRegVisible = ref(false)
-const manualForm = reactive({
-  self_address: 1,
-  expansion_board_address: 1,
-  channel_address: 1
-})
-
-// 3. 实现方法
-
-// 打开手动录入弹窗
-const openManualRegDialog = () => {
-  // 自动预测下一个 ID
-  if (form_switch.details.length > 0) {
-    const maxId = Math.max(...form_switch.details.map(d => d.self_address))
-    manualForm.self_address = maxId + 1
-  }
-  manualRegVisible.value = true
-}
-
-// 提交单条录入
-const submitManualReg = () => {
-  // 检查自定 ID 是否冲突
-  const index = form_switch.details.findIndex(d => d.self_address === manualForm.self_address)
-
-  const record = { ...manualForm }
-
-  if (index !== -1) {
-    // 如果 ID 已存在，询问是否覆盖
-    ElMessageBox.confirm(`传感器编号 #${record.self_address} 已存在，是否覆盖原有映射数据？`, '覆盖提醒')
-      .then(() => {
-        form_switch.details[index] = record
-        manualRegVisible.value = false
-      })
-  } else {
-    form_switch.details.push(record)
-    // 重新排序
-    form_switch.details.sort((a, b) => a.self_address - b.self_address)
-
-    // 确保扩展板 ID 被记录
-    if (!form_switch.expansion_board_addresses.includes(record.expansion_board_address)) {
-      form_switch.expansion_board_addresses.push(record.expansion_board_address)
-      form_switch.expansion_board_addresses.sort((a, b) => a - b)
-    }
-
-    manualRegVisible.value = false
-  }
-}
-
-// 3. 定义方法
-
 // 打开对话框
 const openRegDialog = () => {
   // 默认起始 ID 为当前最大 ID + 1
@@ -741,6 +852,7 @@ const submitBatchReg = async () => {
   }
 
   const currentDetails = [...form_switch.details];
+
 
   // 2. 【寻找所有空闲的物理槽位】
   // 我们遍历所有在线板卡和它们的路数(1-10)，看哪些还没在 details 里
@@ -820,6 +932,12 @@ const submitBatchReg = async () => {
 
 const handleExit = () => {
   router.back()
+}
+
+// 在 script 中添加
+const handleAbortInduction = () => {
+  isApplying.value = false;
+  audioStore.play(`/audio/设置已中断.mp3`);
 }
 
 // --- 生命周期控制 ---
@@ -1169,6 +1287,10 @@ onUnmounted(() => {
 .sys-btn-text.danger {
   color: var(--sys-error);
   border-color: var(--sys-error);
+  margin-left: auto;
+  /* 新增 */
+  margin-right: auto;
+  /* 新增 */
 }
 
 .sys-btn-text.danger:hover {
@@ -1386,7 +1508,7 @@ onUnmounted(() => {
   padding: 12px;
   border-radius: 4px;
   margin-bottom: 20px;
-  font-size: 13px;
+  font-size: 14px;
   border-left: 3px solid var(--sys-primary);
 }
 
@@ -1403,7 +1525,7 @@ onUnmounted(() => {
   background: rgba(255, 255, 255, 0.03);
   border: 1px solid var(--sys-border);
   border-radius: 4px;
-  padding: 12px 8px;
+  padding: 12px 0px;
   text-align: center;
   position: relative;
   transition: all 0.3s ease;
@@ -1523,5 +1645,82 @@ onUnmounted(() => {
 
 :deep(.show-keyboard .hg-functionBtn) {
   background: #1c2538 !important;
+}
+
+/* 修改卡片高度和内边距，适应更多内容 */
+.test-signal-card {
+  background: rgba(255, 255, 255, 0.02);
+  border: 1px solid var(--sys-border);
+  border-radius: 6px;
+  padding: 15px 5px;
+  /* 增加上下内边距 */
+  text-align: center;
+  position: relative;
+  transition: all 0.2s ease;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  /* 元素间隔 */
+}
+
+/* 逻辑编号：稍微大一点 */
+.s-node-id {
+  font-family: 'Consolas', monospace;
+  font-size: 18px;
+  font-weight: bold;
+  color: #fff;
+}
+
+/* 物理位置信息：灰色小字 */
+.s-phys-info {
+  font-size: 12px;
+  color: var(--sys-text-sec);
+  letter-spacing: 0.5px;
+}
+
+/* 状态标签：像一个小胶囊 */
+.s-status-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  margin: 0 auto;
+  padding: 2px 10px;
+  background: rgba(255, 255, 255, 0.05);
+  border-radius: 10px;
+  font-size: 11px;
+  color: var(--sys-text-sec);
+  border: 1px solid transparent;
+}
+
+/* 状态圆点 */
+.s-status-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: #555;
+  /* 默认断开为灰色 */
+}
+
+/* --- 激活状态的样式覆盖 --- */
+.test-signal-card.is-active {
+  background: rgba(0, 255, 157, 0.08);
+  border-color: var(--sys-success);
+}
+
+.test-signal-card.is-active .s-phys-info {
+  color: rgba(255, 255, 255, 0.7);
+  /* 激活时位置信息更白一点 */
+}
+
+.test-signal-card.is-active .s-status-badge {
+  background: rgba(0, 255, 157, 0.2);
+  color: var(--sys-success);
+  border-color: rgba(0, 255, 157, 0.3);
+}
+
+.test-signal-card.is-active .s-status-dot {
+  background: var(--sys-success);
+  box-shadow: 0 0 5px var(--sys-success);
 }
 </style>
