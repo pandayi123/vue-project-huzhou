@@ -151,7 +151,7 @@ onMounted(() => {
     layoutCandidates: chineseLayout.layoutCandidates,
     layoutCandidatesPageSize: 22,
     layout: {
-      number: ['5 6 7 8 9', '1 2 3 4', '0 {bksp} {clear} {close}'],
+      number: ['5 6 7 8 9', '0 1 2 3 4', '{bksp} {clear} {close}'],
       default: [
         '` 1 2 3 4 5 6 7 8 9 0 - = {bksp}',
         '{tab} q w e r t y u i o p [ ] \\',

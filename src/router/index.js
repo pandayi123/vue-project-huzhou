@@ -27,11 +27,6 @@ const router = createRouter({
           component: () => import('@/views/NetworkSettings.vue'),
         },
         {
-          path: 'hardwaresettings',
-          name: 'hardwaresettings',
-          component: () => import('@/views/HardwareSettings.vue'),
-        },
-        {
           path: 'equipmentmanagementview',
           name: 'equipmentmanagementview',
           component: () => import('@/views/EquipmentManagementView.vue'),
@@ -79,10 +74,15 @@ const router = createRouter({
       name: 'logs',
       component: () => import('@/views/logsView.vue'),
     },
-      {
+    {
       path: '/inventory',
       name: 'inventory',
       component: () => import('@/views/InventoryView.vue'),
+    },
+    {
+      path: '/hardwaresettings',
+      name: 'hardwaresettings',
+      component: () => import('@/views/HardwareSettings.vue'),
     },
   ],
 })
