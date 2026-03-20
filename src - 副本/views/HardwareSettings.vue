@@ -60,7 +60,7 @@
                 <div class="hw-node-grid custom-scroll">
                   <div v-for="item in form_lock.details" :key="item.self_address" class="hw-node-card">
                     <div class="hw-node-id">#{{ item.self_address }} 锁</div>
-                    <div class="hw-node-info">板{{ item.expansion_board_address }} - 路{{
+                    <div class="hw-node-info">板{{ item.expansion_board_address }} - 寄存器{{
                       item.open_lock_register_address }}</div>
                   </div>
                   <div v-if="!form_lock.details.length" class="hw-node-empty">未配置门锁地址</div>
@@ -69,7 +69,7 @@
 
               <!-- [修改] 底部按钮：仿照右侧风格 -->
               <div class="sys-btn-group sys-mt-20">
-                <button class="sys-minor-action-btn" @click="openLockInductionSetup">
+                <button class="sys-minor-action-btn" @click="openLockRegDialog">
                   <el-icon>
                     <Setting />
                   </el-icon> 设置新地址
@@ -171,17 +171,6 @@
         <div class="hw-loading-text">系统侦听中...</div>
         <div class="hw-loading-sub">请按照顺序物理触发对应开关</div>
         <div class="hw-loading-current">当前等待编号：<span>{{ currentId }}</span></div>
-
-        <!-- [新增] 仅在门锁感应注册时显示的辅助开锁按钮 -->
-        <div v-if="isApplyingLock" class="sys-mt-20" style="display: flex; gap: 10px; justify-content: center;">
-          <button class="sys-minor-action-btn highlight" @click="opendoor(10)" style="width: 140px;">
-            辅助开锁 (R10)
-          </button>
-          <button class="sys-minor-action-btn highlight" @click="opendoor(13)" style="width: 140px;">
-            辅助开锁 (R13)
-          </button>
-        </div>
-
         <button class="sys-btn-text danger sys-mt-20" @click="handleAbortInduction">中断当前任务</button>
       </div>
     </el-dialog>
@@ -206,17 +195,15 @@
           <el-icon>
             <InfoFilled />
           </el-icon>
-          系统检测到剩余可注册传感器数量：
-          <span style="color: var(--sys-success); margin: 0 4px; font-size: 18px;">
-            {{ Math.max(0, form_switch.expansion_board_addresses.length * 10 - form_switch.details.length) }}
-          </span> 个
+          当前检测到 {{ form_switch.expansion_board_addresses.length }} 块扩展板，
+          物理支持最大编号至 #{{ form_switch.expansion_board_addresses.length * 10 }}
         </div>
       </div>
 
       <template #footer>
         <div class="reg-footer">
-          <button class="footer-btn1 cancel" @click="regVisible = false">取消</button>
-          <button class="footer-btn1 confirm" @click="submitBatchReg">确认生成</button>
+          <button class="footer-btn cancel" @click="regVisible = false">取消</button>
+          <button class="footer-btn confirm" @click="submitBatchReg">确认生成</button>
         </div>
       </template>
     </el-dialog>
@@ -267,7 +254,7 @@
       </div>
       <template #footer>
         <div class="reg-footer">
-          <button class="footer-btn1 confirm" @click="testVisible = false">结束检测</button>
+          <button class="footer-btn confirm" @click="testVisible = false">结束检测</button>
         </div>
       </template>
     </el-dialog>
@@ -300,8 +287,8 @@
       </div>
       <template #footer>
         <div class="reg-footer">
-          <button class="footer-btn1 cancel" @click="manualRegVisible = false">取消</button>
-          <button class="footer-btn1 confirm" @click="submitManualReg">保存录入</button>
+          <button class="footer-btn cancel" @click="manualRegVisible = false">取消</button>
+          <button class="footer-btn confirm" @click="submitManualReg">保存录入</button>
         </div>
       </template>
     </el-dialog>
@@ -313,13 +300,12 @@
         <el-form label-position="top" :model="inductionForm" :rules="inductionRules" ref="inductionFormRef">
           <el-form-item label="起始映射编号 (自定 ID)" prop="startId">
             <el-input v-model="inductionForm.startId" class="sys-config-input"
-              @focus="openKeyboard('startId', inductionForm, $event)" @click="updateCursorPos"
-              @keyup="updateCursorPos" />
+              @focus="openKeyboard('startId', inductionForm, $event)" />
           </el-form-item>
 
           <el-form-item label="计划连续注册数量" prop="count">
             <el-input v-model="inductionForm.count" class="sys-config-input"
-              @focus="openKeyboard('count', inductionForm, $event)" @click="updateCursorPos" @keyup="updateCursorPos" />
+              @focus="openKeyboard('count', inductionForm, $event)" />
           </el-form-item>
         </el-form>
 
@@ -327,50 +313,47 @@
           <el-icon>
             <InfoFilled />
           </el-icon>
-          <!-- 动态计算：总位数(板数*10) - 已注册数 -->
-          系统检测到剩余可注册传感器数量：
-          <span style="color: var(--sys-success); margin: 0 4px; font-size: 18px;">
-            {{ Math.max(0, form_switch.expansion_board_addresses.length * 10 - form_switch.details.length) }}
-          </span> 个
+          点击确认后，请依次物理触发柜内开关完成对码
         </div>
       </div>
 
       <template #footer>
         <div class="reg-footer">
-          <button class="footer-btn1 cancel" @click="inductionVisible = false">取消</button>
-          <button class="footer-btn1 confirm" @click="startInductionSequence">开始侦听</button>
+          <button class="footer-btn cancel" @click="inductionVisible = false">取消</button>
+          <button class="footer-btn confirm" @click="startInductionSequence">开始侦听</button>
         </div>
       </template>
     </el-dialog>
 
-    <!-- [替换原有门锁弹窗] -->
-    <el-dialog v-model="lockInductionVisible" title="感应注册门锁" width="420px" class="sys-config-dialog-unique"
+    <!-- [底部新增] 门锁地址设置弹窗 -->
+    <el-dialog v-model="lockRegVisible" title="设置门锁控制地址" width="420px" class="sys-config-dialog-unique"
       destroy-on-close>
       <div class="reg-dialog-content">
-        <el-form label-position="top" :model="lockInductionForm" :rules="lockInductionRules" ref="lockInductionFormRef">
-          <el-form-item label="起始映射编号 (自定 ID)" prop="startId">
-            <el-input v-model="lockInductionForm.startId" class="sys-config-input"
-              @focus="openKeyboard('startId', lockInductionForm, $event)" @click="updateCursorPos"
-              @keyup="updateCursorPos" />
+        <el-form label-position="top">
+          <el-form-item label="门锁映射编号 (柜体标识 #)">
+            <el-input-number v-model="lockForm.self_address" :min="1" class="cyber-number-input"
+              controls-position="right" />
           </el-form-item>
-
-          <el-form-item label="计划连续注册数量" prop="count">
-            <el-input v-model="lockInductionForm.count" class="sys-config-input"
-              @focus="openKeyboard('count', lockInductionForm, $event)" @click="updateCursorPos"
-              @keyup="updateCursorPos" />
-          </el-form-item>
+          <el-row :gutter="15">
+            <el-col :span="12">
+              <el-form-item label="门控板 ID">
+                <el-input-number v-model="lockForm.expansion_board_address" :min="1" class="cyber-number-input"
+                  controls-position="right" />
+              </el-form-item>
+            </el-col>
+            <el-col :span="12">
+              <el-form-item label="开锁寄存器地址">
+                <el-input-number v-model="lockForm.open_lock_register_address" :min="1" class="cyber-number-input"
+                  controls-position="right" />
+              </el-form-item>
+            </el-col>
+          </el-row>
         </el-form>
-        <div class="reg-preview">
-          <el-icon>
-            <InfoFilled />
-          </el-icon>
-          请确保在开始后，依次手动【打开】对应的柜门。
-        </div>
       </div>
       <template #footer>
         <div class="reg-footer">
-          <button class="footer-btn1 cancel" @click="lockInductionVisible = false">取消</button>
-          <button class="footer-btn1 confirm" @click="startLockInduction">开始侦听</button>
+          <button class="footer-btn cancel" @click="lockRegVisible = false">取消</button>
+          <button class="footer-btn confirm" @click="submitLockReg">保存设置</button>
         </div>
       </template>
     </el-dialog>
@@ -391,9 +374,9 @@
       </div>
       <template #footer>
         <div class="reg-footer">
-          <button class="footer-btn1 cancel" @click="resetVisible = false">取消</button>
+          <button class="footer-btn cancel" @click="resetVisible = false">取消</button>
           <!-- 特别为重置按钮设置红色警告色 -->
-          <button class="footer-btn1 confirm" style="background: #8b0000; border-color: #ff4d4f;" @click="executeReset">
+          <button class="footer-btn confirm" style="background: #8b0000; border-color: #ff4d4f;" @click="executeReset">
             确定重置
           </button>
         </div>
@@ -417,7 +400,7 @@ import { ref, reactive, onMounted, onUnmounted, nextTick, defineAsyncComponent, 
 import { useRouter } from 'vue-router'
 import {
   Cpu, Lock, SwitchButton, Compass, Memo,
-  Refresh, Delete, Monitor, Loading, InfoFilled, EditPen, Setting, Warning // 新增
+  Refresh, Delete, Plus, Monitor, Loading, InfoFilled, EditPen, Setting, Warning // 新增
 } from '@element-plus/icons-vue'
 
 // --- 导入 Store 和 API ---
@@ -435,10 +418,6 @@ const configStore = useConfigStore()
 const timerStore = useTimerStore()
 const audioStore = useAudioStore()
 const config_blob = ref(null) // 全局配置快照
-
-// 在 script setup 顶部变量定义区添加
-const isApplyingLock = ref(false) // 标记当前是否正在进行门锁对码
-const open_lock_register_address = ref(10) // 记录当前选择的辅助开锁寄存器
 
 const loading = ref(false)
 const isApplying = ref(false)
@@ -520,175 +499,6 @@ const inductionForm = reactive({
 })
 // 侦听逻辑需要的辅助变量
 const remainingCount = ref(0) // 剩余需要触发的次数
-
-// --- 修改后的打开门锁设置弹窗函数 ---
-const openLockInductionSetup = () => {
-  // 逻辑调整：默认起始映射编号为已经设置过的起始编号，如果没有则默认为 1
-  lockInductionForm.startId = form_lock.initialAddress || 1
-
-  // 建议：默认数量也带出之前设置的数量
-  lockInductionForm.count = form_lock.quantity || 1
-
-  lockInductionVisible.value = true
-}
-
-/**
- * [新增] 启动门锁感应注册序列
- */
-const startLockInduction = async () => {
-  if (!lockInductionFormRef.value) return
-  try {
-    await lockInductionFormRef.value.validate()
-
-    // 安全检查：确保门锁板在线
-    if (form_lock.expansion_board_addresses.length === 0) {
-      audioStore.play(`/audio/未检测到硬件连接.mp3`)
-      return
-    }
-
-
-
-    // 前置检查：所有门必须是关着的 (状态为 1)
-    // --- 替换后 ---
-    loading.value = true
-    let allClosed = true
-    const targetQty = Number(lockInductionForm.count) // 获取本次想注册的数量
-
-    for (const address of form_lock.expansion_board_addresses) {
-      const result = await window.electronAPI.el_post({
-        action: 'read_all_inputs',
-        payload: { deviceAddress: address, startAddress: 0x0006, registerCount: 2 },
-      })
-
-      if (result?.success && result.data?.length) {
-        // 返回的数据包括2路的门锁状态，形如：【1,0】。如果注册1个，只查第一路信号(index 0)；如果注册2个，查两路(index 0和1)
-        if (targetQty === 1) {
-          if (result.data[0] !== 1) allClosed = false
-        } else if (targetQty === 2) {
-          if (result.data[0] !== 1 || result.data[1] !== 1) allClosed = false
-        }
-      }
-      if (!allClosed) break
-    }
-    loading.value = false
-
-    if (!allClosed) {
-      audioStore.play(`/audio/请先确认所有柜门处于关闭状态.mp3`)
-      return
-    }
-
-    // ========================================================
-    // 3. 【核心修改点】：所有检查都通过了，现在正式清空旧列表，准备写入新映射
-    // ========================================================
-    form_lock.details = []
-    console.log('前置检查通过，已清空旧门锁列表，准备开始侦听...')
-
-    // 初始化 UI 状态
-    lockInductionVisible.value = false
-    isApplying.value = true // 借用那个蓝色的“系统侦听中”弹窗
-    isApplyingLock.value = true // [关键] 开启门锁特有的辅助按钮
-    audioStore.play(`/audio/开始设置门锁地址.mp3`)
-
-    // 执行循环
-    runLockInductionLoop()
-  } catch {
-    audioStore.play(`/audio/校验失败请参考红色文字提示.mp3`)
-  }
-}
-
-/**
- * [核心逻辑] 门锁感应主循环 (从老代码移植)
- */
-const runLockInductionLoop = async () => {
-  let startId = Number(lockInductionForm.startId)
-  let totalToRegister = Number(lockInductionForm.count)
-  let registeredCount = 0
-  const boards = form_lock.expansion_board_addresses
-
-  while (isApplying.value && registeredCount < totalToRegister) {
-    currentId.value = startId
-
-    let detected = null
-    // 扫描门控板 (201, 202)
-    for (const addr of boards) {
-      const res = await window.electronAPI.el_post({
-        action: 'read_all_inputs',
-        payload: { deviceAddress: addr, startAddress: 0x0006, registerCount: 2 }
-      })
-
-      if (res?.success && res.data) {
-        // 门锁状态判断：1是关，非1是开
-        const idx = res.data.findIndex(s => s !== 1)
-        if (idx !== -1) {
-          detected = { board: addr, channel: idx + 1 }
-          break
-        }
-      }
-    }
-
-    if (detected) {
-      // 防抖等待与二次确认
-      await new Promise(r => setTimeout(r, 800))
-      const confirm = await window.electronAPI.el_post({
-        action: 'read_all_inputs',
-        payload: { deviceAddress: detected.board, startAddress: 0x0006, registerCount: 2 }
-      })
-
-      if (confirm?.success && confirm.data[detected.channel - 1] !== 1) {
-        // 检查物理点位是否已占用
-        const isOccupied = form_lock.details.some(d =>
-          d.expansion_board_address === detected.board && d.channel_address === detected.channel
-        )
-
-        if (isOccupied) {
-          await audioStore.play(`/audio/开关重复设置.mp3`)
-          continue
-        }
-
-        // 保存新门锁映射
-        const newLock = {
-          self_address: startId,
-          expansion_board_address: detected.board,
-          channel_address: detected.channel,
-          // 门锁特有：开锁寄存器通常是 10(R10) 或 13(R13)
-          open_lock_register_address: detected.channel === 1 ? 10 : 13,
-          admin_status: 1,
-          hardware_status: 0
-        }
-
-        form_lock.details.push(newLock)
-        form_lock.details.sort((a, b) => a.self_address - b.self_address)
-        config_blob.value.lock.details = form_lock.details
-        await saveConfigToDB()
-
-        audioStore.play(`/audio/设置成功.mp3`)
-        registeredCount++
-        startId++
-      }
-    }
-    await new Promise(r => setTimeout(r, 300))
-  }
-
-  // --- 替换后 ---
-  if (registeredCount >= totalToRegister) {
-    // 1. 同步数量到表单和配置快照
-    form_lock.quantity = totalToRegister
-    form_lock.initialAddress = Number(lockInductionForm.startId)
-    config_blob.value.lock.quantity = form_lock.quantity
-    config_blob.value.lock.initialAddress = form_lock.initialAddress
-    config_blob.value.lock.details = form_lock.details // 保存全新的列表
-
-    // 2. 关键：同步到全局定时器，防止主页报警逻辑错误
-    timerStore.doorLockCount = totalToRegister
-
-    // 3. 保存到数据库
-    await saveConfigToDB()
-
-    audioStore.play(`/audio/门锁地址设置完成.mp3`)
-    isApplying.value = false
-    isApplyingLock.value = false
-  }
-}
 /**
  * [修改] 点击“感应注册”按钮，先打开参数设置弹窗
  */
@@ -702,20 +512,6 @@ const openInductionSetup = () => {
   }
   inductionVisible.value = true
 }
-
-// 1. 修改或新增门锁感应表单
-const lockInductionVisible = ref(false) // 控制门锁感应参数弹窗
-const lockInductionForm = reactive({
-  startId: 1,
-  count: 1
-})
-
-// 2. 门锁感应校验规则
-const lockInductionRules = {
-  startId: [{ validator: validateNumber(1, 99, '起始映射编号'), trigger: 'change' }],
-  count: [{ validator: validateNumber(1, 2, '注册数量'), trigger: 'change' }] // 门锁通常只有1-2个
-}
-const lockInductionFormRef = ref(null)
 
 /**
  * [核心实现] 感应注册主循环逻辑
@@ -982,6 +778,12 @@ const batchRules = {
   count: [{ validator: validateNumber(1, 300, '注册数量'), trigger: 'change' }]
 }
 
+const lockRules = {
+  self_address: [{ validator: validateNumber(1, 99, '映射编号'), trigger: 'change' }],
+  expansion_board_address: [{ validator: validateNumber(201, 202, '门控板ID'), trigger: 'change' }],
+  open_lock_register_address: [{ validator: validateNumber(1, 255, '寄存器地址'), trigger: 'change' }]
+}
+
 // 3. 键盘按键处理
 const handleKeyPress = (button) => {
   if (button === '{close}') {
@@ -1067,9 +869,6 @@ const fetchConfigData = async () => {
     config_blob.value = JSON.parse(configStore.terminal.config_blob)
     Object.assign(form_switch, config_blob.value.switch)
     Object.assign(form_lock, config_blob.value.lock)
-
-    // 新增：进入页面立即同步一次门锁数量给全局 Store
-    timerStore.doorLockCount = form_lock.quantity || 0
 
     setTimeout(() => {
       audioStore.play(`/audio/正在扫描硬件设备.mp3`)
@@ -1168,17 +967,8 @@ const updateHardwareSignals = async () => {
           const signalKey = `${address}-${physicalChannel}`;
           const oldState = lastSignals[signalKey];
 
-          /**
-           * 【上升沿触发逻辑说明】：
-           * 1. 目的：忽略初始存量，仅检测“新增”动作。防止打开弹窗瞬间，因柜位已有装备压住开关而导致齐声报数。
-           * 2. 过程：
-           *    - 初始态：打开弹窗时 lastSignals 为空 {}。
-           *    - 首次扫描：若开关已压住 (state=1)，oldState 为 undefined。判断 (1 && 0) 不成立 -> 保持静默。
-           *    - 状态锁定：执行下方 lastSignals[signalKey] = state 后，系统记录了当前已压住的状态。
-           *    - 动态触发：只有当开关被松开 (变0) 再次压下 (变1) 时，判断 (state=1 && oldState=0) 才成立 -> 触发播报。
-           */
           // 【判断触发瞬间】：当前是 1 (按下)，上一次是 0 (断开)
-          if (state === 1 && oldState === 0) {
+          if (state === 1 && (oldState === 0 || oldState === undefined)) {
             if (detail) {
               // --- 场景 A：已注册点位 ---
               console.log(`[对码成功] 触发逻辑编号: #${detail.self_address}`);
@@ -1375,31 +1165,9 @@ const handleExit = () => {
   router.back()
 }
 
-/**
- * [从旧版迁移] 辅助开锁函数
- * @param {Number} regAddr 寄存器地址 10 或 13
- */
-const opendoor = async (regAddr) => {
-  open_lock_register_address.value = regAddr
-
-  // 遍历当前在线的门控板发送指令 (201, 202)
-  for (const boardAddr of form_lock.expansion_board_addresses) {
-    await window.electronAPI.el_post({
-      action: 'control_register', // 使用旧版对应的 action
-      payload: {
-        deviceAddress: boardAddr,
-        registerAddress: regAddr,
-        value: 50, // 旧版逻辑：写入 20 触发
-        isWrite: true,
-      },
-    })
-  }
-}
-
 // 在 script 中添加
 const handleAbortInduction = () => {
   isApplying.value = false;
-  isApplyingLock.value = false // [关键] 重置状态
   audioStore.play(`/audio/设置已中断.mp3`);
 }
 
@@ -1492,7 +1260,7 @@ onUnmounted(() => {
 
 .sys-config-sub-title {
   color: var(--sys-primary-dark);
-  font-size: 14px;
+  font-size: 12px;
   font-weight: bold;
   letter-spacing: 1px;
 }
@@ -1914,7 +1682,7 @@ onUnmounted(() => {
   padding-bottom: 10px;
 }
 
-.footer-btn1 {
+.footer-btn {
   min-width: 120px;
   height: 38px;
   border-radius: 4px;
@@ -1923,13 +1691,13 @@ onUnmounted(() => {
   transition: all 0.3s;
 }
 
-.footer-btn1.cancel {
+.footer-btn.cancel {
   background: transparent;
   border: 1px solid var(--sys-border);
   color: var(--sys-text-sec);
 }
 
-.footer-btn1.confirm {
+.footer-btn.confirm {
   background: linear-gradient(90deg, var(--sys-primary-dark), #005f66);
   border: 1px solid var(--sys-primary);
   color: #fff;
@@ -2065,11 +1833,8 @@ onUnmounted(() => {
 /* 弹窗页脚居中 */
 .reg-footer {
   display: flex;
-  padding: 10px 0;
   justify-content: center;
-  /* 水平居中 */
-  align-items: center;
-  /* 垂直居中，防止子元素高度/宽度被拉伸 */
+  padding: 10px 0;
 }
 
 /* 键盘容器样式 */
