@@ -57,11 +57,25 @@
                     <Memo />
                   </el-icon> 已注册门锁列表 ({{ form_lock.details.length }})
                 </div>
+                <!-- [优化后] 门锁列表矩阵 -->
                 <div class="hw-node-grid custom-scroll">
-                  <div v-for="item in form_lock.details" :key="item.self_address" class="hw-node-card">
-                    <div class="hw-node-id">#{{ item.self_address }} 锁</div>
-                    <div class="hw-node-info">板{{ item.expansion_board_address }} - 路{{
-                      item.open_lock_register_address }}</div>
+                  <div v-for="item in form_lock.details" :key="item.self_address" class="hw-node-card lock-node">
+                    <div class="hw-node-id">#{{ item.self_address }} 门锁</div>
+                    <div class="hw-node-info">
+                      <div class="info-row" style="font-size:13px;">板地址：<span class="value">{{
+                        item.expansion_board_address }}</span></div>
+
+                      <!-- 物理反馈路数：增加寄存器地址显示，让技术人员一眼看清引脚 -->
+                      <div class="info-row" style="font-size:13px;">
+                        反馈：路{{ item.channel_address }}
+                        <span class="reg-tag">(地址:0{{ 5 + item.channel_address }})</span>
+                      </div>
+
+                      <!-- 执行开锁的寄存器 -->
+                      <div class="info-row highlight-info">
+                        开锁指令：R{{ item.open_lock_register_address }}
+                      </div>
+                    </div>
                   </div>
                   <div v-if="!form_lock.details.length" class="hw-node-empty">未配置门锁地址</div>
                 </div>
@@ -173,13 +187,41 @@
         <div class="hw-loading-current">当前等待编号：<span>{{ currentId }}</span></div>
 
         <!-- [新增] 仅在门锁感应注册时显示的辅助开锁按钮 -->
-        <div v-if="isApplyingLock" class="sys-mt-20" style="display: flex; gap: 10px; justify-content: center;">
-          <button class="sys-minor-action-btn highlight" @click="opendoor(10)" style="width: 140px;">
-            辅助开锁 (R10)
-          </button>
-          <button class="sys-minor-action-btn highlight" @click="opendoor(13)" style="width: 140px;">
-            辅助开锁 (R13)
-          </button>
+        <!-- [修改] 门锁感应注册时的辅助区域 -->
+        <div v-if="isApplyingLock" class="sys-mt-20">
+
+          <!-- [新增] 状态引导语 -->
+          <div class="lock-step-guide">
+            <span v-if="!isWaitingForLockFeedback" class="guide-text blink-blue">
+              第一步：点击下方按钮触发开锁
+            </span>
+            <span v-else class="guide-text blink-green">
+              第二步：检测到指令，请物理拉开门
+            </span>
+          </div>
+
+          <div class="sys-mt-20" style="display: flex; gap: 10px; justify-content: center;">
+            <button class="sys-minor-action-btn highlight-gold" :disabled="isWaitingForLockFeedback"
+              @click="opendoor(10)" style="width: 140px;">
+              触发开锁 (R10)
+            </button>
+            <button class="sys-minor-action-btn highlight-gold" :disabled="isWaitingForLockFeedback"
+              @click="opendoor(13)" style="width: 140px;">
+              触发开锁 (R13)
+            </button>
+          </div>
+
+          <!-- [新增] 取消按钮（防止点错 R 地址后卡死） -->
+          <div v-if="isWaitingForLockFeedback" class="sys-mt-20"
+            style="display: flex; justify-content: center; width: 100%;">
+            <button class="sys-btn-text" @click="isWaitingForLockFeedback = false"
+              style="font-size: 13px; color: var(--sys-text-sec); border-color: rgba(255, 255, 255, 0.1); padding: 6px 12px;">
+              <el-icon style="vertical-align: middle; margin-right: 4px;">
+                <RefreshRight />
+              </el-icon>
+              点错了？取消等待重新点
+            </button>
+          </div>
         </div>
 
         <button class="sys-btn-text danger sys-mt-20" @click="handleAbortInduction">中断当前任务</button>
@@ -268,40 +310,6 @@
       <template #footer>
         <div class="reg-footer">
           <button class="footer-btn1 confirm" @click="testVisible = false">结束检测</button>
-        </div>
-      </template>
-    </el-dialog>
-
-    <!-- 修改点 2：新增“手动单条注册”对话框 -->
-    <el-dialog v-model="manualRegVisible" title="手动单条录入传感器" width="420px" class="sys-config-dialog-unique"
-      destroy-on-close>
-      <div class="reg-dialog-content">
-        <el-form label-position="top">
-          <el-form-item label="传感器映射编号 (自定 ID)">
-            <el-input-number v-model="manualForm.self_address" :min="1" class="cyber-number-input"
-              controls-position="right" />
-          </el-form-item>
-
-          <el-row :gutter="15">
-            <el-col :span="12">
-              <el-form-item label="扩展板 ID">
-                <el-input-number v-model="manualForm.expansion_board_address" :min="1" class="cyber-number-input"
-                  controls-position="right" />
-              </el-form-item>
-            </el-col>
-            <el-col :span="12">
-              <el-form-item label="物理通道地址">
-                <el-input-number v-model="manualForm.channel_address" :min="1" :max="16" class="cyber-number-input"
-                  controls-position="right" />
-              </el-form-item>
-            </el-col>
-          </el-row>
-        </el-form>
-      </div>
-      <template #footer>
-        <div class="reg-footer">
-          <button class="footer-btn1 cancel" @click="manualRegVisible = false">取消</button>
-          <button class="footer-btn1 confirm" @click="submitManualReg">保存录入</button>
         </div>
       </template>
     </el-dialog>
@@ -456,6 +464,20 @@ const form_switch = reactive({
   details: []
 })
 
+/**
+ * 状态标记：软件触发开锁的“因果锁”
+ *
+ * 核心逻辑：由于电磁锁的控制指令(Output)与门磁的物理反馈(Input)在物理线路上是完全独立的，
+ * 硬件无法自动告知程序“当前是哪一路指令让门开了”。
+ *
+ * 用途：
+ * 1. 【逻辑闭环】：只有当用户在界面点击了“开锁”按钮，此值才为 true，程序才允许捕获并关联物理反馈。
+ * 2. 【物理防呆】：如果此值为 false 时检测到门开信号，说明是使用物理钥匙开门或外力撬门，
+ *    此时系统将视为“非法触发”并报错，防止错误的寄存器地址（R10/R13）被盲目关联到逻辑 ID。
+ * 3. 【状态切换】：成功捕获信号并完成绑定后，需手动将其重置为 false，以等待下一个编号的指令。
+ */
+const isWaitingForLockFeedback = ref(false) // 标记：是否已点击按钮正在等待开门信号
+
 // --- [新增] 校验逻辑 (参考旧代码) ---
 const validateNumber = (min, max, label) => {
   return (rule, value, callback) => {
@@ -596,94 +618,157 @@ const startLockInduction = async () => {
   }
 }
 
+
 /**
- * [核心逻辑] 门锁感应主循环 (从老代码移植)
+ *门锁感应主循环
+ * 逻辑：由外层 for 循环锁定当前要设置的编号，内层 while 轮询硬件
  */
 const runLockInductionLoop = async () => {
-  let startId = Number(lockInductionForm.startId)
-  let totalToRegister = Number(lockInductionForm.count)
-  let registeredCount = 0
+  const startId = Number(lockInductionForm.startId)
+  const totalQty = Number(lockInductionForm.count)
   const boards = form_lock.expansion_board_addresses
 
-  while (isApplying.value && registeredCount < totalToRegister) {
-    currentId.value = startId
-
-    let detected = null
-    // 扫描门控板 (201, 202)
+  // ================================================================
+  // 【新增】初始快照采样：解决悬空口误触发核心逻辑
+  // 在正式侦听前，记录下所有引脚的当前状态（基准线）。
+  // 如果某个口没接线（状态始终为0），通过对比基准线，我们就可以将其忽略。
+  // ================================================================
+  const baselineMap = {}
+  try {
     for (const addr of boards) {
       const res = await window.electronAPI.el_post({
         action: 'read_all_inputs',
         payload: { deviceAddress: addr, startAddress: 0x0006, registerCount: 2 }
       })
-
       if (res?.success && res.data) {
-        // 门锁状态判断：1是关，非1是开
-        const idx = res.data.findIndex(s => s !== 1)
-        if (idx !== -1) {
-          detected = { board: addr, channel: idx + 1 }
-          break
-        }
+        baselineMap[addr] = [...res.data] // 记录初始状态，例如 [1, 0]
       }
     }
+  } catch (err) {
+    console.error("采集初始状态失败", err)
+  }
+  // ================================================================
 
-    if (detected) {
-      // 防抖等待与二次确认
-      await new Promise(r => setTimeout(r, 800))
-      const confirm = await window.electronAPI.el_post({
-        action: 'read_all_inputs',
-        payload: { deviceAddress: detected.board, startAddress: 0x0006, registerCount: 2 }
-      })
+  // 外层循环：严格按照编号顺序执行 (1 -> 2 -> 3...)
+  for (let i = startId; isApplying.value && i < startId + totalQty; i++) {
+    currentId.value = i // UI 显示当前正在等待的编号
+    let switchSet = false // 标记当前这个编号是否已绑定成功
 
-      if (confirm?.success && confirm.data[detected.channel - 1] !== 1) {
-        // 检查物理点位是否已占用
-        const isOccupied = form_lock.details.some(d =>
-          d.expansion_board_address === detected.board && d.channel_address === detected.channel
-        )
+    // 内层循环：死等当前编号 i 的硬件信号
+    while (!switchSet && isApplying.value) {
+      let detected = null
 
-        if (isOccupied) {
-          await audioStore.play(`/audio/开关重复设置.mp3`)
-          continue
+      // 扫描在线门控板
+      for (const addr of boards) {
+        if (!isApplying.value) break
+        const res = await window.electronAPI.el_post({
+          action: 'read_all_inputs',
+          payload: { deviceAddress: addr, startAddress: 0x0006, registerCount: 2 }
+        })
+
+        if (res?.success && res.data) {
+          // 门锁状态判断：反馈信号 0x0006(6) 或 0x0007(7) 变为非 1 (代表门开了)
+          // 【修改】判定逻辑：增加 baseline 对比
+          // 只有满足：1.当前值不是1（门开了） 且 2.初始值是1（证明这个口接了线且原本是关着的）
+          // 这样就过滤掉了那些“初始就是0且一直保持0”的未接线端口（悬空口）
+          const idx = res.data.findIndex((val, index) =>
+            val !== 1 && baselineMap[addr] && baselineMap[addr][index] === 1
+          )
+          if (idx !== -1) {
+            // --- [新增：防呆防私自开门逻辑] ---
+            if (!isWaitingForLockFeedback.value) {
+              // 强制重置状态，让用户必须关门重新点按钮
+              isWaitingForLockFeedback.value = false
+              // 播报警告并中断
+              await audioStore.play(`/audio/检测到使用机械钥匙开门.mp3`)
+
+              // 3. 【核心点】调用中断函数，这会将 isApplying 设为 false，并触发硬件刷新
+              await handleAbortInduction()
+
+              // 4. 使用 return 直接结束整个 runLockInductionLoop 函数，不再执行后续任何代码
+              return
+            }
+            // ---------------------------------
+            detected = { board: addr, channel: idx + 1 }
+            break
+          }
         }
-
-        // 保存新门锁映射
-        const newLock = {
-          self_address: startId,
-          expansion_board_address: detected.board,
-          channel_address: detected.channel,
-          // 门锁特有：开锁寄存器通常是 10(R10) 或 13(R13)
-          open_lock_register_address: detected.channel === 1 ? 10 : 13,
-          admin_status: 1,
-          hardware_status: 0
-        }
-
-        form_lock.details.push(newLock)
-        form_lock.details.sort((a, b) => a.self_address - b.self_address)
-        config_blob.value.lock.details = form_lock.details
-        await saveConfigToDB()
-
-        audioStore.play(`/audio/设置成功.mp3`)
-        registeredCount++
-        startId++
       }
+
+      if (detected) {
+        // 1. 防抖与二次确认
+        await new Promise(r => setTimeout(r, 800))
+        const confirm = await window.electronAPI.el_post({
+          action: 'read_all_inputs',
+          payload: { deviceAddress: detected.board, startAddress: 0x0006, registerCount: 2 }
+        })
+
+        if (confirm?.success && confirm.data[detected.channel - 1] !== 1) {
+
+          // 2. 检查物理点位是否在【本次任务或已有列表】中重复
+          const isOccupied = form_lock.details.some(d =>
+            d.expansion_board_address === detected.board && d.channel_address === detected.channel
+          )
+
+          if (isOccupied) {
+            await audioStore.play(`/audio/开关重复设置.mp3`)
+            // 如果重复了，不设置 switchSet = true，继续 while 循环等待正确的开关
+            continue
+          }
+
+          // 3. 【核心逻辑】绑定：编号 i + 捕捉到的物理通道 + 你刚才点的按钮
+          const newLock = {
+            self_address: i,
+            expansion_board_address: detected.board,
+            channel_address: detected.channel,
+            open_lock_register_address: open_lock_register_address.value, // 关键：取决于你点的是 R10 还是 R13
+            admin_status: 1,
+            hardware_status: 0,
+            item_placed: false,
+            faulty: false
+          }
+
+          form_lock.details.push(newLock)
+
+          // 4. 实时保存（防止程序崩溃或断电导致白干）
+          config_blob.value.lock.details = form_lock.details
+          await saveConfigToDB()
+
+          await audioStore.play(`/audio/设置成功.mp3`)
+
+          // --- [新增] ---
+          isWaitingForLockFeedback.value = false // 成功后重置，等待下一个 ID 的点击
+          switchSet = true // 成功绑定一个，跳出 while 循环，进入下一个 for 循环编号
+        }
+      }
+
+      // 稍微喘息，防止死循环卡死 UI
+      await new Promise(r => setTimeout(r, 300))
     }
-    await new Promise(r => setTimeout(r, 300))
   }
 
-  // --- 替换后 ---
-  if (registeredCount >= totalToRegister) {
-    // 1. 同步数量到表单和配置快照
-    form_lock.quantity = totalToRegister
-    form_lock.initialAddress = Number(lockInductionForm.startId)
+  // 任务最终结算
+  /*由于最后的保存逻辑（保存到数据库、播放完成语音）被包裹在 if (isApplying.value) 中，一旦状态被改为 false，
+    程序会直接跳过保存段落，从而实现了“中断且不保存错误/不完整数据”的功能。从而避免不完整或错误的对码数据覆盖数据库。
+  */
+  if (isApplying.value) {
+    // 同步设置结果到表单及 Store
+    /*
+     * 1. 同步实际对码的数量：
+     * 这里使用 form_lock.details.length（实际成功捕捉并记录的物理信号数量）来覆盖用户初始输入的计划数量。
+     * 这样做是为了确保“逻辑数量”与“物理存在”绝对对等：即使用户计划注册 2 个门锁，
+     * 但过程中只成功感应并绑定了 1 个，系统最终会以这 1 个为准，
+     * 从而防止后续业务逻辑（如开门、查状态）去操作一个根本不存在的物理点位。
+     */
+    form_lock.quantity = form_lock.details.length
+    form_lock.initialAddress = startId
+    timerStore.doorLockCount = form_lock.quantity
+
     config_blob.value.lock.quantity = form_lock.quantity
     config_blob.value.lock.initialAddress = form_lock.initialAddress
-    config_blob.value.lock.details = form_lock.details // 保存全新的列表
+    config_blob.value.lock.details = form_lock.details
 
-    // 2. 关键：同步到全局定时器，防止主页报警逻辑错误
-    timerStore.doorLockCount = totalToRegister
-
-    // 3. 保存到数据库
     await saveConfigToDB()
-
     audioStore.play(`/audio/门锁地址设置完成.mp3`)
     isApplying.value = false
     isApplyingLock.value = false
@@ -882,7 +967,7 @@ const waitForRelease = async (boardAddr, channel) => {
  */
 const speakId = async (num) => {
   // 1. 播放起始音
-  await audioStore.play('/audio/已注册编号.mp3');
+  await audioStore.play('/audio/编号.mp3');
   // 2. 拆分数字播报
   const strId = String(num);
   for (const char of strId) {
@@ -1380,16 +1465,21 @@ const handleExit = () => {
  * @param {Number} regAddr 寄存器地址 10 或 13
  */
 const opendoor = async (regAddr) => {
+  // 核心：记录当前操作的寄存器地址，供 runLockInductionLoop 捕获
   open_lock_register_address.value = regAddr
+
+  // --- [新增] ---
+  isWaitingForLockFeedback.value = true // 开启侦听允许开关
+  console.log(`[对码指令] 触发寄存器 ${regAddr}，开始等待物理反馈...`)
 
   // 遍历当前在线的门控板发送指令 (201, 202)
   for (const boardAddr of form_lock.expansion_board_addresses) {
     await window.electronAPI.el_post({
-      action: 'control_register', // 使用旧版对应的 action
+      action: 'control_register',
       payload: {
         deviceAddress: boardAddr,
         registerAddress: regAddr,
-        value: 50, // 旧版逻辑：写入 20 触发
+        value: 50,
         isWrite: true,
       },
     })
@@ -1397,11 +1487,17 @@ const opendoor = async (regAddr) => {
 }
 
 // 在 script 中添加
-const handleAbortInduction = () => {
+const handleAbortInduction = async () => {
   isApplying.value = false;
-  isApplyingLock.value = false // [关键] 重置状态
-  audioStore.play(`/audio/设置已中断.mp3`);
-}
+  isApplyingLock.value = false;
+  isWaitingForLockFeedback.value = false; // 记得同时重置这个因果锁
+
+  await audioStore.play(`/audio/设置已中断.mp3`);
+
+  // [新增] 中断后自动触发一次硬件重新扫描，确保状态同步
+  console.log("任务中断，触发自动扫描重置硬件连接...");
+  await fetchConfigData();
+};
 
 // --- 生命周期控制 ---
 onMounted(async () => {
@@ -1628,7 +1724,7 @@ onUnmounted(() => {
 }
 
 .hw-node-info {
-  font-size: 12px;
+  font-size: 13px;
   color: var(--sys-text-sec);
   margin-top: 2px;
 }
@@ -2222,5 +2318,136 @@ onUnmounted(() => {
 .test-empty-state .empty-sub {
   font-size: 14px;
   color: var(--sys-text-sec);
+}
+
+.lock-node .hw-node-info {
+  text-align: left;
+  padding-left: 8px;
+  line-height: 1.6;
+}
+
+.lock-node .highlight-info {
+  color: var(--sys-success);
+  /* 开锁指令用绿色高亮，一眼能看到是 R10 还是 R13 */
+  font-weight: bold;
+}
+
+/* 调整门锁网格，防止在一行挤太多 */
+.sys-config-section:first-child .hw-node-grid {
+  grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
+}
+
+/* 门锁卡片专项优化 */
+.hw-node-card.lock-node {
+  min-width: 160px;
+  /* 宽度加宽了10px (150->160) */
+  padding: 12px 8px;
+  background: rgba(20, 27, 45, 0.9);
+  /* border-left 已删除，去掉了左侧青色边框 */
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+
+.lock-node .hw-node-info {
+  text-align: left;
+  padding-left: 5px;
+  line-height: 1.5;
+  font-size: 12px;
+}
+
+/* 寄存器地址小标签样式 */
+.reg-tag {
+  color: var(--sys-text-sec);
+  font-size: 12px;
+  margin-left: 4px;
+  padding: 1px 4px;
+  border-radius: 3px;
+  display: inline-block;
+  white-space: nowrap;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  vertical-align: middle;
+}
+
+.lock-node .value {
+  color: #fff;
+  font-weight: bold;
+}
+
+.lock-node .highlight-info {
+  color: var(--sys-success);
+  font-weight: bold;
+  margin-top: 2px;
+  border-top: 1px dashed rgba(255, 255, 255, 0.1);
+  padding-top: 4px;
+}
+
+/* 门锁/传感器列表为空时的占位样式 */
+.hw-node-empty {
+  grid-column: 1 / -1;
+  /* 横跨整行 */
+  text-align: center;
+  /* 文字居中 */
+  padding: 30px 0;
+  /* 上下间距 */
+  color: var(--sys-text-sec);
+  /* 使用次要文字颜色 */
+  font-size: 14px;
+  background: rgba(0, 0, 0, 0.05);
+  /* 淡淡的背景色 */
+  border-radius: 4px;
+  border: 1px dashed var(--sys-border);
+  /* 虚线边框增加设计感 */
+}
+
+/* [新增样式] */
+.lock-step-guide {
+  margin-bottom: 15px;
+  background: rgba(0, 0, 0, 0.4);
+  padding: 8px;
+  border-radius: 4px;
+  border: 1px solid var(--sys-border);
+}
+
+.guide-text {
+  font-weight: bold;
+  font-size: 15px;
+}
+
+.blink-blue {
+  color: var(--sys-primary);
+  animation: hw-fade 1.5s infinite;
+}
+
+.blink-green {
+  color: var(--sys-success);
+  animation: hw-fade 1.5s infinite;
+}
+
+@keyframes hw-fade {
+
+  0%,
+  100% {
+    opacity: 1;
+  }
+
+  50% {
+    opacity: 0.5;
+  }
+}
+
+/* 黄金色按钮高亮 */
+.highlight-gold {
+  border-color: #ffd700 !important;
+  color: #ffd700 !important;
+  background: rgba(255, 215, 0, 0.05) !important;
+}
+
+.sys-minor-action-btn:disabled {
+  opacity: 0.3;
+  cursor: not-allowed;
+  filter: grayscale(1);
 }
 </style>

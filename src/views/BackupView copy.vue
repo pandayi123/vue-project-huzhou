@@ -725,7 +725,11 @@ const apply_lock_settings = async (formData, type = 'lock') => {
         }
       }
     }
-    // 用户点击了中断设置按钮，结束上面的循环并且立即返回
+    // 用户点击了中断设置按钮，结束上面的循环并且立即返回，实际上光在上面的for循环里加一个判断是不行的
+    /*
+    虽然你在 for 循环和 while 循环的条件里都加上了 setting_flag.value 的判断，但这只能保证循环提前结束。
+    如果不加最后那个 if 判断，程序在跳出循环后，会继续执行后面的“保存数据”和“提示成功”的逻辑。
+    */
     if (!setting_flag.value) {
       return
     }
